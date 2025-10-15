@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Prague Explorer</title>
+  <title>PCWL</title>
   <link
     rel="stylesheet"
     href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css"
@@ -26,18 +26,29 @@
     <section id="welcome-screen" class="panel">
       <img src="data/Prague_Civil_War_Live.png" alt="Prague Explorer logo" class="welcome-logo" />
       <form id="login-form" class="login-form" autocomplete="off">
-        <label for="username-input">Choose your username</label>
+        <label for="username-input">Username</label>
         <div class="login-row">
           <input type="text" id="username-input" name="username" placeholder="e.g. PragueWalker" maxlength="32" required />
-          <button type="button" id="login-button" class="primary">Enter Prague</button>
         </div>
+        <label for="password-input">Password</label>
+        <div class="login-row">
+          <input type="password" id="password-input" name="password" placeholder="At least 4 characters" minlength="4" required />
+          <button type="submit" id="login-button" class="primary">Enter Prague</button>
+        </div>
+        <div class="remember-row">
+          <label class="control checkbox remember-control">
+            <input type="checkbox" id="remember-password-input" name="remember" />
+            <span>Remember on this device</span>
+          </label>
+        </div>
+        <p class="account-hint">
+          Don't have an account?
+          <a class="account-link" href="create-account.html">Create one here</a>
+        </p>
       </form>
       <div id="known-players" class="known-players hidden">
         <h2>Jump back in</h2>
         <div id="known-players-list"></div>
-      </div>
-      <div class="actions">
-        <button id="demo-button" class="secondary">Try Demo Mode</button>
       </div>
     </section>
 
@@ -46,7 +57,13 @@
         <div class="nav-group">
           <button id="back-button" class="secondary">Switch Player</button>
           <button id="find-me-button" class="primary">Find Me</button>
-          <a id="leaderboard-button" class="secondary button-link" href="leaderboard.html">Leaderboard</a>
+        </div>
+        <div class="top-actions mobile-only" aria-label="Quick actions">
+          <div class="recent-tags" aria-live="polite">
+            <span class="recent-tag" id="recent-checkin-1">No check-ins yet</span>
+            <span class="recent-tag empty" id="recent-checkin-2"></span>
+          </div>
+          <span class="cooldown-tag hidden" id="cooldown-badge" role="status" aria-live="polite">Cooldown: 00:00</span>
         </div>
         <div class="player-box">
         <div class="player-heading">
@@ -69,6 +86,8 @@
             <input type="checkbox" id="dev-skip-cooldown" />
             <span>Skip cooldown</span>
           </label>
+          <button type="button" id="dev-change-user" class="secondary small">Change User</button>
+          <button type="button" id="dev-clear-users" class="secondary small danger">Clear Users</button>
         </div>
         <div id="check-in-cooldown" class="check-in-cooldown hidden" aria-live="polite">
           <div class="cooldown-track">
@@ -92,22 +111,50 @@
           </div>
         </div>
       </header>
+      <button id="floating-checkin-button" class="floating-checkin" type="button">Check In</button>
       <div class="layout">
         <div id="map"></div>
-        <aside class="sidebar">
-          <section class="player-history">
-            <div class="section-heading">
-              <h2>Recent check-ins</h2>
-              <button id="clear-history-button" class="secondary small">Clear</button>
+        <aside class="sidebar" id="mobile-drawer" aria-hidden="true">
+          <header class="drawer-header mobile-only">
+            <span class="drawer-title">Character &amp; Settings</span>
+            <button id="drawer-close" class="icon-button" type="button" aria-label="Close panel">
+              &times;
+            </button>
+          </header>
+          <section class="drawer-block">
+            <h2 class="drawer-heading">Character</h2>
+            <div class="drawer-quick-actions">
+              <button id="drawer-checkin-button" class="primary small" type="button">Check In</button>
+              <button id="drawer-switch-button" class="secondary small" type="button">Switch Player</button>
             </div>
-            <ul id="checkin-list" class="checkin-list"></ul>
           </section>
-          <h2>Landmarks</h2>
-          <ul id="poi-list"></ul>
-          <h2>Activity</h2>
-          <div id="status">Allow geolocation to begin.</div>
-          <section class="layer-controls">
-            <h2>Layers</h2>
+          <section class="drawer-block drawer-summary">
+            <h2 class="drawer-heading">Player Info</h2>
+            <div class="drawer-info">
+              <div class="drawer-info-item">
+                <span class="label">Player</span>
+                <span class="value" id="drawer-player-username">Not signed in</span>
+              </div>
+              <div class="drawer-info-item">
+                <span class="label">A/D Ratio</span>
+                <span class="value" id="drawer-ad-ratio-summary">—</span>
+              </div>
+              <div class="drawer-info-item">
+                <span class="label">Home strength</span>
+                <span class="value" id="drawer-home-strength">—</span>
+              </div>
+              <div class="drawer-info-item">
+                <span class="label">Home</span>
+                <span class="value" id="drawer-home-summary">Not set</span>
+              </div>
+              <div class="drawer-info-item">
+                <span class="label">Last known</span>
+                <span class="value" id="drawer-location-summary">Unknown</span>
+              </div>
+            </div>
+          </section>
+          <section class="drawer-block layer-controls">
+            <h2 class="drawer-heading">Layers</h2>
             <label class="control slider">
               <span>Basemap</span>
               <div class="slider-row">
@@ -133,10 +180,49 @@
               <span>Show cycling routes</span>
             </label>
           </section>
+          <section class="drawer-block">
+            <h2 class="drawer-heading">Appearance</h2>
+            <button id="drawer-theme-toggle" class="secondary small" type="button">Toggle Theme</button>
+            <a id="drawer-leaderboard" class="secondary small button-link" href="leaderboard.html">Leaderboard</a>
+          </section>
+          <section class="drawer-block">
+            <h2 class="drawer-heading">Home District</h2>
+            <label class="control select control-home">
+              <span>Select home district</span>
+              <select id="drawer-home-select"></select>
+            </label>
+            <button id="drawer-home-save" class="primary small" type="button">Save Home</button>
+          </section>
+          <section class="drawer-block">
+            <h2 class="drawer-heading">Activity</h2>
+            <div id="status" class="drawer-status">Allow geolocation to begin.</div>
+          </section>
         </aside>
+        <div id="drawer-overlay" class="drawer-overlay hidden" tabindex="-1" aria-hidden="true"></div>
+        <button id="drawer-toggle" class="fab-button drawer-toggle mobile-only" type="button" aria-expanded="false" aria-controls="mobile-drawer">
+          <span class="drawer-toggle-label">Character &amp; Settings</span>
+          <span class="drawer-toggle-arrow" aria-hidden="true"></span>
+        </button>
       </div>
     </section>
   </main>
+
+  <div id="recent-checkins-overlay" class="recent-checkins-overlay hidden" tabindex="-1" aria-hidden="true"></div>
+  <section id="recent-checkins-drawer" class="recent-checkins-drawer" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="recent-checkins-title">
+    <div id="recent-checkins-content" class="recent-checkins-content" tabindex="-1">
+      <header class="recent-checkins-header">
+        <h2 id="recent-checkins-title">Recent Check-ins</h2>
+        <button type="button" id="recent-checkins-close" class="icon-button recent-checkins-close" aria-label="Close recent check-ins drawer">
+          &times;
+        </button>
+      </header>
+      <div class="recent-checkins-body">
+        <p id="recent-checkins-empty" class="recent-checkins-empty" hidden>No check-ins recorded yet.</p>
+        <ul id="recent-checkins-list" class="recent-checkins-list" aria-live="polite"></ul>
+        <button type="button" id="recent-checkins-toggle" class="secondary small recent-checkins-toggle hidden">Show more</button>
+      </div>
+    </div>
+  </section>
 
   <div id="home-district-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="home-district-modal-title">
     <div id="home-district-modal-overlay" class="modal-overlay" tabindex="-1"></div>

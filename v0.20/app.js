@@ -1,6 +1,4 @@
 'use strict';
-
-const demoButton = document.getElementById('demo-button');
 const backButton = document.getElementById('back-button');
 const findMeButton = document.getElementById('find-me-button');
 const districtsToggle = document.getElementById('districts-toggle');
@@ -11,8 +9,9 @@ const basemapSlider = document.getElementById('basemap-slider');
 
 const mapContainer = document.getElementById('map');
 const loginForm = document.getElementById('login-form');
-const loginButton = document.getElementById('login-button');
 const usernameInput = document.getElementById('username-input');
+const rememberPasswordInput = document.getElementById('remember-password-input');
+const passwordInput = document.getElementById('password-input');
 const knownPlayersSection = document.getElementById('known-players');
 const knownPlayersList = document.getElementById('known-players-list');
 const checkInButton = document.getElementById('check-in-button');
@@ -28,6 +27,8 @@ const attackDefendRatioLabel = document.getElementById('player-ad-ratio');
 const chargeAttackButton = document.getElementById('charge-attack-button');
 const devOptionsContainer = document.getElementById('dev-options');
 const devSkipCooldownCheckbox = document.getElementById('dev-skip-cooldown');
+const devChangeUserButton = document.getElementById('dev-change-user');
+const devClearUsersButton = document.getElementById('dev-clear-users');
 const checkInCooldownElement = document.getElementById('check-in-cooldown');
 const checkInCooldownFill = document.getElementById('check-in-cooldown-fill');
 const checkInCooldownLabel = document.getElementById('check-in-cooldown-label');
@@ -38,6 +39,37 @@ const homeDistrictSearchInput = document.getElementById('home-district-search');
 const homeDistrictListElement = document.getElementById('home-district-list');
 const homeDistrictConfirmButton = document.getElementById('home-district-confirm');
 const homeDistrictCancelButton = document.getElementById('home-district-cancel');
+const drawerToggleButton = document.getElementById('drawer-toggle');
+const drawerCloseButton = document.getElementById('drawer-close');
+const drawerOverlay = document.getElementById('drawer-overlay');
+const mobileDrawer = document.getElementById('mobile-drawer');
+const drawerHomeSelect = document.getElementById('drawer-home-select');
+const drawerHomeSaveButton = document.getElementById('drawer-home-save');
+const drawerPlayerUsernameSummary = document.getElementById('drawer-player-username');
+const drawerAdRatioSummary = document.getElementById('drawer-ad-ratio-summary');
+const drawerHomeStrengthSummary = document.getElementById('drawer-home-strength');
+const drawerHomeSummary = document.getElementById('drawer-home-summary');
+const drawerLocationSummary = document.getElementById('drawer-location-summary');
+const recentCheckinsDrawer = document.getElementById('recent-checkins-drawer');
+const recentCheckinsContent = document.getElementById('recent-checkins-content');
+const recentCheckinsOverlay = document.getElementById('recent-checkins-overlay');
+const recentCheckinsCloseButton = document.getElementById('recent-checkins-close');
+const recentCheckinsList = document.getElementById('recent-checkins-list');
+const recentCheckinsToggleButton = document.getElementById('recent-checkins-toggle');
+const recentCheckinsEmptyState = document.getElementById('recent-checkins-empty');
+const floatingCheckInButton = document.getElementById('floating-checkin-button');
+const drawerCheckinButton = document.getElementById('drawer-checkin-button');
+const drawerSwitchButton = document.getElementById('drawer-switch-button');
+const drawerThemeToggleButton = document.getElementById('drawer-theme-toggle');
+const drawerLeaderboardLink = document.getElementById('drawer-leaderboard');
+const cooldownBadge = document.getElementById('cooldown-badge');
+const recentCheckinTagPrimary = document.getElementById('recent-checkin-1');
+const recentCheckinTagSecondary = document.getElementById('recent-checkin-2');
+
+if (typeof document !== 'undefined' && document.body) {
+  document.body.classList.add('welcome-active');
+  document.body.classList.remove('game-active');
+}
 
 const welcomeScreen = document.getElementById('welcome-screen');
 const gameScreen = document.getElementById('game-screen');
@@ -91,6 +123,8 @@ const DISTRICT_SCORES_STORAGE_KEY = 'pragueExplorerDistrictScores';
 const TREE_GIF_URL = resolveDataUrl('tree.gif?v=2');
 const HITMARKER_GIF_URL = resolveDataUrl('attack_hitmarker.gif?v=1');
 const DEFEND_HITMARKER_GIF_URL = resolveDataUrl('defend_hitmarker.gif?v=1');
+const MOBILE_CONTEXT_MENU_LONG_PRESS_MS = 650;
+const MOBILE_CONTEXT_MENU_MOVE_THRESHOLD = 18;
 
 let activeTheme = 'light';
 if (typeof window !== 'undefined') {
@@ -162,6 +196,7 @@ function stopCheckInCooldown(enableButton = true) {
   stopCheckInCooldownTimer();
   checkInCooldownDeadline = null;
   hideCheckInCooldownUI();
+  updateCooldownBadge(0, false);
   if (enableButton && checkInButton) {
     checkInButton.disabled = false;
     checkInButton.title = '';
@@ -197,6 +232,7 @@ function updateCheckInCooldownUI() {
 
   const remaining = checkInCooldownDeadline - Date.now();
   if (remaining <= 0) {
+    updateCooldownBadge(0, false);
     stopCheckInCooldown(true);
     if (currentUser && players[currentUser] && players[currentUser].cooldownUntil) {
       delete players[currentUser].cooldownUntil;
@@ -230,6 +266,7 @@ function updateCheckInCooldownUI() {
   if (checkInCooldownLabel) {
     checkInCooldownLabel.textContent = `Ready in ${formatCooldownTime(remaining)}`;
   }
+  updateCooldownBadge(Math.max(0, Math.ceil(remaining / 1000)), true);
 }
 
 function startCheckInCooldown(deadline) {
@@ -253,6 +290,8 @@ function startCheckInCooldown(deadline) {
 
   checkInCooldownDeadline = deadline;
   stopCheckInCooldownTimer();
+
+  updateCooldownBadge(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)), true);
 
   if (checkInButton) {
     checkInButton.disabled = true;
@@ -383,6 +422,15 @@ function ensurePlayerProfile(username) {
   }
   profile.nextCheckinMultiplier = Math.max(1, normaliseNumber(profile.nextCheckinMultiplier, 1));
   profile.skipCooldown = Boolean(profile.skipCooldown);
+  if (profile.auth && typeof profile.auth === 'object') {
+    const passwordHash = typeof profile.auth.passwordHash === 'string' ? profile.auth.passwordHash : null;
+    const salt = typeof profile.auth.salt === 'string' ? profile.auth.salt : null;
+    const createdAt = normaliseNumber(profile.auth.createdAt, Date.now());
+    const rememberOnDevice = Boolean(profile.auth.rememberOnDevice);
+    profile.auth = passwordHash && salt ? { passwordHash, salt, createdAt, rememberOnDevice } : null;
+  } else {
+    profile.auth = null;
+  }
   return profile;
 }
 
@@ -413,16 +461,149 @@ function describeHomeDistrict(profile) {
   return 'Unset';
 }
 
+function supportsTouchInput() {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  if ('ontouchstart' in window) {
+    return true;
+  }
+  const nav = window.navigator;
+  if (nav && typeof nav.maxTouchPoints === 'number' && nav.maxTouchPoints > 0) {
+    return true;
+  }
+  if (nav && typeof nav.msMaxTouchPoints === 'number' && nav.msMaxTouchPoints > 0) {
+    return true;
+  }
+  return false;
+}
+
+function cancelMobileContextMenuLongPress() {
+  if (mobileContextMenuTimerId !== null) {
+    window.clearTimeout(mobileContextMenuTimerId);
+    mobileContextMenuTimerId = null;
+  }
+  mobileContextMenuStartPoint = null;
+  mobileContextMenuStartLngLat = null;
+  mobileContextMenuActive = false;
+}
+
+function suppressNextBuildingTap() {
+  mobileContextMenuSuppressClick = true;
+  if (mobileContextMenuSuppressClickResetId !== null) {
+    window.clearTimeout(mobileContextMenuSuppressClickResetId);
+  }
+  mobileContextMenuSuppressClickResetId = window.setTimeout(() => {
+    mobileContextMenuSuppressClick = false;
+    mobileContextMenuSuppressClickResetId = null;
+  }, 700);
+}
+
+function handleMobileContextMenuTouchStart(event) {
+  if (!supportsTouchInput()) {
+    return;
+  }
+  if (!event || !event.lngLat || !event.point) {
+    cancelMobileContextMenuLongPress();
+    return;
+  }
+  const originalEvent = event.originalEvent || null;
+  const touches = originalEvent && originalEvent.touches ? originalEvent.touches : null;
+  if ((touches && touches.length > 1) || (event.points && event.points.length > 1)) {
+    cancelMobileContextMenuLongPress();
+    return;
+  }
+
+  mobileContextMenuActive = true;
+  mobileContextMenuStartPoint = { x: event.point.x, y: event.point.y };
+  mobileContextMenuStartLngLat = { lng: event.lngLat.lng, lat: event.lngLat.lat };
+
+  if (mobileContextMenuTimerId !== null) {
+    window.clearTimeout(mobileContextMenuTimerId);
+  }
+
+  mobileContextMenuTimerId = window.setTimeout(() => {
+    mobileContextMenuTimerId = null;
+    if (!mobileContextMenuActive || !mobileContextMenuStartPoint || !mobileContextMenuStartLngLat) {
+      return;
+    }
+    const projected =
+      map && typeof map.project === 'function'
+        ? map.project([mobileContextMenuStartLngLat.lng, mobileContextMenuStartLngLat.lat])
+        : mobileContextMenuStartPoint;
+    const anchorPoint = projected
+      ? { x: projected.x, y: projected.y }
+      : { x: mobileContextMenuStartPoint.x, y: mobileContextMenuStartPoint.y };
+
+    showActionContextMenu(
+      mobileContextMenuStartLngLat.lng,
+      mobileContextMenuStartLngLat.lat,
+      anchorPoint,
+      { isTouch: true }
+    );
+
+    if (originalEvent && typeof originalEvent.preventDefault === 'function') {
+      originalEvent.preventDefault();
+    }
+    cancelMobileContextMenuLongPress();
+  }, MOBILE_CONTEXT_MENU_LONG_PRESS_MS);
+}
+
+function handleMobileContextMenuTouchMove(event) {
+  if (!mobileContextMenuActive || !mobileContextMenuStartPoint) {
+    return;
+  }
+  if (!event || !event.point) {
+    cancelMobileContextMenuLongPress();
+    return;
+  }
+  const originalEvent = event.originalEvent || null;
+  const touches = originalEvent && originalEvent.touches ? originalEvent.touches : null;
+  if ((touches && touches.length > 1) || (event.points && event.points.length > 1)) {
+    cancelMobileContextMenuLongPress();
+    return;
+  }
+  const dx = event.point.x - mobileContextMenuStartPoint.x;
+  const dy = event.point.y - mobileContextMenuStartPoint.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance > MOBILE_CONTEXT_MENU_MOVE_THRESHOLD) {
+    cancelMobileContextMenuLongPress();
+  }
+}
+
+function handleMobileContextMenuTouchEnd() {
+  cancelMobileContextMenuLongPress();
+}
+
+function enableMobileContextMenuLongPress() {
+  if (mobileContextMenuHandlersBound || !map || typeof map.on !== 'function') {
+    return;
+  }
+  if (!supportsTouchInput()) {
+    return;
+  }
+  mobileContextMenuHandlersBound = true;
+  map.on('touchstart', 'buildings-3d', handleMobileContextMenuTouchStart);
+  map.on('touchmove', handleMobileContextMenuTouchMove);
+  map.on('touchend', handleMobileContextMenuTouchEnd);
+  map.on('touchcancel', handleMobileContextMenuTouchEnd);
+  map.on('dragstart', cancelMobileContextMenuLongPress);
+  map.on('movestart', cancelMobileContextMenuLongPress);
+  map.on('zoomstart', cancelMobileContextMenuLongPress);
+  map.on('pitchstart', cancelMobileContextMenuLongPress);
+  map.on('rotatestart', cancelMobileContextMenuLongPress);
+}
+
 function getCurrentLocationDistrictInfo(options) {
   const { profile = null, allowHomeFallback = false } = options || {};
 
-  if (currentDistrictId) {
+  if (profile && profile.lastKnownLocation && profile.lastKnownLocation.districtId) {
     return {
-      id: safeId(currentDistrictId),
-      name: currentDistrictName || null,
-      source: 'map',
-      lng: null,
-      lat: null,
+      id: safeId(profile.lastKnownLocation.districtId),
+      name: profile.lastKnownLocation.districtName || null,
+      source: 'profile',
+      lng: typeof profile.lastKnownLocation.lng === 'number' ? profile.lastKnownLocation.lng : null,
+      lat: typeof profile.lastKnownLocation.lat === 'number' ? profile.lastKnownLocation.lat : null,
     };
   }
 
@@ -442,13 +623,13 @@ function getCurrentLocationDistrictInfo(options) {
     }
   }
 
-  if (profile && profile.lastKnownLocation && profile.lastKnownLocation.districtId) {
+  if (currentDistrictId) {
     return {
-      id: safeId(profile.lastKnownLocation.districtId),
-      name: profile.lastKnownLocation.districtName || null,
-      source: 'profile',
-      lng: typeof profile.lastKnownLocation.lng === 'number' ? profile.lastKnownLocation.lng : null,
-      lat: typeof profile.lastKnownLocation.lat === 'number' ? profile.lastKnownLocation.lat : null,
+      id: safeId(currentDistrictId),
+      name: currentDistrictName || null,
+      source: 'map',
+      lng: null,
+      lat: null,
     };
   }
 
@@ -522,18 +703,30 @@ function updateHomePresenceIndicator() {
       statusText = 'Home not set';
       titleText = 'Choose a home district to start defending.';
     } else {
-      const info = getCurrentLocationDistrictInfo({ profile, allowHomeFallback: true });
-      if (!info || !info.id) {
-        statusText = 'Unknown location';
-        titleText = 'No recent location data available.';
+      const preciseInfo = getCurrentLocationDistrictInfo({ profile, allowHomeFallback: false });
+      if (!preciseInfo || !preciseInfo.id) {
+        const fallbackInfo = getCurrentLocationDistrictInfo({ profile, allowHomeFallback: true });
+        if (fallbackInfo && fallbackInfo.source === 'home-fallback') {
+          statusText = 'Last known: Home district (fallback)';
+          statusClass = 'neutral';
+          titleText = 'No recent location data. Showing home district as a fallback.';
+        } else if (fallbackInfo && fallbackInfo.id) {
+          const label = fallbackInfo.name || `District ${fallbackInfo.id}`;
+          statusText = `Last known: ${label}`;
+          statusClass = 'enemy';
+          titleText = 'Location derived from your most recent activity.';
+        } else {
+          statusText = 'Unknown location';
+          titleText = 'No recent location data available.';
+        }
       } else {
-        const atHome = safeId(profile.homeDistrictId) === safeId(info.id);
+        const atHome = safeId(profile.homeDistrictId) === safeId(preciseInfo.id);
         if (atHome) {
           statusText = 'Last known: Home district';
           statusClass = 'home';
           titleText = 'Based on your last confirmed position.';
         } else {
-          const label = info.name || `District ${info.id}`;
+          const label = preciseInfo.name || `District ${preciseInfo.id}`;
           statusText = `Last known: ${label}`;
           statusClass = 'enemy';
           titleText = 'Location derived from your most recent activity.';
@@ -681,18 +874,33 @@ function hideActionContextMenu() {
   actionContextMenu.isLocal = false;
 }
 
-function showActionContextMenu(lng, lat, point) {
+function showActionContextMenu(lng, lat, point, options = {}) {
+  const isTouchTrigger = Boolean(options && options.isTouch);
   const menu = ensureActionContextMenu();
   if (!menu || !mapContainer) {
     return;
   }
 
   actionContextMenuLngLat = [lng, lat];
-  actionContextMenuPoint = { x: point.x, y: point.y };
+  const fallbackProjection =
+    map && typeof map.project === 'function'
+      ? map.project([lng, lat])
+      : { x: mapContainer.clientWidth / 2, y: mapContainer.clientHeight / 2 };
+  const anchorPoint =
+    point && typeof point.x === 'number' && typeof point.y === 'number'
+      ? { x: point.x, y: point.y }
+      : { x: fallbackProjection.x, y: fallbackProjection.y };
+  actionContextMenuPoint = { x: anchorPoint.x, y: anchorPoint.y };
   const element = menu.element;
   element.classList.remove('hidden');
   element.style.left = '0px';
   element.style.top = '0px';
+  if (isTouchTrigger) {
+    element.classList.add('context-menu--touch');
+    suppressNextBuildingTap();
+  } else {
+    element.classList.remove('context-menu--touch');
+  }
 
   menu.targetDistrictId = null;
   menu.targetDistrictName = null;
@@ -715,14 +923,15 @@ function showActionContextMenu(lng, lat, point) {
     if (!actionContextMenuVisible || !mapContainer) {
       return;
     }
+    const pointToUse = actionContextMenuPoint || anchorPoint;
     const menuWidth = element.offsetWidth;
     const menuHeight = element.offsetHeight;
     const containerWidth = mapContainer.clientWidth;
     const containerHeight = mapContainer.clientHeight;
     const padding = 8;
 
-    let left = Math.round(point.x);
-    let top = Math.round(point.y);
+    let left = Math.round(pointToUse.x);
+    let top = Math.round(pointToUse.y);
 
     if (left + menuWidth + padding > containerWidth) {
       left = containerWidth - menuWidth - padding;
@@ -1182,6 +1391,15 @@ let actionContextMenu = null;
 let actionContextMenuVisible = false;
 let actionContextMenuLngLat = null;
 let actionContextMenuPoint = null;
+let mobileContextMenuTimerId = null;
+let mobileContextMenuStartPoint = null;
+let mobileContextMenuStartLngLat = null;
+let mobileContextMenuActive = false;
+let mobileContextMenuSuppressClick = false;
+let mobileContextMenuSuppressClickResetId = null;
+let mobileContextMenuHandlersBound = false;
+let recentCheckinsShowAll = false;
+let recentCheckinsLastTrigger = null;
 let lastHoverFeature = null;
 let lastHoverLngLat = null;
 let lastHoverDistrictId = null;
@@ -1193,6 +1411,11 @@ const POINTS_PER_CHECKIN = 10;
 const MAX_HISTORY_ITEMS = 15;
 const CHECK_IN_COOLDOWN_MS = 10 * 60 * 1000;
 const CHARGE_ATTACK_MULTIPLIER = 3;
+const MIN_PASSWORD_LENGTH = 4;
+const DEV_USERNAME = 'dev';
+const DEV_DEFAULT_PASSWORD = 'deve';
+const LAST_SIGNED_IN_USER_KEY = 'pragueExplorerLastUser';
+const USERNAME_PATTERN = /^[A-Za-z0-9_]{3,32}$/;
 
 let players = {};
 let currentUser = null;
@@ -1238,6 +1461,80 @@ function normaliseNumber(value, fallback = 0) {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function isValidUsername(value) {
+  if (typeof value !== 'string') {
+    return false;
+  }
+  return USERNAME_PATTERN.test(value.trim());
+}
+
+function getCrypto() {
+  if (typeof window !== 'undefined' && window.crypto) {
+    return window.crypto;
+  }
+  if (typeof self !== 'undefined' && self.crypto) {
+    return self.crypto;
+  }
+  if (typeof crypto !== 'undefined') {
+    return crypto;
+  }
+  return null;
+}
+
+function arrayBufferToBase64(buffer) {
+  if (!buffer) {
+    return '';
+  }
+  let bytes;
+  if (buffer instanceof ArrayBuffer) {
+    bytes = new Uint8Array(buffer);
+  } else if (ArrayBuffer.isView(buffer)) {
+    bytes = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  } else {
+    return '';
+  }
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i += 1) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  if (typeof window !== 'undefined' && typeof window.btoa === 'function') {
+    return window.btoa(binary);
+  }
+  return binary;
+}
+
+function generateSalt() {
+  const cryptoObj = getCrypto();
+  if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16);
+    cryptoObj.getRandomValues(bytes);
+    return arrayBufferToBase64(bytes);
+  }
+  const entropy = `${Date.now()}-${Math.random()}-${Math.random()}`;
+  if (typeof TextEncoder !== 'undefined') {
+    return arrayBufferToBase64(new TextEncoder().encode(entropy));
+  }
+  const fallbackBytes = new Uint8Array(entropy.split('').map((char) => char.charCodeAt(0)));
+  return arrayBufferToBase64(fallbackBytes);
+}
+
+async function hashPassword(password, salt) {
+  const cryptoObj = getCrypto();
+  const material = `${salt}:${password}`;
+  if (cryptoObj && cryptoObj.subtle && typeof cryptoObj.subtle.digest === 'function' && typeof TextEncoder !== 'undefined') {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(material);
+    const digest = await cryptoObj.subtle.digest('SHA-256', data);
+    return arrayBufferToBase64(digest);
+  }
+  if (typeof TextEncoder !== 'undefined') {
+    const encoder = new TextEncoder();
+    return arrayBufferToBase64(encoder.encode(material));
+  }
+  const fallbackBytes = material.split('').map((char) => char.charCodeAt(0));
+  return arrayBufferToBase64(new Uint8Array(fallbackBytes));
 }
 
 function isDevUser(username) {
@@ -1704,6 +2001,76 @@ function updateStatus(message) {
   }
 }
 
+function isMobileViewport() {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  return window.matchMedia('(max-width: 820px)').matches;
+}
+
+function setMobileDrawerState(open) {
+  if (!mobileDrawer || !drawerToggleButton || !drawerOverlay) {
+    return;
+  }
+  const shouldOpen = Boolean(open && isMobileViewport());
+  if (shouldOpen) {
+    document.body.classList.add('drawer-open');
+    mobileDrawer.setAttribute('aria-hidden', 'false');
+    drawerOverlay.classList.remove('hidden');
+    drawerOverlay.style.display = 'block';
+    drawerOverlay.style.opacity = '1';
+    drawerOverlay.setAttribute('aria-hidden', 'false');
+    drawerToggleButton.setAttribute('aria-expanded', 'true');
+    const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+    updateDrawerSummaries(profile);
+    populateDrawerHomeSelect(profile);
+  } else {
+    document.body.classList.remove('drawer-open');
+    mobileDrawer.setAttribute('aria-hidden', 'true');
+    drawerOverlay.classList.add('hidden');
+    drawerOverlay.style.display = 'none';
+    drawerOverlay.style.opacity = '0';
+    drawerOverlay.setAttribute('aria-hidden', 'true');
+    drawerToggleButton.setAttribute('aria-expanded', 'false');
+    if (drawerHomeSaveButton) {
+      drawerHomeSaveButton.disabled = true;
+    }
+  }
+}
+
+function toggleMobileDrawer() {
+  if (!mobileDrawer) {
+    return;
+  }
+  const shouldToggle = isMobileViewport();
+  if (!shouldToggle) {
+    return;
+  }
+  const isOpen = document.body.classList.contains('drawer-open');
+  setMobileDrawerState(!isOpen);
+}
+
+
+function applyViewportUiState() {
+  const mobile = isMobileViewport();
+  if (findMeButton) {
+    findMeButton.disabled = mobile;
+    if (mobile) {
+      findMeButton.classList.add('hidden-mobile');
+    } else {
+      findMeButton.classList.remove('hidden-mobile');
+    }
+  }
+  if (!mobile) {
+    setMobileDrawerState(false);
+  }
+  if (!checkInCooldownDeadline || checkInCooldownDeadline <= Date.now()) {
+    updateCooldownBadge(0, false);
+  } else {
+    updateCooldownBadge(Math.ceil((checkInCooldownDeadline - Date.now()) / 1000), true);
+  }
+}
+
 function ensureMap(action) {
   if (mapReady) {
     action();
@@ -1747,7 +2114,6 @@ function loadPlayers() {
   Object.keys(players).forEach((name) => {
     ensurePlayerProfile(name);
   });
-  renderKnownPlayers();
 }
 
 function savePlayers() {
@@ -1756,6 +2122,107 @@ function savePlayers() {
   } catch (error) {
     console.warn('Failed to save players to storage', error);
   }
+}
+
+function setLastSignedInUser(username) {
+  try {
+    if (username) {
+      window.localStorage.setItem(LAST_SIGNED_IN_USER_KEY, username);
+    } else {
+      window.localStorage.removeItem(LAST_SIGNED_IN_USER_KEY);
+    }
+  } catch (error) {
+    console.warn('Failed to persist last signed-in user', error);
+  }
+}
+
+function getLastSignedInUser() {
+  try {
+    const stored = window.localStorage.getItem(LAST_SIGNED_IN_USER_KEY);
+    return typeof stored === 'string' && stored.trim() ? stored.trim() : null;
+  } catch (error) {
+    console.warn('Failed to read last signed-in user from storage', error);
+    return null;
+  }
+}
+
+function getRememberedUsernames() {
+  return Object.keys(players).filter((name) => {
+    if (!isValidUsername(name)) {
+      return false;
+    }
+    const profile = players[name];
+    return Boolean(profile && profile.auth && profile.auth.rememberOnDevice);
+  });
+}
+
+function prefillLastSignedInUser() {
+  if (!usernameInput) {
+    return;
+  }
+  const lastUser = getLastSignedInUser();
+  if (!lastUser || usernameInput.value) {
+    return;
+  }
+  if (!isValidUsername(lastUser)) {
+    setLastSignedInUser(null);
+    return;
+  }
+  usernameInput.value = lastUser;
+  if (rememberPasswordInput && players[lastUser]) {
+    const profile = ensurePlayerProfile(lastUser);
+    rememberPasswordInput.checked = Boolean(profile && profile.auth && profile.auth.rememberOnDevice);
+  }
+}
+
+function autoLoginRememberedUser() {
+  if (currentUser) {
+    return;
+  }
+  const remembered = getRememberedUsernames();
+  if (!remembered.length) {
+    prefillLastSignedInUser();
+    return;
+  }
+  const preferredRaw = getLastSignedInUser();
+  const preferred = preferredRaw && isValidUsername(preferredRaw) ? preferredRaw : null;
+  const username = preferred && remembered.includes(preferred) ? preferred : remembered[0];
+  const profile = ensurePlayerProfile(username);
+  completeAuthenticatedLogin(username, profile, {
+    message: `Signed in automatically as ${username}.`,
+    triggerGeolocation: false,
+  });
+}
+
+async function ensureDevAccount() {
+  const profile = ensurePlayerProfile(DEV_USERNAME);
+  try {
+    const salt = generateSalt();
+    const passwordHash = await hashPassword(DEV_DEFAULT_PASSWORD, salt);
+    profile.auth = {
+      passwordHash,
+      salt,
+      createdAt: Date.now(),
+      rememberOnDevice: false,
+    };
+    profile.skipCooldown = true;
+    savePlayers();
+  } catch (error) {
+    console.warn('Failed to initialise dev account credentials', error);
+  }
+}
+
+async function initialisePlayers() {
+  loadPlayers();
+  try {
+    await ensureDevAccount();
+  } catch (error) {
+    console.warn('Failed to finalise player initialisation', error);
+  }
+  renderKnownPlayers();
+  renderPlayerState();
+  prefillLastSignedInUser();
+  autoLoginRememberedUser();
 }
 
 function loadDistrictScores() {
@@ -1831,6 +2298,16 @@ function ensureDistrictScoreEntry(districtId, districtName = null) {
   return entry;
 }
 
+function getDistrictStrength(districtId) {
+  const id = districtId ? safeId(districtId) : null;
+  if (!id) {
+    return null;
+  }
+  const entry = ensureDistrictScoreEntry(id);
+  const adjustment = entry ? normaliseNumber(entry.adjustment, 0) : 0;
+  return DISTRICT_BASE_SCORE + adjustment;
+}
+
 function applyDistrictScoreDelta(districtId, delta, districtName = null) {
   if (!districtId || !Number.isFinite(delta) || delta === 0) {
     return;
@@ -1850,7 +2327,8 @@ function applyDistrictScoreDelta(districtId, delta, districtName = null) {
 
 function renderKnownPlayers() {
   const names = Object.keys(players).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-  if (!names.length) {
+  const validNames = names.filter((name) => isValidUsername(name));
+  if (!validNames.length) {
     knownPlayersSection?.classList.add('hidden');
     knownPlayersList && (knownPlayersList.innerHTML = '');
     return;
@@ -1861,11 +2339,12 @@ function renderKnownPlayers() {
   }
   if (knownPlayersList) {
     knownPlayersList.innerHTML = '';
-    names.forEach((name) => {
+    validNames.forEach((name) => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'known-player-button';
       button.textContent = name;
+      button.title = `Prepare sign-in for ${name}`;
       button.addEventListener('click', () => {
         handleExistingPlayer(name);
       });
@@ -1908,10 +2387,19 @@ function renderPlayerState() {
     stopCheckInCooldown(false);
     updateHomePresenceIndicator();
     hideActionContextMenu();
-    if (devOptionsContainer && devSkipCooldownCheckbox) {
+    if (devOptionsContainer && devSkipCooldownCheckbox && devChangeUserButton) {
       devOptionsContainer.classList.add('hidden');
       devSkipCooldownCheckbox.checked = false;
+      devChangeUserButton.hidden = true;
+      devChangeUserButton.disabled = true;
     }
+    if (devClearUsersButton) {
+      devClearUsersButton.hidden = true;
+      devClearUsersButton.disabled = true;
+    }
+    updateRecentCheckinsDrawerContent(null);
+    closeRecentCheckinsDrawer({ restoreFocus: false });
+    updateDrawerSummaries(null);
     return;
   }
 
@@ -1919,14 +2407,29 @@ function renderPlayerState() {
   playerUsernameLabel.textContent = currentUser;
   playerPointsLabel.textContent = Math.round(profile.points).toString();
   playerCheckinsLabel.textContent = profile.checkins.length.toString();
+  updateDrawerSummaries(profile);
+  populateDrawerHomeSelect(profile);
   renderCheckins(profile.checkins);
-  if (devOptionsContainer && devSkipCooldownCheckbox) {
+  updateRecentCheckinsDrawerContent(profile);
+  if (devOptionsContainer && devSkipCooldownCheckbox && devChangeUserButton) {
     if (isDevUser(currentUser)) {
       devOptionsContainer.classList.remove('hidden');
       devSkipCooldownCheckbox.checked = Boolean(profile.skipCooldown);
+      devChangeUserButton.hidden = false;
+      devChangeUserButton.disabled = false;
+      if (devClearUsersButton) {
+        devClearUsersButton.hidden = false;
+        devClearUsersButton.disabled = false;
+      }
     } else {
       devOptionsContainer.classList.add('hidden');
       devSkipCooldownCheckbox.checked = false;
+      devChangeUserButton.hidden = true;
+      devChangeUserButton.disabled = true;
+      if (devClearUsersButton) {
+        devClearUsersButton.hidden = true;
+        devClearUsersButton.disabled = true;
+      }
       if (profile.skipCooldown) {
         profile.skipCooldown = false;
         savePlayers();
@@ -1938,7 +2441,8 @@ function renderPlayerState() {
   const fallbackInfo = getCurrentLocationDistrictInfo({ profile, allowHomeFallback: true });
   const preciseId = preciseInfo && preciseInfo.id ? safeId(preciseInfo.id) : null;
   const fallbackId = fallbackInfo && fallbackInfo.id ? safeId(fallbackInfo.id) : null;
-  const isAtHome = profile.homeDistrictId && fallbackId && safeId(profile.homeDistrictId) === fallbackId;
+  const locationId = preciseId || (fallbackInfo && fallbackInfo.source !== 'home-fallback' ? fallbackId : null);
+  const isAtHome = profile.homeDistrictId && locationId && safeId(profile.homeDistrictId) === locationId;
   if (homeDistrictValue) {
     homeDistrictValue.textContent = homeDescription;
     homeDistrictValue.title = profile.homeDistrictId ? `District ID: ${profile.homeDistrictId}` : '';
@@ -2068,12 +2572,15 @@ function createCheckinListItem(entry) {
 }
 
 function renderCheckins(history) {
+  const safeHistory = Array.isArray(history) ? history : [];
+  updateRecentCheckinTags(safeHistory);
+
   if (!checkinList) {
     return;
   }
   checkinList.innerHTML = '';
 
-  if (!history || !history.length) {
+  if (!safeHistory.length) {
     const li = document.createElement('li');
     li.className = 'checkin-item empty';
     li.textContent = currentUser ? 'No check-ins yet. Explore the city and log your first stop!' : 'Sign in to track your check-ins.';
@@ -2081,7 +2588,7 @@ function renderCheckins(history) {
     return;
   }
 
-  const allEntries = history.slice(0, MAX_HISTORY_ITEMS);
+  const allEntries = safeHistory.slice(0, MAX_HISTORY_ITEMS);
   const primaryEntries = allEntries.slice(0, 2);
   const additionalEntries = allEntries.slice(2);
 
@@ -2120,6 +2627,350 @@ function renderCheckins(history) {
   }
 }
 
+function formatRecentCheckinTag(entry) {
+  if (!entry) {
+    return '';
+  }
+  const district = entry.districtName && entry.districtName.trim()
+    ? entry.districtName.trim()
+    : entry.districtId
+    ? `District ${entry.districtId}`
+    : 'Unknown district';
+  const type = typeof entry.type === 'string' ? entry.type.toLowerCase() : '';
+  const typeLabel = type === 'defend' ? 'Defend' : type === 'attack' ? 'Attack' : 'Check-in';
+  const when = entry.timestamp ? formatTimeAgo(entry.timestamp) : '';
+  return when ? `${typeLabel} • ${district} (${when})` : `${typeLabel} • ${district}`;
+}
+
+function applyRecentCheckinTagState(element, entry, { fallbackText = '', hideWhenEmpty = false } = {}) {
+  if (!element) {
+    return;
+  }
+  element.classList.remove('attack', 'defend', 'neutral', 'empty');
+
+  if (entry) {
+    element.textContent = formatRecentCheckinTag(entry);
+    const type = typeof entry.type === 'string' ? entry.type.toLowerCase() : '';
+    if (type === 'attack' || type === 'defend') {
+      element.classList.add(type);
+    } else {
+      element.classList.add('neutral');
+    }
+    return;
+  }
+
+  if (hideWhenEmpty) {
+    element.textContent = '';
+    element.classList.add('empty');
+    return;
+  }
+
+  element.textContent = fallbackText;
+  element.classList.add('neutral');
+}
+
+function updateRecentCheckinTags(history) {
+  if (!recentCheckinTagPrimary || !recentCheckinTagSecondary) {
+    return;
+  }
+  const first = history && history.length ? history[0] : null;
+  const second = history && history.length > 1 ? history[1] : null;
+
+  applyRecentCheckinTagState(recentCheckinTagPrimary, first, { fallbackText: 'No check-ins yet' });
+  applyRecentCheckinTagState(recentCheckinTagSecondary, second, { hideWhenEmpty: true });
+}
+
+function calculateCheckinPoints(entry) {
+  if (!entry) {
+    return 0;
+  }
+  const multiplier = Number(entry.multiplier) > 0 ? Number(entry.multiplier) : 1;
+  const type = typeof entry.type === 'string' ? entry.type.toLowerCase() : '';
+  let base = POINTS_PER_CHECKIN;
+  if (type !== 'defend') {
+    base = entry && entry.ranged ? 10 : POINTS_PER_CHECKIN;
+  }
+  return Math.round(base * multiplier);
+}
+
+function updateRecentCheckinsDrawerContent(profile = undefined) {
+  if (!recentCheckinsList) {
+    return;
+  }
+  const resolvedProfile =
+    profile === undefined ? (currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null) : profile;
+  const history =
+    resolvedProfile && Array.isArray(resolvedProfile.checkins) ? resolvedProfile.checkins.slice(0, MAX_HISTORY_ITEMS) : [];
+  const hasHistory = history.length > 0;
+
+  recentCheckinsList.innerHTML = '';
+
+  if (recentCheckinsEmptyState) {
+    recentCheckinsEmptyState.hidden = hasHistory;
+  }
+
+  if (!hasHistory) {
+    if (recentCheckinsToggleButton) {
+      recentCheckinsToggleButton.classList.add('hidden');
+    }
+    return;
+  }
+
+  const itemsToShow = recentCheckinsShowAll ? history.length : Math.min(4, history.length);
+  const entriesToRender = history.slice(0, itemsToShow);
+
+  entriesToRender.forEach((entry) => {
+    const type = typeof entry.type === 'string' ? entry.type.toLowerCase() : '';
+    const li = document.createElement('li');
+    li.className = 'recent-checkins-item';
+    if (type === 'attack' || type === 'defend') {
+      li.classList.add(type);
+    }
+
+    const district = entry.districtName && entry.districtName.trim()
+      ? entry.districtName.trim()
+      : entry.districtId
+      ? `District ${entry.districtId}`
+      : 'Unknown district';
+
+    const title = document.createElement('div');
+    title.className = 'recent-checkins-entry';
+    title.textContent = district;
+    li.appendChild(title);
+
+    const typeLabel = type === 'defend' ? 'Defend' : type === 'attack' ? 'Attack' : 'Check-in';
+    const points = calculateCheckinPoints(entry);
+    const pointsText = `${points > 0 ? '+' : ''}${points.toLocaleString()} pts`;
+    const multiplier = Number(entry.multiplier) > 1 ? `x${Number(entry.multiplier)}` : null;
+    const mode = entry.ranged ? 'Ranged' : entry.melee ? 'Local' : null;
+    const when = entry.timestamp ? formatTimeAgo(entry.timestamp) : 'Unknown time';
+
+    const metaParts = [typeLabel];
+    if (mode) {
+      metaParts.push(mode);
+    }
+    if (multiplier) {
+      metaParts.push(multiplier);
+    }
+    metaParts.push(pointsText);
+    metaParts.push(when);
+
+    const meta = document.createElement('div');
+    meta.className = 'recent-checkins-meta';
+    meta.textContent = metaParts.join(' • ');
+    li.appendChild(meta);
+
+    recentCheckinsList.appendChild(li);
+  });
+
+  if (recentCheckinsToggleButton) {
+    if (history.length > 4) {
+      recentCheckinsToggleButton.classList.remove('hidden');
+      recentCheckinsToggleButton.textContent = recentCheckinsShowAll
+        ? 'Show less'
+        : `Show all (${history.length})`;
+    } else {
+      recentCheckinsToggleButton.classList.add('hidden');
+    }
+  }
+}
+
+function openRecentCheckinsDrawer(trigger = null) {
+  if (!recentCheckinsDrawer || !recentCheckinsOverlay) {
+    return;
+  }
+  const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+  recentCheckinsShowAll = false;
+  updateRecentCheckinsDrawerContent(profile);
+  document.body.classList.add('recent-checkins-open');
+  recentCheckinsDrawer.setAttribute('aria-hidden', 'false');
+  recentCheckinsOverlay.classList.remove('hidden');
+  recentCheckinsOverlay.setAttribute('aria-hidden', 'false');
+  recentCheckinsLastTrigger = trigger || null;
+  window.setTimeout(() => {
+    if (recentCheckinsContent && typeof recentCheckinsContent.focus === 'function') {
+      recentCheckinsContent.focus();
+    }
+  }, 0);
+}
+
+function closeRecentCheckinsDrawer({ restoreFocus = true } = {}) {
+  if (!recentCheckinsDrawer || !document.body.classList.contains('recent-checkins-open')) {
+    return;
+  }
+  document.body.classList.remove('recent-checkins-open');
+  recentCheckinsDrawer.setAttribute('aria-hidden', 'true');
+  if (recentCheckinsOverlay) {
+    recentCheckinsOverlay.classList.add('hidden');
+    recentCheckinsOverlay.setAttribute('aria-hidden', 'true');
+  }
+  recentCheckinsShowAll = false;
+  if (restoreFocus && recentCheckinsLastTrigger && typeof recentCheckinsLastTrigger.focus === 'function') {
+    recentCheckinsLastTrigger.focus();
+  }
+  recentCheckinsLastTrigger = null;
+}
+
+function toggleRecentCheckinsDrawerMore() {
+  recentCheckinsShowAll = !recentCheckinsShowAll;
+  updateRecentCheckinsDrawerContent();
+  if (recentCheckinsToggleButton) {
+    recentCheckinsToggleButton.blur();
+  }
+}
+
+function updateCooldownBadge(secondsRemaining, active) {
+  if (!cooldownBadge) {
+    return;
+  }
+  if (!active) {
+    cooldownBadge.classList.add('hidden');
+    cooldownBadge.textContent = 'Cooldown: 00:00';
+    return;
+  }
+  const clamped = Math.max(0, secondsRemaining);
+  cooldownBadge.classList.remove('hidden');
+  cooldownBadge.textContent = `Cooldown: ${formatCooldownTime(clamped * 1000)}`;
+}
+
+function populateDrawerHomeSelect(profile) {
+  if (!drawerHomeSelect) {
+    return;
+  }
+  if (!profile) {
+    drawerHomeSelect.innerHTML = '<option value="">Sign in to choose a home district</option>';
+    drawerHomeSelect.disabled = true;
+    if (drawerHomeSaveButton) {
+      drawerHomeSaveButton.disabled = true;
+    }
+    return;
+  }
+  drawerHomeSelect.innerHTML = '<option value="">Loading districts…</option>';
+  drawerHomeSelect.disabled = true;
+  getHomeDistrictOptions()
+    .then((options) => {
+      if (!drawerHomeSelect) {
+        return;
+      }
+      const currentId = profile && profile.homeDistrictId ? safeId(profile.homeDistrictId) : '';
+      const fragment = document.createDocumentFragment();
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = 'Choose a district';
+      fragment.appendChild(placeholder);
+      options.forEach((option) => {
+        const opt = document.createElement('option');
+        opt.value = option.id;
+        opt.textContent = option.name;
+        if (currentId && option.id === currentId) {
+          opt.selected = true;
+        }
+        fragment.appendChild(opt);
+      });
+      drawerHomeSelect.innerHTML = '';
+      drawerHomeSelect.appendChild(fragment);
+      drawerHomeSelect.disabled = false;
+      drawerHomeSaveButton && (drawerHomeSaveButton.disabled = !drawerHomeSelect.value);
+    })
+    .catch((error) => {
+      console.warn('Failed to populate home district select', error);
+      if (!drawerHomeSelect) {
+        return;
+      }
+      drawerHomeSelect.innerHTML = '<option value="">Unavailable</option>';
+      drawerHomeSelect.disabled = true;
+      drawerHomeSaveButton && (drawerHomeSaveButton.disabled = true);
+    });
+}
+
+function updateDrawerSummaries(profile) {
+  if (!drawerHomeSummary || !drawerLocationSummary) {
+    return;
+  }
+
+  if (drawerPlayerUsernameSummary) {
+    const usernameText = profile && currentUser ? currentUser : 'Not signed in';
+    drawerPlayerUsernameSummary.textContent = usernameText;
+    drawerPlayerUsernameSummary.title = profile
+      ? `Signed in as ${usernameText}`
+      : 'Log in to view character details.';
+  }
+
+  if (!profile) {
+    if (drawerAdRatioSummary) {
+      drawerAdRatioSummary.textContent = '—';
+      drawerAdRatioSummary.title = 'Attack/Defend ratio available after sign-in.';
+    }
+    if (drawerHomeStrengthSummary) {
+      drawerHomeStrengthSummary.textContent = 'Not set';
+      drawerHomeStrengthSummary.title = 'Choose a home district to build its strength.';
+    }
+    drawerHomeSummary.textContent = 'Not set';
+    drawerHomeSummary.classList.remove('home', 'away');
+    drawerLocationSummary.textContent = 'Unknown';
+    drawerLocationSummary.classList.remove('home', 'away');
+    return;
+  }
+
+  if (drawerAdRatioSummary) {
+    const ratioText = formatAttackDefendRatio(profile);
+    const attackDisplay = Math.round(profile.attackPoints);
+    const defendDisplay = Math.round(profile.defendPoints);
+    drawerAdRatioSummary.textContent = ratioText;
+    drawerAdRatioSummary.title =
+      attackDisplay === 0 && defendDisplay === 0
+        ? 'No attack or defend points yet.'
+        : `Attack: ${attackDisplay.toLocaleString()} pts • Defend: ${defendDisplay.toLocaleString()} pts`;
+  }
+
+  if (drawerHomeStrengthSummary) {
+    if (profile.homeDistrictId) {
+      const strength = getDistrictStrength(profile.homeDistrictId);
+      const entry = ensureDistrictScoreEntry(profile.homeDistrictId, profile.homeDistrictName || null);
+      const defended = entry ? Math.round(entry.defended) : 0;
+      const attacked = entry ? Math.round(entry.attacked) : 0;
+      drawerHomeStrengthSummary.textContent = `${Math.round(strength).toLocaleString()} pts`;
+      const details = [
+        `Base: ${DISTRICT_BASE_SCORE.toLocaleString()} pts`,
+        defended ? `Defended bonus: +${defended.toLocaleString()} pts` : null,
+        attacked ? `Damage taken: -${attacked.toLocaleString()} pts` : null,
+      ]
+        .filter(Boolean)
+        .join(' • ');
+      drawerHomeStrengthSummary.title = details || 'District strength';
+    } else {
+      drawerHomeStrengthSummary.textContent = 'Not set';
+      drawerHomeStrengthSummary.title = 'Choose a home district to build its strength.';
+    }
+  }
+
+  const homeName = profile.homeDistrictName && profile.homeDistrictName.trim()
+    ? profile.homeDistrictName.trim()
+    : profile.homeDistrictId
+    ? `District ${profile.homeDistrictId}`
+    : 'Not set';
+  drawerHomeSummary.textContent = homeName;
+  drawerHomeSummary.classList.remove('home', 'away');
+  if (profile.homeDistrictId) {
+    drawerHomeSummary.classList.add('home');
+  }
+
+  const locationInfo = getCurrentLocationDistrictInfo({ profile, allowHomeFallback: true });
+  if (!locationInfo || !locationInfo.id) {
+    drawerLocationSummary.textContent = 'Unknown';
+    drawerLocationSummary.classList.remove('home', 'away');
+  } else {
+    const name = locationInfo.name || `District ${locationInfo.id}`;
+    drawerLocationSummary.textContent = name;
+    drawerLocationSummary.classList.remove('home', 'away');
+    if (profile.homeDistrictId && safeId(profile.homeDistrictId) === safeId(locationInfo.id)) {
+      drawerLocationSummary.classList.add('home');
+    } else {
+      drawerLocationSummary.classList.add('away');
+    }
+  }
+}
+
 function formatTimeAgo(timestamp) {
   if (!timestamp) {
     return 'Just now';
@@ -2153,42 +3004,148 @@ function formatTimeAgo(timestamp) {
   return `${diffYears} yr${diffYears === 1 ? '' : 's'} ago`;
 }
 
-function handleLogin(event) {
+async function handleLogin(event) {
   if (event) {
     event.preventDefault();
   }
-  if (!usernameInput) {
+  if (!usernameInput || !passwordInput) {
     return;
   }
   const username = usernameInput.value.trim();
-  if (!username) {
-    updateStatus('Enter a username to start.');
+  const password = passwordInput.value;
+  const rememberRequested = rememberPasswordInput ? rememberPasswordInput.checked : false;
+  if (!username || !password) {
+    updateStatus('Enter both username and password to continue.');
     return;
   }
-  usernameInput.value = '';
+  if (!isValidUsername(username)) {
+    updateStatus('Invalid username. Use 3-32 letters, numbers, or underscores. Need an account? Click “Create one here”.');
+    usernameInput.focus();
+    return;
+  }
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    updateStatus(`Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`);
+    return;
+  }
+
+  const existingPlayer = Object.prototype.hasOwnProperty.call(players, username);
+  if (!existingPlayer) {
+    window.alert('No account found with that username. Please create one first.');
+    updateStatus('No account found with that username. Create one to get started.');
+    passwordInput.value = '';
+    return;
+  }
 
   const profile = ensurePlayerProfile(username);
+  const hasStoredLocation = profile.lastKnownLocation && typeof profile.lastKnownLocation.lng === 'number' && typeof profile.lastKnownLocation.lat === 'number';
+  lastKnownLocation = hasStoredLocation ? [profile.lastKnownLocation.lng, profile.lastKnownLocation.lat] : null;
+  const hasAuth = profile.auth && typeof profile.auth.passwordHash === 'string' && typeof profile.auth.salt === 'string';
+  let statusMessage = null;
+
+  try {
+    if (hasAuth) {
+      const hashedAttempt = await hashPassword(password, profile.auth.salt);
+      if (hashedAttempt !== profile.auth.passwordHash) {
+        passwordInput.value = '';
+        passwordInput.focus();
+        window.alert('Incorrect password. Please try again.');
+        updateStatus('Incorrect password. Try again or reset your guess.');
+        return;
+      }
+      statusMessage = `Welcome back, ${username}.`;
+    } else {
+      const salt = generateSalt();
+      const passwordHash = await hashPassword(password, salt);
+      profile.auth = {
+        passwordHash,
+        salt,
+        createdAt: Date.now(),
+        rememberOnDevice: rememberRequested,
+      };
+      statusMessage = existingPlayer ? 'Password set. Welcome back!' : 'New explorer registered. Welcome!';
+    }
+  } catch (error) {
+    console.error('Failed to process credentials', error);
+    updateStatus('Unable to verify credentials. Try again.');
+    return;
+  }
+
+  if (profile.auth) {
+    profile.auth.rememberOnDevice = rememberRequested;
+  }
+
+  usernameInput.value = '';
+  passwordInput.value = '';
+
+  completeAuthenticatedLogin(username, profile, {
+    message: statusMessage,
+    triggerGeolocation: true,
+  });
+}
+
+function completeAuthenticatedLogin(username, profile, options = {}) {
+  if (!username || !profile) {
+    return;
+  }
+
   profile.cooldownUntil = null;
   currentUser = username;
-  if (profile.lastKnownLocation && typeof profile.lastKnownLocation.lng === 'number' && typeof profile.lastKnownLocation.lat === 'number') {
+  if (
+    profile.lastKnownLocation &&
+    typeof profile.lastKnownLocation.lng === 'number' &&
+    typeof profile.lastKnownLocation.lat === 'number'
+  ) {
     lastKnownLocation = [profile.lastKnownLocation.lng, profile.lastKnownLocation.lat];
   }
+
+  const rememberState = Boolean(profile.auth && profile.auth.rememberOnDevice);
+  if (rememberPasswordInput) {
+    rememberPasswordInput.checked = rememberState;
+  }
+
+  setLastSignedInUser(username);
   savePlayers();
   renderKnownPlayers();
   renderPlayerState();
-  showMap(true);
+  if (isMobileViewport()) {
+    setMobileDrawerState(false);
+  }
+
+  if (typeof options.message === 'string' && options.message.trim()) {
+    updateStatus(options.message.trim());
+  }
+
+  const triggerGeolocation = options.triggerGeolocation !== false;
+  showMap(triggerGeolocation);
 }
 
 function handleExistingPlayer(username) {
-  currentUser = username;
-  ensurePlayerProfile(currentUser);
-  const profile = players[currentUser];
-  if (profile && profile.lastKnownLocation && typeof profile.lastKnownLocation.lng === 'number' && typeof profile.lastKnownLocation.lat === 'number') {
-    lastKnownLocation = [profile.lastKnownLocation.lng, profile.lastKnownLocation.lat];
+  if (!username) {
+    return;
   }
-  renderPlayerState();
-  savePlayers();
-  showMap(true);
+  const safeName = username.trim();
+  if (!isValidUsername(safeName)) {
+    updateStatus('Invalid username. Create a new account to continue.');
+    return;
+  }
+  if (!Object.prototype.hasOwnProperty.call(players, safeName)) {
+    updateStatus('Player not found. Create a new account to continue.');
+    return;
+  }
+  const profile = ensurePlayerProfile(safeName);
+  const hasStoredLocation = profile && profile.lastKnownLocation && typeof profile.lastKnownLocation.lng === 'number' && typeof profile.lastKnownLocation.lat === 'number';
+  lastKnownLocation = hasStoredLocation ? [profile.lastKnownLocation.lng, profile.lastKnownLocation.lat] : null;
+  if (usernameInput) {
+    usernameInput.value = safeName;
+  }
+  if (passwordInput) {
+    passwordInput.value = '';
+    passwordInput.focus();
+  }
+  if (rememberPasswordInput) {
+    rememberPasswordInput.checked = Boolean(profile && profile.auth && profile.auth.rememberOnDevice);
+  }
+  updateStatus(`Enter password for ${safeName}.`);
 }
 
 function switchToWelcome() {
@@ -2198,8 +3155,36 @@ function switchToWelcome() {
   if (welcomeScreen) {
     welcomeScreen.classList.remove('hidden');
   }
+  if (typeof document !== 'undefined' && document.body) {
+    document.body.classList.add('welcome-active');
+    document.body.classList.remove('game-active');
+  }
+  if (usernameInput) {
+    usernameInput.value = '';
+  }
+  if (passwordInput) {
+    passwordInput.value = '';
+  }
+  if (rememberPasswordInput) {
+    rememberPasswordInput.checked = false;
+  }
+  if (devChangeUserButton) {
+    devChangeUserButton.hidden = true;
+    devChangeUserButton.disabled = true;
+  }
+  if (devClearUsersButton) {
+    devClearUsersButton.hidden = true;
+    devClearUsersButton.disabled = true;
+  }
+  lastKnownLocation = null;
+  currentDistrictId = null;
+  currentDistrictName = null;
+  if (isMobileViewport()) {
+    setMobileDrawerState(false);
+  }
   updateStatus('Sign in to begin your exploration.');
   renderKnownPlayers();
+  prefillLastSignedInUser();
 }
 
 async function handleCheckIn(options = {}) {
@@ -2261,22 +3246,29 @@ async function handleCheckIn(options = {}) {
     }
   }
 
-  const locationInfo = getCurrentLocationDistrictInfo({ profile, allowHomeFallback: true });
+  const preciseLocationInfo = getCurrentLocationDistrictInfo({ profile, allowHomeFallback: false });
+  const fallbackLocationInfo = preciseLocationInfo ? null : getCurrentLocationDistrictInfo({ profile, allowHomeFallback: true });
+  const locationInfo = preciseLocationInfo || fallbackLocationInfo;
   if (!locationInfo || !locationInfo.id) {
-    updateStatus('Allow geolocation and stand inside a district to check in.');
+    updateStatus('Unable to determine your last known district. Enable location or complete a local check-in first.');
     return;
   }
 
   const locationContextId = safeId(locationInfo.id);
+  const locationOrigin = locationInfo.source || null;
+  const locationDisplayName = locationInfo.name || currentDistrictName || `District ${locationContextId}`;
   let districtId = locationContextId;
-  let locationSource = locationInfo.source || null;
-  let districtDisplayName = locationInfo.name || currentDistrictName || `District ${districtId}`;
+  let locationSource = locationOrigin;
+  let districtDisplayName = locationDisplayName;
   let locationLng = typeof locationInfo.lng === 'number' && Number.isFinite(locationInfo.lng) ? locationInfo.lng : null;
   let locationLat = typeof locationInfo.lat === 'number' && Number.isFinite(locationInfo.lat) ? locationInfo.lat : null;
   const homeId = profile.homeDistrictId ? safeId(profile.homeDistrictId) : null;
   const isTargetHome = Boolean(targetDistrictId && homeId && targetDistrictId === homeId);
 
-  if (isTargetHome && districtId !== targetDistrictId) {
+  const isDefending = Boolean(homeId && locationContextId && homeId === locationContextId);
+  const checkInType = isDefending ? 'defend' : 'attack';
+
+  if (isTargetHome && isDefending && districtId !== targetDistrictId) {
     districtId = targetDistrictId;
     const fallbackHomeDescription = describeHomeDistrict(profile);
     const fallbackHomeName =
@@ -2294,13 +3286,10 @@ async function handleCheckIn(options = {}) {
   }
 
   if (locationSource !== 'home-remote') {
-    currentDistrictId = districtId;
-    currentDistrictName = districtDisplayName;
+    currentDistrictId = locationContextId;
+    currentDistrictName = locationDisplayName;
   }
   updateHomePresenceIndicator();
-
-  const isDefending = Boolean(homeId && districtId && homeId === districtId);
-  const checkInType = isDefending ? 'defend' : 'attack';
 
   const chargeMultiplier = profile.nextCheckinMultiplier > 1 ? profile.nextCheckinMultiplier : 1;
   const isPreciseLocal =
@@ -2350,16 +3339,20 @@ async function handleCheckIn(options = {}) {
     profile.attackPoints += pointsAwarded;
   }
   if (
-    (locationSource === 'map' || locationSource === 'geolocated') &&
+    (locationSource === 'map' || locationSource === 'geolocated' || locationSource === 'profile') &&
     saveProfileLocation(profile, {
       lng: locationLng,
       lat: locationLat,
-      districtId,
-      districtName: districtDisplayName,
+      districtId: locationContextId,
+      districtName: locationDisplayName,
     })
   ) {
     savePlayers();
-  } else if (locationSource !== 'home-remote' && profile.lastKnownLocation && safeId(profile.lastKnownLocation.districtId) === districtId) {
+  } else if (
+    locationSource !== 'home-remote' &&
+    profile.lastKnownLocation &&
+    safeId(profile.lastKnownLocation.districtId) === locationContextId
+  ) {
     profile.lastKnownLocation.timestamp = Date.now();
   }
   profile.nextCheckinMultiplier = 1;
@@ -2580,6 +3573,15 @@ function addSourcesAndLayers() {
 
   map.on('click', 'buildings-3d', (event) => {
     if (!event.features || !event.features.length) {
+      return;
+    }
+
+    if (mobileContextMenuSuppressClick) {
+      mobileContextMenuSuppressClick = false;
+      if (mobileContextMenuSuppressClickResetId !== null) {
+        window.clearTimeout(mobileContextMenuSuppressClickResetId);
+        mobileContextMenuSuppressClickResetId = null;
+      }
       return;
     }
 
@@ -2875,6 +3877,8 @@ function addSourcesAndLayers() {
   map.on('pitchstart', hideActionContextMenu);
   map.on('rotatestart', hideActionContextMenu);
 
+  enableMobileContextMenuLongPress();
+
 
   map.addSource('prague-streets', {
     type: 'geojson',
@@ -3048,6 +4052,10 @@ function showMap(triggerGeolocation) {
     welcomeScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
   }
+  if (typeof document !== 'undefined' && document.body) {
+    document.body.classList.remove('welcome-active');
+    document.body.classList.add('game-active');
+  }
 
   renderPlayerState();
 
@@ -3073,15 +4081,6 @@ function showMap(triggerGeolocation) {
   }
 }
 
-if (demoButton) {
-  demoButton.addEventListener('click', () => {
-    currentUser = null;
-    renderPlayerState();
-    showMap(false);
-    updateStatus('Demo mode: navigate the 3D map freely.');
-  });
-}
-
 if (backButton) {
   backButton.addEventListener('click', () => {
     currentUser = null;
@@ -3100,7 +4099,85 @@ if (findMeButton) {
   });
 }
 
+
+if (floatingCheckInButton) {
+  floatingCheckInButton.addEventListener('click', () => {
+    handleCheckIn();
+  });
+}
+
+if (drawerCheckinButton) {
+  drawerCheckinButton.addEventListener('click', () => {
+    handleCheckIn();
+    setMobileDrawerState(false);
+  });
+}
+
+if (drawerSwitchButton) {
+  drawerSwitchButton.addEventListener('click', () => {
+    setMobileDrawerState(false);
+    if (backButton) {
+      backButton.click();
+    } else {
+      currentUser = null;
+      renderPlayerState();
+      switchToWelcome();
+    }
+  });
+}
+
+if (drawerHomeSelect && drawerHomeSaveButton) {
+  drawerHomeSelect.addEventListener('change', () => {
+    drawerHomeSaveButton.disabled = !drawerHomeSelect.value;
+  });
+
+  drawerHomeSaveButton.addEventListener('click', async () => {
+    if (!currentUser) {
+      updateStatus('Sign in to choose a home district.');
+      return;
+    }
+    const selectedId = drawerHomeSelect.value;
+    if (!selectedId) {
+      updateStatus('Select a district before saving.');
+      return;
+    }
+    try {
+      await getHomeDistrictOptions();
+    } catch (error) {
+      console.warn('Failed to load districts for drawer save', error);
+    }
+    if (!homeDistrictOptionMap.has(selectedId)) {
+      updateStatus('Selected district is unavailable. Try again.');
+      return;
+    }
+    const option = homeDistrictOptionMap.get(selectedId);
+    const profile = ensurePlayerProfile(currentUser);
+    const previousId = profile.homeDistrictId;
+    profile.homeDistrictId = option.id;
+    profile.homeDistrictName = option.name;
+    savePlayers();
+    renderPlayerState();
+    updateStatus(previousId === option.id ? `${option.name} remains your home district.` : `${option.name} is now your home district.`);
+  });
+}
+
+if (drawerThemeToggleButton) {
+  drawerThemeToggleButton.addEventListener('click', () => {
+    const themeToggle = document.getElementById('theme-toggle');
+    if (themeToggle) {
+      themeToggle.click();
+    }
+  });
+}
+
+if (drawerLeaderboardLink) {
+  drawerLeaderboardLink.addEventListener('click', () => {
+    setMobileDrawerState(false);
+  });
+}
+
 if (districtsToggle) {
+
   districtsToggle.addEventListener('change', (event) => {
     const visible = event.target.checked;
     ensureMap(() => {
@@ -3177,14 +4254,13 @@ if (loginForm) {
   loginForm.addEventListener('submit', handleLogin);
 }
 
-if (loginButton) {
-  loginButton.addEventListener('click', handleLogin);
-}
-
 if (usernameInput) {
   usernameInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
-      handleLogin(event);
+      event.preventDefault();
+      if (passwordInput) {
+        passwordInput.focus();
+      }
     }
   });
 }
@@ -3207,6 +4283,157 @@ if (devSkipCooldownCheckbox) {
       stopCheckInCooldown(true);
     }
     renderPlayerState();
+  });
+}
+
+if (devChangeUserButton) {
+  devChangeUserButton.addEventListener('click', () => {
+    if (!currentUser || !isDevUser(currentUser)) {
+      updateStatus('Dev tools available only while signed in as dev.');
+      return;
+    }
+    const otherUsers = Object.keys(players)
+      .filter((name) => name !== currentUser && isValidUsername(name))
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    if (!otherUsers.length) {
+      updateStatus('No other profiles available to switch.');
+      return;
+    }
+    const target = otherUsers[0];
+    const profile = ensurePlayerProfile(target);
+    completeAuthenticatedLogin(target, profile, {
+      message: `Switched to ${target} via dev controls.`,
+      triggerGeolocation: false,
+    });
+  });
+}
+
+const recentTagElements = [recentCheckinTagPrimary, recentCheckinTagSecondary].filter(Boolean);
+recentTagElements.forEach((tag) => {
+  tag.setAttribute('role', 'button');
+  tag.tabIndex = 0;
+  tag.addEventListener('click', () => {
+    if (!tag.classList.contains('empty')) {
+      openRecentCheckinsDrawer(tag);
+    }
+  });
+  tag.addEventListener('keydown', (event) => {
+    if (tag.classList.contains('empty')) {
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      openRecentCheckinsDrawer(tag);
+    }
+  });
+});
+
+const recentTagsContainer = document.querySelector('.recent-tags');
+if (recentTagsContainer) {
+  recentTagsContainer.addEventListener('click', (event) => {
+    const target = event.target.closest('.recent-tag');
+    if (target && !target.classList.contains('empty')) {
+      openRecentCheckinsDrawer(target);
+    }
+  });
+}
+
+if (recentCheckinsOverlay) {
+  recentCheckinsOverlay.addEventListener('click', () => {
+    closeRecentCheckinsDrawer();
+  });
+}
+
+if (recentCheckinsCloseButton) {
+  recentCheckinsCloseButton.addEventListener('click', () => {
+    closeRecentCheckinsDrawer();
+  });
+}
+
+if (recentCheckinsToggleButton) {
+  recentCheckinsToggleButton.addEventListener('click', () => {
+    toggleRecentCheckinsDrawerMore();
+  });
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && document.body.classList.contains('recent-checkins-open')) {
+    closeRecentCheckinsDrawer();
+  }
+});
+
+
+if (devChangeUserButton) {
+  devChangeUserButton.addEventListener('click', () => {
+    if (!currentUser || !isDevUser(currentUser)) {
+      updateStatus('Dev tools available only while signed in as dev.');
+      return;
+    }
+    const otherUsers = Object.keys(players)
+      .filter((name) => name !== currentUser && isValidUsername(name))
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    if (!otherUsers.length) {
+      updateStatus('No other profiles available to switch.');
+      return;
+    }
+    const target = otherUsers[0];
+    const profile = ensurePlayerProfile(target);
+    completeAuthenticatedLogin(target, profile, {
+      message: `Switched to ${target} via dev controls.`,
+      triggerGeolocation: false,
+    });
+  });
+}
+
+
+if (devClearUsersButton) {
+  devClearUsersButton.addEventListener('click', async () => {
+    if (!currentUser || !isDevUser(currentUser)) {
+      updateStatus('Dev tools available only while signed in as dev.');
+      return;
+    }
+    const confirmed = window.confirm('Remove all stored players? This clears the "Jump back in" list.');
+    if (!confirmed) {
+      return;
+    }
+    players = {};
+    try {
+      await ensureDevAccount();
+    } catch (error) {
+      console.warn('Failed to reset dev account during clear', error);
+    }
+    currentUser = DEV_USERNAME;
+    const devProfile = ensurePlayerProfile(DEV_USERNAME);
+    lastKnownLocation = devProfile.lastKnownLocation && typeof devProfile.lastKnownLocation.lng === 'number' && typeof devProfile.lastKnownLocation.lat === 'number'
+      ? [devProfile.lastKnownLocation.lng, devProfile.lastKnownLocation.lat]
+      : null;
+    currentDistrictId = null;
+    currentDistrictName = null;
+    setLastSignedInUser(DEV_USERNAME);
+    renderKnownPlayers();
+    renderPlayerState();
+    updateStatus('All local players cleared. Signed in as dev.');
+  });
+}
+
+if (drawerToggleButton) {
+  drawerToggleButton.addEventListener('click', () => {
+    if (!isMobileViewport()) {
+      return;
+    }
+    toggleMobileDrawer();
+  });
+}
+
+if (drawerCloseButton) {
+  drawerCloseButton.addEventListener('click', () => {
+    setMobileDrawerState(false);
+  });
+}
+
+if (drawerOverlay) {
+  drawerOverlay.addEventListener('click', () => {
+    setMobileDrawerState(false);
   });
 }
 
@@ -3292,10 +4519,24 @@ document.addEventListener('keydown', (event) => {
     hideActionContextMenu();
     handled = true;
   }
+  if (document.body.classList.contains('drawer-open')) {
+    setMobileDrawerState(false);
+    handled = true;
+  }
   if (handled) {
     event.preventDefault();
   }
 });
+
+applyViewportUiState();
+setMobileDrawerState(false);
+
+if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+  const mobileLayoutWatcher = window.matchMedia('(max-width: 820px)');
+  mobileLayoutWatcher.addEventListener('change', () => {
+    applyViewportUiState();
+  });
+}
 
 // Prepare the map as soon as the script loads so assets start downloading early.
 setGeolocationUiState(isSecureOrigin());
@@ -3303,8 +4544,7 @@ ensureDistrictDataLoaded();
 initialiseMap();
 
 loadDistrictScores();
-loadPlayers();
-renderPlayerState();
+initialisePlayers();
 
 // If the map finishes loading before the user clicks “Start”, keep status informative.
 ensureMap(() => {
