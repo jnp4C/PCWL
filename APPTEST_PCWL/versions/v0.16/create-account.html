@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Create Account · PCWL</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app">
+    <section class="panel account-panel">
+      <button type="button" class="secondary back-link" id="back-to-login">← Back to login</button>
+      <img src="data/Prague_Civil_War_Live.png" alt="PCWL logo" class="welcome-logo" />
+      <h1>Create a PCWL account</h1>
+      <p class="account-hint">Usernames must be 3–32 characters and can include letters, numbers, or underscores.</p>
+
+      <form id="create-account-form" class="account-form" autocomplete="off" novalidate>
+        <div class="form-row">
+          <label for="new-username">Username</label>
+          <input type="text" id="new-username" name="username" maxlength="32" required />
+        </div>
+        <div class="form-row">
+          <label for="new-password">Password</label>
+          <input type="password" id="new-password" name="password" minlength="4" required />
+        </div>
+        <div class="form-row">
+          <label for="confirm-password">Confirm password</label>
+          <input type="password" id="confirm-password" name="confirmPassword" minlength="4" required />
+        </div>
+        <div class="account-actions">
+          <button type="submit" class="primary">Create account</button>
+          <p class="account-hint">
+            Already have an account? <a class="account-link" href="index.html">Return to login</a>
+          </p>
+        </div>
+        <div id="account-message" class="form-message info" role="status" aria-live="polite">
+          Choose a username and password to get started.
+        </div>
+      </form>
+    </section>
+  </main>
+  <script src="scripts/create-account.js" defer></script>
+</body>
+</html>
