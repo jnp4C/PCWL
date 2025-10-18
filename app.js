@@ -58,13 +58,24 @@ const recentCheckinsList = document.getElementById('recent-checkins-list');
 const recentCheckinsToggleButton = document.getElementById('recent-checkins-toggle');
 const recentCheckinsEmptyState = document.getElementById('recent-checkins-empty');
 const floatingCheckInButton = document.getElementById('floating-checkin-button');
+const mobileFindMeButton = document.getElementById('mobile-find-me-button');
+const mobileCheckInButton = document.getElementById('mobile-checkin-button');
 const drawerCheckinButton = document.getElementById('drawer-checkin-button');
-const drawerSwitchButton = document.getElementById('drawer-switch-button');
+const drawerLogoutButton = document.getElementById('drawer-logout-button');
 const drawerThemeToggleButton = document.getElementById('drawer-theme-toggle');
 const drawerLeaderboardLink = document.getElementById('drawer-leaderboard');
 const cooldownBadge = document.getElementById('cooldown-badge');
 const recentCheckinTagPrimary = document.getElementById('recent-checkin-1');
 const recentCheckinTagSecondary = document.getElementById('recent-checkin-2');
+
+const APP_VERSION =
+  typeof window !== 'undefined' && window.__APP_VERSION__
+    ? String(window.__APP_VERSION__).trim()
+    : 'dev';
+const APP_SNAPSHOT =
+  typeof window !== 'undefined' && window.__APP_SNAPSHOT__
+    ? String(window.__APP_SNAPSHOT__).trim()
+    : 'app.js';
 
 if (typeof document !== 'undefined' && document.body) {
   document.body.classList.add('welcome-active');
@@ -84,7 +95,11 @@ const MAP_STYLE = {
   layers: [],
 };
 
-const DATA_PREFIX = 'data/';
+const STATIC_PREFIX =
+  typeof window !== 'undefined' && window.__STATIC_URL__
+    ? window.__STATIC_URL__
+    : '';
+const DATA_PREFIX = `${STATIC_PREFIX}data/`;
 const DISTRICT_GLOW_DEFAULT_COLOR = '#8f76e6';
 const DISTRICT_GLOW_HOME_COLOR_LIGHT = '#176f3c';
 const DISTRICT_GLOW_HOME_COLOR_DARK = '#c7ff5a';
@@ -119,12 +134,118 @@ const MAP_THEME_SETTINGS = {
 
 const DISTRICT_BASE_SCORE = 2000;
 const DISTRICT_SCORES_STORAGE_KEY = 'pragueExplorerDistrictScores';
+const POINTS_PER_CHECKIN = 10;
+const MAX_HISTORY_ITEMS = 15;
 
 const TREE_GIF_URL = resolveDataUrl('tree.gif?v=2');
 const HITMARKER_GIF_URL = resolveDataUrl('attack_hitmarker.gif?v=1');
 const DEFEND_HITMARKER_GIF_URL = resolveDataUrl('defend_hitmarker.gif?v=1');
 const MOBILE_CONTEXT_MENU_LONG_PRESS_MS = 650;
 const MOBILE_CONTEXT_MENU_MOVE_THRESHOLD = 18;
+const API_BASE_URL = '/api';
+const CSRF_HEADER_NAME = 'X-CSRFToken';
+
+function buildApiUrl(path) {
+  if (!path) {
+    return API_BASE_URL;
+  }
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return path;
+  }
+  const trimmed = path.startsWith('/') ? path.slice(1) : path;
+  return `${API_BASE_URL}/${trimmed}`;
+}
+
+function getCookie(name) {
+  if (typeof document === 'undefined' || !name) {
+    return null;
+  }
+  const cookies = document.cookie ? document.cookie.split(';') : [];
+  for (const cookie of cookies) {
+    const trimmed = cookie.trim();
+    if (!trimmed) {
+      continue;
+    }
+    if (trimmed.startsWith(`${name}=`)) {
+      return decodeURIComponent(trimmed.substring(name.length + 1));
+    }
+  }
+  return null;
+}
+
+function getCsrfToken() {
+  return getCookie('csrftoken');
+}
+
+async function apiRequest(path, options = {}) {
+  const {
+    method = 'GET',
+    body = undefined,
+    headers = {},
+    credentials = 'same-origin',
+    signal,
+  } = options;
+
+  const requestHeaders = {
+    Accept: 'application/json',
+    ...headers,
+  };
+  const requestInit = {
+    method,
+    headers: requestHeaders,
+    credentials,
+    signal,
+  };
+
+  if (body !== undefined) {
+    requestInit.body = typeof body === 'string' ? body : JSON.stringify(body);
+    if (!requestHeaders['Content-Type'] && !requestHeaders['content-type']) {
+      requestHeaders['Content-Type'] = 'application/json';
+    }
+    if (!requestHeaders[CSRF_HEADER_NAME]) {
+      const csrfToken = getCsrfToken();
+      if (csrfToken) {
+        requestHeaders[CSRF_HEADER_NAME] = csrfToken;
+      }
+    }
+  }
+
+  let response;
+  try {
+    response = await fetch(buildApiUrl(path), requestInit);
+  } catch (networkError) {
+    const error = new Error('Network request failed.');
+    error.cause = networkError;
+    throw error;
+  }
+
+  const contentType = response.headers.get('Content-Type') || '';
+  let parsedBody = null;
+  if (response.status !== 204) {
+    if (contentType.includes('application/json')) {
+      try {
+        parsedBody = await response.json();
+      } catch (parseError) {
+        parsedBody = null;
+      }
+    } else {
+      parsedBody = await response.text();
+    }
+  }
+
+  if (!response.ok) {
+    const detail =
+      parsedBody && typeof parsedBody === 'object' && parsedBody.detail
+        ? parsedBody.detail
+        : `Request failed with status ${response.status}`;
+    const error = new Error(detail);
+    error.status = response.status;
+    error.data = parsedBody;
+    throw error;
+  }
+
+  return parsedBody;
+}
 
 let activeTheme = 'light';
 if (typeof window !== 'undefined') {
@@ -164,6 +285,15 @@ function setGeolocationUiState(isAvailable) {
     findMeButton.disabled = !isAvailable;
     findMeButton.title = isAvailable ? '' : GEOLOCATION_SECURE_CONTEXT_MESSAGE;
   }
+  if (mobileFindMeButton) {
+    if (isAvailable) {
+      mobileFindMeButton.removeAttribute('disabled');
+      mobileFindMeButton.title = '';
+    } else {
+      mobileFindMeButton.setAttribute('disabled', 'disabled');
+      mobileFindMeButton.title = GEOLOCATION_SECURE_CONTEXT_MESSAGE;
+    }
+  }
 }
 
 function stopCheckInCooldownTimer() {
@@ -200,6 +330,13 @@ function stopCheckInCooldown(enableButton = true) {
   if (enableButton && checkInButton) {
     checkInButton.disabled = false;
     checkInButton.title = '';
+  }
+  if (mobileCheckInButton) {
+    if (enableButton) {
+      mobileCheckInButton.removeAttribute('disabled');
+    } else {
+      mobileCheckInButton.setAttribute('disabled', 'disabled');
+    }
   }
   if (enableButton && chargeAttackButton) {
     if (currentUser && players[currentUser]) {
@@ -252,6 +389,9 @@ function updateCheckInCooldownUI() {
     checkInButton.disabled = true;
     checkInButton.title = 'Check-in available once the cooldown completes.';
   }
+  if (mobileCheckInButton) {
+    mobileCheckInButton.setAttribute('disabled', 'disabled');
+  }
   if (chargeAttackButton) {
     chargeAttackButton.disabled = true;
     chargeAttackButton.title = 'Cooldown active. Wait until it completes to charge again.';
@@ -296,6 +436,9 @@ function startCheckInCooldown(deadline) {
   if (checkInButton) {
     checkInButton.disabled = true;
     checkInButton.title = 'Check-in available once the cooldown completes.';
+  }
+  if (mobileCheckInButton) {
+    mobileCheckInButton.setAttribute('disabled', 'disabled');
   }
   if (chargeAttackButton) {
     chargeAttackButton.disabled = true;
@@ -400,6 +543,10 @@ function ensurePlayerProfile(username) {
   profile.attackPoints = Math.max(0, normaliseNumber(profile.attackPoints, 0));
   profile.defendPoints = Math.max(0, normaliseNumber(profile.defendPoints, 0));
   profile.checkins = Array.isArray(profile.checkins) ? profile.checkins : [];
+  profile.serverCheckinCount = Math.max(
+    normaliseNumber(profile.serverCheckinCount, profile.checkins.length),
+    profile.checkins.length,
+  );
   if (profile.homeDistrictId !== undefined && profile.homeDistrictId !== null) {
     profile.homeDistrictId = safeId(profile.homeDistrictId);
   } else {
@@ -422,15 +569,191 @@ function ensurePlayerProfile(username) {
   }
   profile.nextCheckinMultiplier = Math.max(1, normaliseNumber(profile.nextCheckinMultiplier, 1));
   profile.skipCooldown = Boolean(profile.skipCooldown);
+  const rememberOnDevice = Boolean(profile.auth && profile.auth.rememberOnDevice);
   if (profile.auth && typeof profile.auth === 'object') {
     const passwordHash = typeof profile.auth.passwordHash === 'string' ? profile.auth.passwordHash : null;
     const salt = typeof profile.auth.salt === 'string' ? profile.auth.salt : null;
-    const createdAt = normaliseNumber(profile.auth.createdAt, Date.now());
-    const rememberOnDevice = Boolean(profile.auth.rememberOnDevice);
-    profile.auth = passwordHash && salt ? { passwordHash, salt, createdAt, rememberOnDevice } : null;
+    if (passwordHash && salt) {
+      const createdAt = normaliseNumber(profile.auth.createdAt, Date.now());
+      profile.auth = { passwordHash, salt, createdAt, rememberOnDevice };
+    } else {
+      profile.auth = { rememberOnDevice };
+    }
   } else {
-    profile.auth = null;
+    profile.auth = { rememberOnDevice };
   }
+  return profile;
+}
+
+function normaliseApiLastKnownLocation(data) {
+  if (!data || typeof data !== 'object') {
+    return null;
+  }
+  const lng = Number.isFinite(Number(data.lng)) ? Number(data.lng) : null;
+  const lat = Number.isFinite(Number(data.lat)) ? Number(data.lat) : null;
+  const districtId = data.districtId ? safeId(data.districtId) : null;
+  const districtName =
+    typeof data.districtName === 'string' && data.districtName.trim()
+      ? data.districtName.trim()
+      : null;
+  const timestamp = Number.isFinite(Number(data.timestamp)) ? Number(data.timestamp) : Date.now();
+
+  if (lng === null && lat === null && !districtId && !districtName) {
+    return null;
+  }
+
+  return {
+    lng,
+    lat,
+    districtId,
+    districtName,
+    timestamp,
+  };
+}
+
+function sanitiseCheckinHistoryEntry(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return null;
+  }
+  const type = typeof entry.type === 'string' ? entry.type.trim().toLowerCase() : '';
+  if (type !== 'attack' && type !== 'defend') {
+    return null;
+  }
+
+  const districtId = entry.districtId !== undefined && entry.districtId !== null ? String(entry.districtId).trim() : null;
+  const districtName = typeof entry.districtName === 'string' && entry.districtName.trim() ? entry.districtName.trim() : null;
+  if (!districtId && !districtName) {
+    return null;
+  }
+
+  let timestamp = entry.timestamp;
+  if (timestamp instanceof Date) {
+    timestamp = timestamp.getTime();
+  }
+  const tsNumber = Number(timestamp);
+  if (!Number.isFinite(tsNumber)) {
+    return null;
+  }
+
+  const multiplierValue = Number(entry.multiplier);
+  const multiplier = Number.isFinite(multiplierValue) && multiplierValue > 0 ? multiplierValue : 1;
+
+  return {
+    timestamp: Math.trunc(tsNumber),
+    districtId,
+    districtName,
+    type,
+    multiplier,
+    ranged: Boolean(entry.ranged),
+    melee: Boolean(entry.melee),
+  };
+}
+
+function sanitizeApiCheckinHistory(history) {
+  if (!history) {
+    return [];
+  }
+  if (!Array.isArray(history)) {
+    return [];
+  }
+  const sanitized = [];
+  for (const entry of history) {
+    if (sanitized.length >= MAX_HISTORY_ITEMS) {
+      break;
+    }
+    const normalised = sanitiseCheckinHistoryEntry(entry);
+    if (normalised) {
+      sanitized.push(normalised);
+    }
+  }
+  return sanitized;
+}
+
+function buildCheckinHistoryPayload(profile) {
+  if (!profile || !Array.isArray(profile.checkins)) {
+    return [];
+  }
+  const payload = [];
+  for (const entry of profile.checkins.slice(0, MAX_HISTORY_ITEMS)) {
+    const normalised = sanitiseCheckinHistoryEntry(entry);
+    if (normalised) {
+      payload.push(normalised);
+    }
+  }
+  return payload;
+}
+
+function applyServerPlayerData(profile, apiPlayer) {
+  if (!profile || !apiPlayer || typeof apiPlayer !== 'object') {
+    return profile;
+  }
+
+  if (apiPlayer.id !== undefined && apiPlayer.id !== null) {
+    profile.backendId = apiPlayer.id;
+  }
+  if (typeof apiPlayer.username === 'string' && !profile.username) {
+    profile.username = apiPlayer.username;
+  }
+  if (typeof apiPlayer.display_name === 'string') {
+    profile.displayName = apiPlayer.display_name;
+  }
+
+  profile.points = Math.max(0, normaliseNumber(apiPlayer.score, profile.points || 0));
+  profile.attackPoints = Math.max(0, normaliseNumber(apiPlayer.attack_points, profile.attackPoints || 0));
+  profile.defendPoints = Math.max(0, normaliseNumber(apiPlayer.defend_points, profile.defendPoints || 0));
+
+  if (Array.isArray(apiPlayer.checkin_history)) {
+    profile.checkins = sanitizeApiCheckinHistory(apiPlayer.checkin_history);
+  } else if (!Array.isArray(profile.checkins)) {
+    profile.checkins = [];
+  }
+
+  const serverCheckinsCount = normaliseNumber(apiPlayer.checkins, profile.checkins ? profile.checkins.length : 0);
+  profile.serverCheckinCount = Math.max(serverCheckinsCount, Array.isArray(profile.checkins) ? profile.checkins.length : 0);
+
+  const homeCode = typeof apiPlayer.home_district_code === 'string' && apiPlayer.home_district_code.trim()
+    ? safeId(apiPlayer.home_district_code)
+    : null;
+  const homeName = typeof apiPlayer.home_district_name === 'string' && apiPlayer.home_district_name.trim()
+    ? apiPlayer.home_district_name.trim()
+    : null;
+
+  if (Object.prototype.hasOwnProperty.call(apiPlayer, 'home_district_code')) {
+    profile.homeDistrictId = homeCode || null;
+  } else if (homeCode) {
+    profile.homeDistrictId = homeCode;
+  }
+
+  if (homeName) {
+    profile.homeDistrictName = homeName;
+  } else if (Object.prototype.hasOwnProperty.call(apiPlayer, 'home_district_name')) {
+    profile.homeDistrictName = null;
+  } else if (typeof apiPlayer.home_district === 'string' && apiPlayer.home_district.trim()) {
+    profile.homeDistrictName = apiPlayer.home_district.trim();
+  }
+
+  if (apiPlayer.attack_ratio !== undefined && apiPlayer.attack_ratio !== null) {
+    const parsedAttackRatio = Number(apiPlayer.attack_ratio);
+    if (Number.isFinite(parsedAttackRatio)) {
+      profile.attackRatio = parsedAttackRatio;
+    }
+  }
+  if (apiPlayer.defend_ratio !== undefined && apiPlayer.defend_ratio !== null) {
+    const parsedDefendRatio = Number(apiPlayer.defend_ratio);
+    if (Number.isFinite(parsedDefendRatio)) {
+      profile.defendRatio = parsedDefendRatio;
+    }
+  }
+
+  profile.isActive = apiPlayer.is_active !== undefined ? Boolean(apiPlayer.is_active) : profile.isActive;
+  profile.createdAt = apiPlayer.created_at || profile.createdAt || null;
+  profile.updatedAt = apiPlayer.updated_at || profile.updatedAt || null;
+
+  if (Object.prototype.hasOwnProperty.call(apiPlayer, 'last_known_location')) {
+    profile.lastKnownLocation = normaliseApiLastKnownLocation(apiPlayer.last_known_location);
+  }
+
+  profile.backendSyncedAt = Date.now();
   return profile;
 }
 
@@ -650,19 +973,30 @@ function saveProfileLocation(profile, data) {
   if (!profile || !data) {
     return false;
   }
-  const districtId = data.districtId ? safeId(data.districtId) : null;
-  if (!districtId) {
-    return false;
-  }
+
   const sanitized = {
     lng: typeof data.lng === 'number' && Number.isFinite(data.lng) ? data.lng : null,
     lat: typeof data.lat === 'number' && Number.isFinite(data.lat) ? data.lat : null,
-    districtId,
+    districtId: data.districtId ? safeId(data.districtId) : null,
     districtName: data.districtName || null,
     timestamp: Date.now(),
   };
 
   const existing = profile.lastKnownLocation || {};
+
+  if (!sanitized.districtId && sanitized.lng !== null && sanitized.lat !== null && districtGeoJson) {
+    const feature = findDistrictFeatureByPoint(sanitized.lng, sanitized.lat);
+    if (feature) {
+      const inferredId = getDistrictId(feature);
+      if (inferredId) {
+        sanitized.districtId = safeId(inferredId);
+        if (!sanitized.districtName) {
+          sanitized.districtName = getDistrictName(feature) || null;
+        }
+      }
+    }
+  }
+
   if (sanitized.lng === null && typeof existing.lng === 'number' && Number.isFinite(existing.lng)) {
     sanitized.lng = existing.lng;
   }
@@ -672,17 +1006,188 @@ function saveProfileLocation(profile, data) {
   if (!sanitized.districtName && existing.districtName) {
     sanitized.districtName = existing.districtName;
   }
-  if (
-    existing &&
-    existing.districtId === sanitized.districtId &&
-    existing.lng === sanitized.lng &&
-    existing.lat === sanitized.lat
-  ) {
-    sanitized.timestamp = existing.timestamp || sanitized.timestamp;
+  if (!sanitized.districtId && existing.districtId) {
+    sanitized.districtId = existing.districtId;
   }
 
-  profile.lastKnownLocation = sanitized;
-  return true;
+  const hasChanged =
+    !existing ||
+    existing.districtId !== sanitized.districtId ||
+    existing.lng !== sanitized.lng ||
+    existing.lat !== sanitized.lat ||
+    existing.districtName !== sanitized.districtName ||
+    !existing.timestamp ||
+    sanitized.timestamp !== existing.timestamp;
+
+  profile.lastKnownLocation = {
+    lng: sanitized.lng,
+    lat: sanitized.lat,
+    districtId: sanitized.districtId || null,
+    districtName: sanitized.districtName || null,
+    timestamp: sanitized.timestamp,
+  };
+
+  if (profile.lastKnownLocation.districtId) {
+    lastPreciseLocationInfo = {
+      id: profile.lastKnownLocation.districtId,
+      name: profile.lastKnownLocation.districtName || `District ${profile.lastKnownLocation.districtId}`,
+    };
+  }
+
+  if (hasChanged) {
+    scheduleLastKnownLocationSync(profile);
+  }
+
+  return hasChanged;
+}
+
+function scheduleLastKnownLocationSync(profile) {
+  if (!profile || !profile.backendId) {
+    return;
+  }
+  const locationPayload =
+    profile.lastKnownLocation && typeof profile.lastKnownLocation === 'object'
+      ? { ...profile.lastKnownLocation }
+      : null;
+
+  if (!isSessionAuthenticated) {
+    return;
+  }
+
+  locationSyncQueue = locationSyncQueue
+    .catch(() => null)
+    .then(() =>
+      apiRequest(`players/${profile.backendId}/`, {
+        method: 'PATCH',
+        body: { last_known_location: locationPayload },
+      })
+    )
+    .catch((error) => {
+      if (error && (error.status === 401 || error.status === 403)) {
+        isSessionAuthenticated = false;
+        activePlayerBackendId = null;
+      }
+      console.warn('Failed to update last known location', error);
+    });
+}
+
+function buildPlayerStatsPayload(profile) {
+  if (!profile) {
+    return null;
+  }
+  const history = buildCheckinHistoryPayload(profile);
+  const score = Math.max(0, Math.round(normaliseNumber(profile.points, 0)));
+  const attackPoints = Math.max(0, Math.round(normaliseNumber(profile.attackPoints, 0)));
+  const defendPoints = Math.max(0, Math.round(normaliseNumber(profile.defendPoints, 0)));
+  const homeCode = profile.homeDistrictId ? safeId(profile.homeDistrictId) : null;
+  const homeName =
+    typeof profile.homeDistrictName === 'string' && profile.homeDistrictName.trim()
+      ? profile.homeDistrictName.trim()
+      : null;
+
+  return {
+    score,
+    attack_points: attackPoints,
+    defend_points: defendPoints,
+    checkins: history.length,
+    checkin_history: history,
+    home_district_code: homeCode,
+    home_district_name: homeName,
+    home_district: homeName || '',
+  };
+}
+
+function scheduleProfileStatsSync(profile) {
+  if (!profile || !profile.backendId || !isSessionAuthenticated) {
+    return;
+  }
+  const payload = buildPlayerStatsPayload(profile);
+  if (!payload) {
+    return;
+  }
+
+  statsSyncQueue = statsSyncQueue
+    .catch(() => null)
+    .then(() =>
+      apiRequest(`players/${profile.backendId}/`, {
+        method: 'PATCH',
+        body: payload,
+      })
+    )
+    .then((data) => {
+      if (data && typeof data === 'object') {
+        applyServerPlayerData(profile, data);
+        savePlayers();
+      }
+    })
+    .catch((error) => {
+      if (error && (error.status === 401 || error.status === 403)) {
+        isSessionAuthenticated = false;
+        activePlayerBackendId = null;
+      }
+      console.warn('Failed to sync player stats', error);
+    });
+}
+
+function ensurePreciseLocationResolution(profile) {
+  if (
+    resolvingPreciseLocation ||
+    !profile ||
+    !lastKnownLocation ||
+    !Array.isArray(lastKnownLocation) ||
+    lastKnownLocation.length !== 2
+  ) {
+    return;
+  }
+
+  resolvingPreciseLocation = true;
+  resolveDistrictAtLngLat(lastKnownLocation[0], lastKnownLocation[1])
+    .then((feature) => {
+      if (!feature) {
+        return;
+      }
+      const districtId = getDistrictId(feature);
+      if (!districtId) {
+        return;
+      }
+      const districtName = getDistrictName(feature) || null;
+      if (
+        saveProfileLocation(profile, {
+          lng: lastKnownLocation[0],
+          lat: lastKnownLocation[1],
+          districtId,
+          districtName,
+        })
+      ) {
+        savePlayers();
+        updateHomePresenceIndicator();
+      }
+    })
+    .catch((error) => {
+      console.warn('Failed to refine precise location', error);
+    })
+    .finally(() => {
+      resolvingPreciseLocation = false;
+    });
+}
+
+function renderAppVersionBadge() {
+  const badge = document.getElementById('app-version-badge');
+  if (!badge) {
+    return;
+  }
+  const parts = [];
+  if (APP_VERSION && APP_VERSION !== 'dev') {
+    parts.push(APP_VERSION);
+  }
+  if (APP_SNAPSHOT && APP_SNAPSHOT !== 'app.js') {
+    parts.push(APP_SNAPSHOT);
+  }
+  if (!parts.length) {
+    parts.push('dev build');
+  }
+  badge.textContent = parts.join(' • ');
+  badge.title = parts.join(' • ');
 }
 
 function updateHomePresenceIndicator() {
@@ -703,8 +1208,16 @@ function updateHomePresenceIndicator() {
       statusText = 'Home not set';
       titleText = 'Choose a home district to start defending.';
     } else {
-      const preciseInfo = getCurrentLocationDistrictInfo({ profile, allowHomeFallback: false });
+      let preciseInfo = getCurrentLocationDistrictInfo({ profile, allowHomeFallback: false });
+      if ((!preciseInfo || !preciseInfo.id) && lastPreciseLocationInfo && lastPreciseLocationInfo.id) {
+        preciseInfo = {
+          id: safeId(lastPreciseLocationInfo.id),
+          name: lastPreciseLocationInfo.name || `District ${lastPreciseLocationInfo.id}`,
+          source: 'cached',
+        };
+      }
       if (!preciseInfo || !preciseInfo.id) {
+        ensurePreciseLocationResolution(profile);
         const fallbackInfo = getCurrentLocationDistrictInfo({ profile, allowHomeFallback: true });
         if (fallbackInfo && fallbackInfo.source === 'home-fallback') {
           statusText = 'Last known: Home district (fallback)';
@@ -1376,6 +1889,8 @@ let currentDistrictName = null;
 let hoveredDistrictId = null;
 let districtPopup = null;
 let lastKnownLocation = null;
+let lastPreciseLocationInfo = null;
+let resolvingPreciseLocation = false;
 let activeBuildingGifMarker = null;
 let activeParkGifMarker = null;
 let activeAttackHitmarker = null;
@@ -1407,8 +1922,6 @@ let isPointerOverDistrict = false;
 let districtScores = {};
 
 const STORAGE_KEY = 'pragueExplorerPlayers';
-const POINTS_PER_CHECKIN = 10;
-const MAX_HISTORY_ITEMS = 15;
 const CHECK_IN_COOLDOWN_MS = 10 * 60 * 1000;
 const CHARGE_ATTACK_MULTIPLIER = 3;
 const MIN_PASSWORD_LENGTH = 4;
@@ -1419,6 +1932,10 @@ const USERNAME_PATTERN = /^[A-Za-z0-9_]{3,32}$/;
 
 let players = {};
 let currentUser = null;
+let isSessionAuthenticated = false;
+let activePlayerBackendId = null;
+let locationSyncQueue = Promise.resolve();
+let statsSyncQueue = Promise.resolve();
 
 const DISTRICT_NAME_FIELDS = [
   'nazev_mc',
@@ -2087,6 +2604,7 @@ document.addEventListener('prague-themechange', (event) => {
 });
 
 ensureWelcomeLogoTheme(activeTheme);
+renderAppVersionBadge();
 
 document.addEventListener('click', (event) => {
   if (!actionContextMenuVisible || !actionContextMenu) {
@@ -2212,6 +2730,81 @@ async function ensureDevAccount() {
   }
 }
 
+async function restoreSessionFromServer() {
+  let sessionData;
+  try {
+    sessionData = await apiRequest('session/');
+  } catch (error) {
+    if (error && (error.status === 401 || error.status === 403)) {
+      isSessionAuthenticated = false;
+      activePlayerBackendId = null;
+      return;
+    }
+    console.warn('Failed to verify existing session', error);
+    throw error;
+  }
+
+  if (!sessionData || typeof sessionData !== 'object' || !sessionData.authenticated) {
+    isSessionAuthenticated = false;
+    activePlayerBackendId = null;
+    return;
+  }
+
+  const apiPlayer = sessionData.player;
+  if (!apiPlayer || typeof apiPlayer.username !== 'string') {
+    isSessionAuthenticated = true;
+    return;
+  }
+
+  const username = apiPlayer.username.trim();
+  if (!isValidUsername(username)) {
+    isSessionAuthenticated = true;
+    return;
+  }
+
+  if (!players[username] || typeof players[username] !== 'object') {
+    players[username] = {};
+  }
+
+  const profile = ensurePlayerProfile(username);
+  applyServerPlayerData(profile, apiPlayer);
+  profile.auth = { rememberOnDevice: true };
+
+  isSessionAuthenticated = true;
+  activePlayerBackendId = profile.backendId || null;
+
+  completeAuthenticatedLogin(username, profile, {
+    message: apiPlayer.display_name ? `Welcome back, ${apiPlayer.display_name}.` : `Welcome back, ${username}.`,
+    triggerGeolocation: false,
+  });
+}
+
+async function logoutCurrentSession() {
+  try {
+    await apiRequest('session/logout/', { method: 'POST' });
+  } catch (error) {
+    console.warn('Failed to terminate session', error);
+  } finally {
+    isSessionAuthenticated = false;
+    activePlayerBackendId = null;
+  }
+}
+
+function completeLogoutTransition() {
+  currentUser = null;
+  activePlayerBackendId = null;
+  renderPlayerState();
+  switchToWelcome();
+}
+
+function performLogout() {
+  return logoutCurrentSession()
+    .catch(() => null)
+    .finally(() => {
+      completeLogoutTransition();
+    });
+}
+
 async function initialisePlayers() {
   loadPlayers();
   try {
@@ -2221,8 +2814,14 @@ async function initialisePlayers() {
   }
   renderKnownPlayers();
   renderPlayerState();
-  prefillLastSignedInUser();
-  autoLoginRememberedUser();
+  try {
+    await restoreSessionFromServer();
+  } catch (error) {
+    console.warn('Unable to restore previous session', error);
+  }
+  if (!currentUser) {
+    prefillLastSignedInUser();
+  }
 }
 
 function loadDistrictScores() {
@@ -2400,6 +2999,13 @@ function renderPlayerState() {
     updateRecentCheckinsDrawerContent(null);
     closeRecentCheckinsDrawer({ restoreFocus: false });
     updateDrawerSummaries(null);
+    if (drawerLogoutButton) {
+      drawerLogoutButton.disabled = true;
+      drawerLogoutButton.title = 'Log in to log out.';
+    }
+    if (mobileCheckInButton) {
+      mobileCheckInButton.setAttribute('disabled', 'disabled');
+    }
     return;
   }
 
@@ -2411,6 +3017,13 @@ function renderPlayerState() {
   populateDrawerHomeSelect(profile);
   renderCheckins(profile.checkins);
   updateRecentCheckinsDrawerContent(profile);
+  if (drawerLogoutButton) {
+    drawerLogoutButton.disabled = false;
+    drawerLogoutButton.title = 'Log out from this device.';
+  }
+  if (mobileCheckInButton) {
+    mobileCheckInButton.removeAttribute('disabled');
+  }
   if (devOptionsContainer && devSkipCooldownCheckbox && devChangeUserButton) {
     if (isDevUser(currentUser)) {
       devOptionsContainer.classList.remove('hidden');
@@ -2955,14 +3568,35 @@ function updateDrawerSummaries(profile) {
     drawerHomeSummary.classList.add('home');
   }
 
-  const locationInfo = getCurrentLocationDistrictInfo({ profile, allowHomeFallback: true });
+  let locationInfo = getCurrentLocationDistrictInfo({ profile, allowHomeFallback: false });
+  if ((!locationInfo || !locationInfo.id) && lastPreciseLocationInfo && lastPreciseLocationInfo.id) {
+    locationInfo = {
+      id: safeId(lastPreciseLocationInfo.id),
+      name: lastPreciseLocationInfo.name || `District ${lastPreciseLocationInfo.id}`,
+      source: 'cached',
+    };
+  }
+  let fallbackInfo = null;
   if (!locationInfo || !locationInfo.id) {
-    drawerLocationSummary.textContent = 'Unknown';
-    drawerLocationSummary.classList.remove('home', 'away');
+    fallbackInfo = getCurrentLocationDistrictInfo({ profile, allowHomeFallback: true });
+  }
+
+  if (!locationInfo || !locationInfo.id) {
+    drawerLocationSummary.classList.remove('home', 'away', 'fallback');
+    if (fallbackInfo && fallbackInfo.source === 'home-fallback') {
+      drawerLocationSummary.textContent = 'Home district (fallback)';
+      drawerLocationSummary.classList.add('fallback');
+    } else if (fallbackInfo && fallbackInfo.id) {
+      const name = fallbackInfo.name || `District ${fallbackInfo.id}`;
+      drawerLocationSummary.textContent = `${name} (fallback)`;
+      drawerLocationSummary.classList.add('away');
+    } else {
+      drawerLocationSummary.textContent = 'Unknown';
+    }
   } else {
+    drawerLocationSummary.classList.remove('home', 'away', 'fallback');
     const name = locationInfo.name || `District ${locationInfo.id}`;
     drawerLocationSummary.textContent = name;
-    drawerLocationSummary.classList.remove('home', 'away');
     if (profile.homeDistrictId && safeId(profile.homeDistrictId) === safeId(locationInfo.id)) {
       drawerLocationSummary.classList.add('home');
     } else {
@@ -3011,9 +3645,11 @@ async function handleLogin(event) {
   if (!usernameInput || !passwordInput) {
     return;
   }
+
   const username = usernameInput.value.trim();
   const password = passwordInput.value;
   const rememberRequested = rememberPasswordInput ? rememberPasswordInput.checked : false;
+
   if (!username || !password) {
     updateStatus('Enter both username and password to continue.');
     return;
@@ -3028,59 +3664,77 @@ async function handleLogin(event) {
     return;
   }
 
-  const existingPlayer = Object.prototype.hasOwnProperty.call(players, username);
-  if (!existingPlayer) {
-    window.alert('No account found with that username. Please create one first.');
-    updateStatus('No account found with that username. Create one to get started.');
-    passwordInput.value = '';
-    return;
-  }
+  const submitButton = loginForm ? loginForm.querySelector('button[type="submit"]') : null;
+  const resetSubmittingState = () => {
+    if (submitButton) {
+      submitButton.disabled = false;
+    }
+    if (loginForm) {
+      loginForm.classList.remove('is-submitting');
+    }
+  };
 
-  const profile = ensurePlayerProfile(username);
-  const hasStoredLocation = profile.lastKnownLocation && typeof profile.lastKnownLocation.lng === 'number' && typeof profile.lastKnownLocation.lat === 'number';
-  lastKnownLocation = hasStoredLocation ? [profile.lastKnownLocation.lng, profile.lastKnownLocation.lat] : null;
-  const hasAuth = profile.auth && typeof profile.auth.passwordHash === 'string' && typeof profile.auth.salt === 'string';
-  let statusMessage = null;
+  if (loginForm) {
+    loginForm.classList.add('is-submitting');
+  }
+  if (submitButton) {
+    submitButton.disabled = true;
+  }
+  updateStatus('Signing you in…');
 
   try {
-    if (hasAuth) {
-      const hashedAttempt = await hashPassword(password, profile.auth.salt);
-      if (hashedAttempt !== profile.auth.passwordHash) {
-        passwordInput.value = '';
-        passwordInput.focus();
-        window.alert('Incorrect password. Please try again.');
-        updateStatus('Incorrect password. Try again or reset your guess.');
-        return;
-      }
-      statusMessage = `Welcome back, ${username}.`;
-    } else {
-      const salt = generateSalt();
-      const passwordHash = await hashPassword(password, salt);
-      profile.auth = {
-        passwordHash,
-        salt,
-        createdAt: Date.now(),
-        rememberOnDevice: rememberRequested,
-      };
-      statusMessage = existingPlayer ? 'Password set. Welcome back!' : 'New explorer registered. Welcome!';
+    const result = await apiRequest('session/login/', {
+      method: 'POST',
+      body: { username, password },
+    });
+    const apiPlayer = result && typeof result === 'object' ? result.player : null;
+    if (!apiPlayer) {
+      throw new Error('Login succeeded but player data was unavailable.');
     }
+
+    players[username] = {};
+    const profile = ensurePlayerProfile(username);
+    applyServerPlayerData(profile, apiPlayer);
+    profile.auth = { rememberOnDevice: rememberRequested };
+
+    isSessionAuthenticated = true;
+    activePlayerBackendId = profile.backendId || null;
+
+    usernameInput.value = '';
+    passwordInput.value = '';
+
+    const welcomeName = apiPlayer.display_name || username;
+    completeAuthenticatedLogin(username, profile, {
+      message: `Welcome back, ${welcomeName}.`,
+      triggerGeolocation: true,
+    });
   } catch (error) {
-    console.error('Failed to process credentials', error);
-    updateStatus('Unable to verify credentials. Try again.');
+    let message = 'Unable to sign in. Please try again.';
+    if (error && typeof error === 'object') {
+      if (error.status === 401) {
+        message = 'Incorrect username or password.';
+      } else if (error.status === 400 && error.data && typeof error.data === 'object') {
+        if (Array.isArray(error.data.non_field_errors) && error.data.non_field_errors.length) {
+          message = error.data.non_field_errors[0];
+        } else if (typeof error.data.detail === 'string') {
+          message = error.data.detail;
+        }
+      } else if (error.cause) {
+        message = 'Network error. Check your connection and try again.';
+      }
+      if (error.status === 401 || error.status === 403) {
+        isSessionAuthenticated = false;
+        activePlayerBackendId = null;
+      }
+    }
+    console.warn('Login failed', error);
+    passwordInput.value = '';
+    passwordInput.focus();
+    updateStatus(message);
     return;
+  } finally {
+    resetSubmittingState();
   }
-
-  if (profile.auth) {
-    profile.auth.rememberOnDevice = rememberRequested;
-  }
-
-  usernameInput.value = '';
-  passwordInput.value = '';
-
-  completeAuthenticatedLogin(username, profile, {
-    message: statusMessage,
-    triggerGeolocation: true,
-  });
 }
 
 function completeAuthenticatedLogin(username, profile, options = {}) {
@@ -3090,6 +3744,11 @@ function completeAuthenticatedLogin(username, profile, options = {}) {
 
   profile.cooldownUntil = null;
   currentUser = username;
+  players[username] = profile;
+  if (profile.backendId !== undefined && profile.backendId !== null) {
+    activePlayerBackendId = profile.backendId;
+    isSessionAuthenticated = true;
+  }
   if (
     profile.lastKnownLocation &&
     typeof profile.lastKnownLocation.lng === 'number' &&
@@ -3097,13 +3756,25 @@ function completeAuthenticatedLogin(username, profile, options = {}) {
   ) {
     lastKnownLocation = [profile.lastKnownLocation.lng, profile.lastKnownLocation.lat];
   }
+  if (profile.lastKnownLocation && profile.lastKnownLocation.districtId) {
+    lastPreciseLocationInfo = {
+      id: safeId(profile.lastKnownLocation.districtId),
+      name:
+        (profile.lastKnownLocation.districtName && profile.lastKnownLocation.districtName.trim()) ||
+        `District ${profile.lastKnownLocation.districtId}`,
+    };
+  }
 
   const rememberState = Boolean(profile.auth && profile.auth.rememberOnDevice);
   if (rememberPasswordInput) {
     rememberPasswordInput.checked = rememberState;
   }
 
-  setLastSignedInUser(username);
+  if (rememberState) {
+    setLastSignedInUser(username);
+  } else if (getLastSignedInUser() === username) {
+    setLastSignedInUser(null);
+  }
   savePlayers();
   renderKnownPlayers();
   renderPlayerState();
@@ -3135,6 +3806,16 @@ function handleExistingPlayer(username) {
   const profile = ensurePlayerProfile(safeName);
   const hasStoredLocation = profile && profile.lastKnownLocation && typeof profile.lastKnownLocation.lng === 'number' && typeof profile.lastKnownLocation.lat === 'number';
   lastKnownLocation = hasStoredLocation ? [profile.lastKnownLocation.lng, profile.lastKnownLocation.lat] : null;
+  if (profile && profile.lastKnownLocation && profile.lastKnownLocation.districtId) {
+    lastPreciseLocationInfo = {
+      id: safeId(profile.lastKnownLocation.districtId),
+      name:
+        (profile.lastKnownLocation.districtName && profile.lastKnownLocation.districtName.trim()) ||
+        `District ${profile.lastKnownLocation.districtId}`,
+    };
+  } else {
+    lastPreciseLocationInfo = null;
+  }
   if (usernameInput) {
     usernameInput.value = safeName;
   }
@@ -3177,6 +3858,7 @@ function switchToWelcome() {
     devClearUsersButton.disabled = true;
   }
   lastKnownLocation = null;
+  lastPreciseLocationInfo = null;
   currentDistrictId = null;
   currentDistrictName = null;
   if (isMobileViewport()) {
@@ -3338,6 +4020,7 @@ async function handleCheckIn(options = {}) {
   } else {
     profile.attackPoints += pointsAwarded;
   }
+  profile.serverCheckinCount = profile.checkins.length;
   if (
     (locationSource === 'map' || locationSource === 'geolocated' || locationSource === 'profile') &&
     saveProfileLocation(profile, {
@@ -3367,6 +4050,7 @@ async function handleCheckIn(options = {}) {
 
   savePlayers();
   renderPlayerState();
+  scheduleProfileStatsSync(profile);
   const statusType = isDefending ? 'Defended' : 'Captured';
   const pointsLabel = isDefending ? 'defend' : 'attack';
   const multiplierText = effectiveMultiplier > 1 ? ` (x${effectiveMultiplier})` : '';
@@ -3386,9 +4070,11 @@ function handleClearHistory() {
   }
   const profile = ensurePlayerProfile(currentUser);
   profile.checkins = [];
+  profile.serverCheckinCount = 0;
   savePlayers();
   renderPlayerState();
   updateStatus('Check-in history cleared.');
+  scheduleProfileStatsSync(profile);
 }
 
 function handleSetHomeDistrict() {
@@ -3484,6 +4170,7 @@ async function handleRangedAttack({ districtId, districtName, contextCoords = nu
   profile.points += pointsAwarded;
   profile.attackPoints += pointsAwarded;
   profile.nextCheckinMultiplier = 1;
+  profile.serverCheckinCount = profile.checkins.length;
 
   applyDistrictScoreDelta(safeDistrictId, -pointsAwarded, name);
 
@@ -3498,6 +4185,7 @@ async function handleRangedAttack({ districtId, districtName, contextCoords = nu
 
   savePlayers();
   renderPlayerState();
+  scheduleProfileStatsSync(profile);
   const multiplierText = chargeMultiplier > 1 ? ` (x${chargeMultiplier})` : '';
   if (contextCoords || contextPoint) {
     showAttackHitmarker({ lngLat: contextCoords, point: contextPoint });
@@ -3933,7 +4621,7 @@ function initialiseMap() {
     antialias: true,
   });
 
-  map.addControl(new maplibregl.NavigationControl(), 'top-right');
+  map.addControl(new maplibregl.NavigationControl({ showZoom: false, showCompass: false }), 'top-right');
 
   geolocateControl = new maplibregl.GeolocateControl({
     positionOptions: { enableHighAccuracy: true },
@@ -4083,9 +4771,7 @@ function showMap(triggerGeolocation) {
 
 if (backButton) {
   backButton.addEventListener('click', () => {
-    currentUser = null;
-    renderPlayerState();
-    switchToWelcome();
+    performLogout();
   });
 }
 
@@ -4096,6 +4782,22 @@ if (findMeButton) {
         geolocateControl.trigger();
       }
     });
+  });
+}
+
+if (mobileFindMeButton) {
+  mobileFindMeButton.addEventListener('click', () => {
+    ensureMap(() => {
+      if (geolocateControl) {
+        geolocateControl.trigger();
+      }
+    });
+  });
+}
+
+if (mobileCheckInButton) {
+  mobileCheckInButton.addEventListener('click', () => {
+    handleCheckIn();
   });
 }
 
@@ -4113,16 +4815,10 @@ if (drawerCheckinButton) {
   });
 }
 
-if (drawerSwitchButton) {
-  drawerSwitchButton.addEventListener('click', () => {
+if (drawerLogoutButton) {
+  drawerLogoutButton.addEventListener('click', () => {
     setMobileDrawerState(false);
-    if (backButton) {
-      backButton.click();
-    } else {
-      currentUser = null;
-      renderPlayerState();
-      switchToWelcome();
-    }
+    performLogout();
   });
 }
 
@@ -4157,6 +4853,7 @@ if (drawerHomeSelect && drawerHomeSaveButton) {
     profile.homeDistrictName = option.name;
     savePlayers();
     renderPlayerState();
+    scheduleProfileStatsSync(profile);
     updateStatus(previousId === option.id ? `${option.name} remains your home district.` : `${option.name} is now your home district.`);
   });
 }
