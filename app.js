@@ -66,7 +66,10 @@ const drawerThemeToggleButton = document.getElementById('drawer-theme-toggle');
 const drawerLeaderboardLink = document.getElementById('drawer-leaderboard');
 const cooldownBadge = document.getElementById('cooldown-badge');
 const recentCheckinTagPrimary = document.getElementById('recent-checkin-1');
-const recentCheckinTagSecondary = document.getElementById('recent-checkin-2');
+const currentUserTag = document.getElementById('current-user-tag');
+if (currentUserTag) {
+  updateCurrentUserTag(null);
+}
 
 const APP_VERSION =
   typeof window !== 'undefined' && window.__APP_VERSION__
@@ -2962,6 +2965,7 @@ function renderPlayerState() {
     playerPointsLabel.textContent = '0';
     playerCheckinsLabel.textContent = '0';
     renderCheckins([]);
+    updateCurrentUserTag(null);
     checkInButton.disabled = true;
     checkInButton.title = 'Log in to check in';
     checkInButton.textContent = 'Check In';
@@ -3013,6 +3017,7 @@ function renderPlayerState() {
   playerUsernameLabel.textContent = currentUser;
   playerPointsLabel.textContent = Math.round(profile.points).toString();
   playerCheckinsLabel.textContent = profile.checkins.length.toString();
+  updateCurrentUserTag(currentUser);
   updateDrawerSummaries(profile);
   populateDrawerHomeSelect(profile);
   renderCheckins(profile.checkins);
@@ -3282,15 +3287,30 @@ function applyRecentCheckinTagState(element, entry, { fallbackText = '', hideWhe
   element.classList.add('neutral');
 }
 
+function updateCurrentUserTag(username) {
+  if (!currentUserTag) {
+    return;
+  }
+  if (!username) {
+    currentUserTag.textContent = '@Guest';
+    currentUserTag.classList.add('empty');
+    currentUserTag.setAttribute('aria-hidden', 'true');
+    currentUserTag.disabled = true;
+    return;
+  }
+  currentUserTag.textContent = `@${username}`;
+  currentUserTag.classList.remove('empty');
+  currentUserTag.removeAttribute('aria-hidden');
+  currentUserTag.disabled = false;
+}
+
 function updateRecentCheckinTags(history) {
-  if (!recentCheckinTagPrimary || !recentCheckinTagSecondary) {
+  if (!recentCheckinTagPrimary) {
     return;
   }
   const first = history && history.length ? history[0] : null;
-  const second = history && history.length > 1 ? history[1] : null;
 
   applyRecentCheckinTagState(recentCheckinTagPrimary, first, { fallbackText: 'No check-ins yet' });
-  applyRecentCheckinTagState(recentCheckinTagSecondary, second, { hideWhenEmpty: true });
 }
 
 function calculateCheckinPoints(entry) {
@@ -4801,6 +4821,23 @@ if (mobileCheckInButton) {
   });
 }
 
+if (currentUserTag) {
+  currentUserTag.addEventListener('click', () => {
+    if (currentUser) {
+      setMobileDrawerState(true);
+    }
+  });
+  currentUserTag.addEventListener('keydown', (event) => {
+    if (!currentUser) {
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setMobileDrawerState(true);
+    }
+  });
+}
+
 
 if (floatingCheckInButton) {
   floatingCheckInButton.addEventListener('click', () => {
@@ -5005,7 +5042,7 @@ if (devChangeUserButton) {
   });
 }
 
-const recentTagElements = [recentCheckinTagPrimary, recentCheckinTagSecondary].filter(Boolean);
+const recentTagElements = [recentCheckinTagPrimary].filter(Boolean);
 recentTagElements.forEach((tag) => {
   tag.setAttribute('role', 'button');
   tag.tabIndex = 0;
@@ -5029,9 +5066,16 @@ const recentTagsContainer = document.querySelector('.recent-tags');
 if (recentTagsContainer) {
   recentTagsContainer.addEventListener('click', (event) => {
     const target = event.target.closest('.recent-tag');
-    if (target && !target.classList.contains('empty')) {
-      openRecentCheckinsDrawer(target);
+    if (!target || target.classList.contains('empty')) {
+      return;
     }
+    if (target.classList.contains('user-tag')) {
+      if (currentUser) {
+        setMobileDrawerState(true);
+      }
+      return;
+    }
+    openRecentCheckinsDrawer(target);
   });
 }
 

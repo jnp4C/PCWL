@@ -220,6 +220,7 @@ body[data-theme='dark'] .app-version-badge {
   transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
   cursor: pointer;
   user-select: none;
+  border: none;
 }
 
 .recent-tag.neutral {
@@ -242,6 +243,18 @@ body[data-theme='dark'] .app-version-badge {
 
 .recent-tag.empty {
   display: none;
+}
+
+.recent-tag.user-tag {
+  background: rgba(76, 29, 149, 0.26);
+  color: #fdf9ff;
+}
+
+.recent-tag.user-tag:disabled,
+.recent-tag.user-tag.empty {
+  background: rgba(76, 29, 149, 0.16);
+  color: rgba(253, 249, 255, 0.6);
+  cursor: default;
 }
 
 .quick-checkin {
