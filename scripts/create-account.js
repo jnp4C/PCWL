@@ -1,12 +1,8 @@
 'use strict';
 
 (function () {
-  const STORAGE_KEY = 'pragueExplorerPlayers';
-  const LAST_SIGNED_IN_USER_KEY = 'pragueExplorerLastUser';
-  const MIN_PASSWORD_LENGTH = 4;
-  const DEV_USERNAME = 'dev';
-  const DEV_DEFAULT_PASSWORD = 'deve';
   const USERNAME_PATTERN = /^[A-Za-z0-9_]{3,32}$/;
+  const MIN_PASSWORD_LENGTH = 4;
 
   const form = document.getElementById('create-account-form');
   const usernameInput = document.getElementById('new-username');
@@ -14,156 +10,104 @@
   const confirmPasswordInput = document.getElementById('confirm-password');
   const backButton = document.getElementById('back-to-login');
   const messageBox = document.getElementById('account-message');
+  const submitButton = form ? form.querySelector('button[type="submit"]') : null;
+  const homeUrl = (backButton && backButton.dataset.homeUrl) || window.__APP_HOME_URL__ || '/';
 
-  if (!form || !usernameInput || !passwordInput || !confirmPasswordInput) {
+  if (backButton) {
+    backButton.addEventListener('click', () => {
+      window.location.href = homeUrl;
+    });
+  }
+
+  if (!form || !usernameInput || !passwordInput || !confirmPasswordInput || !messageBox) {
     return;
   }
 
   function setMessage(text, variant = 'info') {
-    if (!messageBox) {
-      return;
-    }
     messageBox.textContent = text;
     messageBox.classList.remove('info', 'error', 'success');
     messageBox.classList.add(variant);
   }
 
-  function isValidUsername(value) {
-    return USERNAME_PATTERN.test(value);
-  }
-
-  function arrayBufferToBase64(buffer) {
-    if (!buffer) {
-      return '';
+  function getCookie(name) {
+    if (!name || typeof document === 'undefined') {
+      return null;
     }
-    let bytes;
-    if (buffer instanceof ArrayBuffer) {
-      bytes = new Uint8Array(buffer);
-    } else if (ArrayBuffer.isView(buffer)) {
-      bytes = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-    } else {
-      return '';
-    }
-    let binary = '';
-    for (let i = 0; i < bytes.byteLength; i += 1) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    if (typeof window !== 'undefined' && typeof window.btoa === 'function') {
-      return window.btoa(binary);
-    }
-    return binary;
-  }
-
-  function getCrypto() {
-    if (typeof window !== 'undefined' && window.crypto) {
-      return window.crypto;
-    }
-    if (typeof self !== 'undefined' && self.crypto) {
-      return self.crypto;
-    }
-    if (typeof crypto !== 'undefined') {
-      return crypto;
+    const cookies = document.cookie ? document.cookie.split(';') : [];
+    for (const cookie of cookies) {
+      const trimmed = cookie.trim();
+      if (!trimmed) {
+        continue;
+      }
+      if (trimmed.startsWith(`${name}=`)) {
+        return decodeURIComponent(trimmed.substring(name.length + 1));
+      }
     }
     return null;
   }
 
-  function generateSalt() {
-    const cryptoObj = getCrypto();
-    if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
-      const bytes = new Uint8Array(16);
-      cryptoObj.getRandomValues(bytes);
-      return arrayBufferToBase64(bytes);
+  async function createAccount(payload) {
+    const csrfToken = getCookie('csrftoken');
+    const headers = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
+    if (csrfToken) {
+      headers['X-CSRFToken'] = csrfToken;
     }
-    const entropy = `${Date.now()}-${Math.random()}-${Math.random()}`;
-    if (typeof TextEncoder !== 'undefined') {
-      return arrayBufferToBase64(new TextEncoder().encode(entropy));
-    }
-    const fallbackBytes = new Uint8Array(entropy.split('').map((char) => char.charCodeAt(0)));
-    return arrayBufferToBase64(fallbackBytes);
-  }
+    const response = await fetch('/api/players/', {
+      method: 'POST',
+      headers,
+      credentials: 'same-origin',
+      body: JSON.stringify(payload),
+    });
 
-  async function hashPassword(password, salt) {
-    const cryptoObj = getCrypto();
-    const material = `${salt}:${password}`;
-    if (cryptoObj && cryptoObj.subtle && typeof cryptoObj.subtle.digest === 'function' && typeof TextEncoder !== 'undefined') {
-      const encoder = new TextEncoder();
-      const data = encoder.encode(material);
-      const digest = await cryptoObj.subtle.digest('SHA-256', data);
-      return arrayBufferToBase64(digest);
-    }
-    if (typeof TextEncoder !== 'undefined') {
-      const encoder = new TextEncoder();
-      return arrayBufferToBase64(encoder.encode(material));
-    }
-    const fallbackBytes = material.split('').map((char) => char.charCodeAt(0));
-    return arrayBufferToBase64(new Uint8Array(fallbackBytes));
-  }
+    const contentType = response.headers.get('Content-Type') || '';
+    const data = contentType.includes('application/json') ? await response.json() : null;
 
-  function loadPlayers() {
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (!stored) {
-        return {};
-      }
-      const parsed = JSON.parse(stored);
-      if (parsed && typeof parsed === 'object') {
-        return parsed;
-      }
-    } catch (error) {
-      console.warn('Failed to load players from storage', error);
-    }
-    return {};
-  }
-
-  function savePlayers(players) {
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(players));
-    } catch (error) {
-      console.warn('Failed to save players to storage', error);
+    if (!response.ok) {
+      const error = new Error('Unable to create account.');
+      error.status = response.status;
+      error.data = data;
       throw error;
     }
+
+    return data;
   }
 
-  function ensureDevCredentials(players) {
-    if (!Object.prototype.hasOwnProperty.call(players, DEV_USERNAME)) {
-      return Promise.resolve(players);
+  function extractErrorMessage(error) {
+    if (!error || typeof error !== 'object') {
+      return 'Unable to create account. Try again.';
     }
-    const salt = generateSalt();
-    return hashPassword(DEV_DEFAULT_PASSWORD, salt)
-      .then((passwordHash) => {
-        const devProfile = players[DEV_USERNAME] && typeof players[DEV_USERNAME] === 'object' ? players[DEV_USERNAME] : {};
-        devProfile.auth = {
-          passwordHash,
-          salt,
-          createdAt: Date.now(),
-          rememberOnDevice: false,
-        };
-        players[DEV_USERNAME] = devProfile;
-        return players;
-      })
-      .catch((error) => {
-        console.warn('Failed to refresh dev account password', error);
-        return players;
-      });
-  }
-
-  function usernameExists(players, username) {
-    const lower = username.toLowerCase();
-    if (lower === DEV_USERNAME) {
-      return true;
+    if (error.status === 400 && error.data && typeof error.data === 'object') {
+      if (Array.isArray(error.data.username) && error.data.username.length) {
+        return error.data.username[0];
+      }
+      if (Array.isArray(error.data.password) && error.data.password.length) {
+        return error.data.password[0];
+      }
+      if (typeof error.data.detail === 'string') {
+        return error.data.detail;
+      }
     }
-    return Object.keys(players).some((existing) => existing.toLowerCase() === lower);
+    if (error.status === 409) {
+      return 'That username is already taken. Choose another.';
+    }
+    if (error.cause) {
+      return 'Network error. Check your connection and try again.';
+    }
+    return error.message || 'Unable to create account. Try again.';
   }
 
-  async function handleSubmit(event) {
+  form.addEventListener('submit', async (event) => {
     event.preventDefault();
 
     const username = usernameInput.value.trim();
     const password = passwordInput.value;
     const confirmPassword = confirmPasswordInput.value;
 
-    if (!isValidUsername(username)) {
-      setMessage('Invalid username. Use 3-32 characters made of letters, numbers, or underscores.', 'error');
+    if (!USERNAME_PATTERN.test(username)) {
+      setMessage('Invalid username. Use 3-32 letters, numbers, or underscores.', 'error');
       usernameInput.focus();
       return;
     }
@@ -180,47 +124,32 @@
       return;
     }
 
-    const players = loadPlayers();
-    if (usernameExists(players, username)) {
-      setMessage('That username is already taken. Choose another.', 'error');
-      usernameInput.focus();
-      return;
-    }
-
-    setMessage('Creating your account…', 'info');
     form.classList.add('is-submitting');
+    if (submitButton) {
+      submitButton.disabled = true;
+    }
+    setMessage('Creating your account…', 'info');
 
     try {
-      const salt = generateSalt();
-      const passwordHash = await hashPassword(password, salt);
-      const profile = players[username] && typeof players[username] === 'object' ? players[username] : {};
-      profile.auth = {
-        passwordHash,
-        salt,
-        createdAt: Date.now(),
-        rememberOnDevice: false,
-      };
-      players[username] = profile;
-      const updatedPlayers = await ensureDevCredentials(players);
-      savePlayers(updatedPlayers);
-      window.localStorage.setItem(LAST_SIGNED_IN_USER_KEY, username);
-
-      setMessage('Account created! Return to the login page to sign in.', 'success');
-      form.reset();
-      usernameInput.focus();
+      await createAccount({ username, password });
+      setMessage('Account created! Redirecting to login…', 'success');
+      usernameInput.value = '';
+      passwordInput.value = '';
+      confirmPasswordInput.value = '';
+      window.setTimeout(() => {
+        window.location.href = homeUrl;
+      }, 1200);
     } catch (error) {
-      console.error('Failed to create account', error);
-      setMessage('Something went wrong while creating your account. Please try again.', 'error');
+      console.warn('Account creation failed', error);
+      setMessage(extractErrorMessage(error), 'error');
+      passwordInput.value = '';
+      confirmPasswordInput.value = '';
+      passwordInput.focus();
     } finally {
       form.classList.remove('is-submitting');
+      if (submitButton) {
+        submitButton.disabled = false;
+      }
     }
-  }
-
-  form.addEventListener('submit', handleSubmit);
-
-  if (backButton) {
-    backButton.addEventListener('click', () => {
-      window.location.href = 'index.html';
-    });
-  }
+  });
 })();
