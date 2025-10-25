@@ -175,4 +175,31 @@
       });
     } catch (_) {}
   });
+
+  // Report browser-enforced Content Security Policy violations to aid debugging.
+  window.addEventListener('securitypolicyviolation', (event) => {
+    try {
+      const blockedURI = event.blockedURI || '';
+      const violatedDirective = event.violatedDirective || '';
+      const effectiveDirective = event.effectiveDirective || '';
+      const sourceFile = event.sourceFile || '';
+      const lineNumber = event.lineNumber || 0;
+      const columnNumber = event.columnNumber || 0;
+      const disposition = event.disposition || '';
+      const sample = event.sample || '';
+      const summary = `CSP violation: blocked ${effectiveDirective || violatedDirective} → ${blockedURI || '(unknown)'}`;
+      const details = [
+        sourceFile ? `at ${sourceFile}:${lineNumber}:${columnNumber}` : null,
+        violatedDirective ? `violated-directive: ${violatedDirective}` : null,
+        disposition ? `disposition: ${disposition}` : null,
+        sample ? `sample: ${sample}` : null,
+      ].filter(Boolean).join('\n');
+      handleError({
+        time: fmtNow(),
+        summary,
+        details,
+        context: { type: 'securitypolicyviolation', blockedURI, violatedDirective, effectiveDirective },
+      });
+    } catch (_) {}
+  });
 })();

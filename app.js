@@ -69,6 +69,9 @@ const profileImagePreview = document.getElementById('profile-image-preview');
 const profileImageSaveButton = document.getElementById('profile-image-save');
 const profileImageClearButton = document.getElementById('profile-image-clear');
 const profileImageFeedback = document.getElementById('profile-image-feedback');
+const markerColorInput = document.getElementById('marker-color-input');
+const markerColorResetButton = document.getElementById('marker-color-reset');
+const markerColorFeedback = document.getElementById('marker-color-feedback');
 const recentCheckinTagPrimary = document.getElementById('recent-checkin-1');
 const currentUserTag = document.getElementById('current-user-tag');
 const settingsButton = document.getElementById('settings-button');
@@ -203,8 +206,14 @@ const HITMARKER_GIF_URL = resolveDataUrl('attack_hitmarker.gif?v=1');
 const DEFEND_HITMARKER_GIF_URL = resolveDataUrl('defend_hitmarker.gif?v=1');
 const MOBILE_CONTEXT_MENU_LONG_PRESS_MS = 650;
 const MOBILE_CONTEXT_MENU_MOVE_THRESHOLD = 18;
+const DEFAULT_MARKER_COLOR = '#6366f1';
+const MARKER_COLOR_PATTERN = /^#(?:[0-9a-fA-F]{6})$/;
+const FRIEND_LOCATIONS_SOURCE_ID = 'friend-locations';
+const FRIEND_LOCATIONS_LAYER_ID = 'friend-locations';
+const FRIEND_LOCATIONS_GLOW_LAYER_ID = 'friend-locations-glow';
 const API_BASE_URL = '/api';
 const CSRF_HEADER_NAME = 'X-CSRFToken';
+let friendLocationsGeoJson = { type: 'FeatureCollection', features: [] };
 
 function buildApiUrl(path) {
   if (!path) {
@@ -329,6 +338,12 @@ function resolveDataUrl(filename) {
 
 const GEOLOCATION_SECURE_CONTEXT_MESSAGE =
   'Geolocation is blocked on insecure connections. Open the app via https:// or http://localhost to enable location.';
+const LIVE_LOCATION_WATCH_OPTIONS = {
+  enableHighAccuracy: true,
+  maximumAge: 5000,
+  timeout: 30000,
+};
+const LIVE_LOCATION_MIN_UPDATE_MS = 5000;
 
 function isSecureOrigin() {
   if (typeof window === 'undefined' || !window.location) {
@@ -1021,6 +1036,7 @@ function ensurePlayerProfile(username) {
   if (!profile.lastKnownLocation || typeof profile.lastKnownLocation !== 'object') {
     profile.lastKnownLocation = null;
   }
+  profile.mapMarkerColor = normaliseMarkerColor(profile.mapMarkerColor);
   ensureProfileCooldownState(profile);
   profile.nextCheckinMultiplier = Math.max(1, normaliseNumber(profile.nextCheckinMultiplier, 1));
   profile.skipCooldown = Boolean(profile.skipCooldown);
@@ -1052,17 +1068,34 @@ function normaliseApiLastKnownLocation(data) {
       ? data.districtName.trim()
       : null;
   const timestamp = Number.isFinite(Number(data.timestamp)) ? Number(data.timestamp) : Date.now();
+  const source = normaliseLocationSource(data.source, 'profile');
+  let resolvedDistrictId = districtId;
+  let resolvedDistrictName = districtName;
 
-  if (lng === null && lat === null && !districtId && !districtName) {
+  if (!resolvedDistrictId && lng !== null && lat !== null && districtGeoJson && Array.isArray(districtGeoJson.features)) {
+    const feature = findDistrictFeatureByPoint(lng, lat);
+    if (feature) {
+      const inferredId = getDistrictId(feature);
+      if (inferredId) {
+        resolvedDistrictId = safeId(inferredId);
+        if (!resolvedDistrictName) {
+          resolvedDistrictName = getDistrictName(feature) || null;
+        }
+      }
+    }
+  }
+
+  if (lng === null && lat === null && !resolvedDistrictId && !resolvedDistrictName) {
     return null;
   }
 
   return {
     lng,
     lat,
-    districtId,
-    districtName,
+    districtId: resolvedDistrictId,
+    districtName: resolvedDistrictName,
     timestamp,
+    source,
   };
 }
 
@@ -1169,6 +1202,11 @@ function applyServerPlayerData(profile, apiPlayer) {
   if (typeof apiPlayer.profile_image_url === 'string') {
     profile.profileImageUrl = apiPlayer.profile_image_url;
   }
+  if (typeof apiPlayer.map_marker_color === 'string') {
+    profile.mapMarkerColor = normaliseMarkerColor(apiPlayer.map_marker_color);
+  } else {
+    profile.mapMarkerColor = normaliseMarkerColor(profile.mapMarkerColor);
+  }
 
   profile.points = Math.max(0, normaliseNumber(apiPlayer.score, profile.points || 0));
   profile.attackPoints = Math.max(0, normaliseNumber(apiPlayer.attack_points, profile.attackPoints || 0));
@@ -1189,6 +1227,24 @@ function applyServerPlayerData(profile, apiPlayer) {
 
   const serverCheckinsCount = normaliseNumber(apiPlayer.checkins, profile.checkins ? profile.checkins.length : 0);
   profile.serverCheckinCount = Math.max(serverCheckinsCount, Array.isArray(profile.checkins) ? profile.checkins.length : 0);
+
+  if (Object.prototype.hasOwnProperty.call(apiPlayer, 'last_known_location')) {
+    profile.lastKnownLocation = normaliseApiLastKnownLocation(apiPlayer.last_known_location);
+    if (currentUser && profile === ensurePlayerProfile(currentUser) && profile.lastKnownLocation) {
+      const { lng, lat, districtId, districtName } = profile.lastKnownLocation;
+      if (typeof lng === 'number' && Number.isFinite(lng) && typeof lat === 'number' && Number.isFinite(lat)) {
+        lastKnownLocation = [lng, lat];
+      }
+      if (districtId) {
+        lastPreciseLocationInfo = {
+          id: safeId(districtId),
+          name:
+            (typeof districtName === 'string' && districtName.trim()) || `District ${districtId}`,
+        };
+      }
+      ensurePreciseLocationResolution(profile);
+    }
+  }
 
   const homeCode = typeof apiPlayer.home_district_code === 'string' && apiPlayer.home_district_code.trim()
     ? safeId(apiPlayer.home_district_code)
@@ -1227,10 +1283,6 @@ function applyServerPlayerData(profile, apiPlayer) {
   profile.isActive = apiPlayer.is_active !== undefined ? Boolean(apiPlayer.is_active) : profile.isActive;
   profile.createdAt = apiPlayer.created_at || profile.createdAt || null;
   profile.updatedAt = apiPlayer.updated_at || profile.updatedAt || null;
-
-  if (Object.prototype.hasOwnProperty.call(apiPlayer, 'last_known_location')) {
-    profile.lastKnownLocation = normaliseApiLastKnownLocation(apiPlayer.last_known_location);
-  }
 
   profile.backendSyncedAt = Date.now();
   ensureProfileCooldownState(profile);
@@ -1425,8 +1477,8 @@ async function attemptLocalMeleeAttackAt(lng, lat, options = {}) {
     return false;
   }
   const locationSource = locationInfo.source || null;
-  const isPreciseLocal = locationSource === 'map' || locationSource === 'geolocated';
-  if (!isPreciseLocal) {
+  const localSources = new Set(['map', 'geolocated', 'cached', 'profile']);
+  if (!localSources.has(locationSource)) {
     return false;
   }
   const localId = safeId(locationInfo.id);
@@ -1518,14 +1570,47 @@ function getCurrentLocationDistrictInfo(options) {
     };
   }
 
-  if (profile && profile.lastKnownLocation && profile.lastKnownLocation.districtId) {
-    return {
-      id: safeId(profile.lastKnownLocation.districtId),
-      name: profile.lastKnownLocation.districtName || null,
-      source: 'profile',
-      lng: typeof profile.lastKnownLocation.lng === 'number' ? profile.lastKnownLocation.lng : null,
-      lat: typeof profile.lastKnownLocation.lat === 'number' ? profile.lastKnownLocation.lat : null,
-    };
+  if (profile && profile.lastKnownLocation) {
+    const source = normaliseLocationSource(profile.lastKnownLocation.source, 'profile');
+    const lng = typeof profile.lastKnownLocation.lng === 'number' && Number.isFinite(profile.lastKnownLocation.lng)
+      ? profile.lastKnownLocation.lng
+      : null;
+    const lat = typeof profile.lastKnownLocation.lat === 'number' && Number.isFinite(profile.lastKnownLocation.lat)
+      ? profile.lastKnownLocation.lat
+      : null;
+    let id = profile.lastKnownLocation.districtId ? safeId(profile.lastKnownLocation.districtId) : null;
+    let name = profile.lastKnownLocation.districtName || null;
+
+    if (!id && lng !== null && lat !== null && districtGeoJson && Array.isArray(districtGeoJson.features)) {
+      const feature = findDistrictFeatureByPoint(lng, lat);
+      if (feature) {
+        const inferredId = getDistrictId(feature);
+        if (inferredId) {
+          id = safeId(inferredId);
+          if (!name) {
+            name = getDistrictName(feature) || null;
+          }
+        }
+      }
+    } else if (!id && lng !== null && lat !== null && districtGeoJsonPromise) {
+      districtGeoJsonPromise
+        .then(() => {
+          if (districtGeoJson && Array.isArray(districtGeoJson.features)) {
+            ensurePreciseLocationResolution(profile);
+          }
+        })
+        .catch(() => {});
+    }
+
+    if (id || lng !== null || lat !== null) {
+      return {
+        id: id ? safeId(id) : null,
+        name,
+        source,
+        lng,
+        lat,
+      };
+    }
   }
 
   if (allowHomeFallback && profile && profile.homeDistrictId) {
@@ -1541,17 +1626,28 @@ function getCurrentLocationDistrictInfo(options) {
   return null;
 }
 
-function saveProfileLocation(profile, data) {
+function saveProfileLocation(profile, data, options = {}) {
   if (!profile || !data) {
     return false;
   }
 
+  const originRaw = Object.prototype.hasOwnProperty.call(options, 'origin') ? options.origin : data.source;
+  const origin = normaliseLocationSource(originRaw, null);
+  const isGeolocatedOrigin = origin === 'geolocated';
+  const forcePersist = options.forcePersist === true;
+
+  if (!forcePersist && !isGeolocatedOrigin) {
+    return false;
+  }
+
+  const timestamp = Number.isFinite(Number(data.timestamp)) ? Number(data.timestamp) : Date.now();
   const sanitized = {
     lng: typeof data.lng === 'number' && Number.isFinite(data.lng) ? data.lng : null,
     lat: typeof data.lat === 'number' && Number.isFinite(data.lat) ? data.lat : null,
     districtId: data.districtId ? safeId(data.districtId) : null,
     districtName: data.districtName || null,
-    timestamp: Date.now(),
+    timestamp,
+    source: origin,
   };
 
   const existing = profile.lastKnownLocation || {};
@@ -1581,6 +1677,18 @@ function saveProfileLocation(profile, data) {
   if (!sanitized.districtId && existing.districtId) {
     sanitized.districtId = existing.districtId;
   }
+  if (!sanitized.source && existing.source) {
+    sanitized.source = normaliseLocationSource(existing.source, null);
+  }
+
+  if (
+    sanitized.lng === null &&
+    sanitized.lat === null &&
+    !sanitized.districtId &&
+    !sanitized.districtName
+  ) {
+    return false;
+  }
 
   const hasChanged =
     !existing ||
@@ -1589,7 +1697,8 @@ function saveProfileLocation(profile, data) {
     existing.lat !== sanitized.lat ||
     existing.districtName !== sanitized.districtName ||
     !existing.timestamp ||
-    sanitized.timestamp !== existing.timestamp;
+    sanitized.timestamp !== existing.timestamp ||
+    normaliseLocationSource(existing.source, null) !== sanitized.source;
 
   profile.lastKnownLocation = {
     lng: sanitized.lng,
@@ -1597,6 +1706,7 @@ function saveProfileLocation(profile, data) {
     districtId: sanitized.districtId || null,
     districtName: sanitized.districtName || null,
     timestamp: sanitized.timestamp,
+    source: sanitized.source || null,
   };
 
   if (profile.lastKnownLocation.districtId) {
@@ -1605,9 +1715,15 @@ function saveProfileLocation(profile, data) {
       name: profile.lastKnownLocation.districtName || `District ${profile.lastKnownLocation.districtId}`,
     };
   }
+  if (isGeolocatedOrigin && sanitized.lng !== null && sanitized.lat !== null) {
+    lastKnownLocation = [sanitized.lng, sanitized.lat];
+  }
 
   if (hasChanged) {
-    scheduleLastKnownLocationSync(profile);
+    const shouldSyncBackend = options.syncBackend === true || (options.syncBackend !== false && isGeolocatedOrigin);
+    if (shouldSyncBackend) {
+      scheduleLastKnownLocationSync(profile);
+    }
   }
 
   return hasChanged;
@@ -1643,6 +1759,76 @@ function scheduleLastKnownLocationSync(profile) {
     });
 }
 
+function stopLiveLocationWatch() {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    liveLocationWatchId = null;
+    return;
+  }
+  if (liveLocationWatchId !== null) {
+    try {
+      navigator.geolocation.clearWatch(liveLocationWatchId);
+    } catch (error) {
+      console.warn('Failed to clear geolocation watch', error);
+    }
+  }
+  liveLocationWatchId = null;
+  lastLiveLocationUpdate = 0;
+}
+
+function startLiveLocationWatch() {
+  if (!isSecureOrigin() || typeof navigator === 'undefined' || !navigator.geolocation) {
+    return;
+  }
+  if (liveLocationWatchId !== null) {
+    return;
+  }
+
+  const handlePosition = (position) => {
+    if (!position || !position.coords) {
+      return;
+    }
+    const { latitude, longitude } = position.coords;
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return;
+    }
+    const now = Date.now();
+    if (now - lastLiveLocationUpdate < LIVE_LOCATION_MIN_UPDATE_MS) {
+      return;
+    }
+    lastLiveLocationUpdate = now;
+
+    const lng = Number(longitude);
+    const lat = Number(latitude);
+    lastKnownLocation = [lng, lat];
+    hasTriggeredGeolocate = true;
+
+    ensureMap(() => {
+      updateCurrentDistrictFromCoordinates(lng, lat, {
+        persist: true,
+        origin: 'geolocated',
+        syncBackend: true,
+      });
+    });
+  };
+
+  const handleError = (error) => {
+    if (error && error.code === 1) {
+      stopLiveLocationWatch();
+    }
+  };
+
+  try {
+    liveLocationWatchId = navigator.geolocation.watchPosition(
+      handlePosition,
+      handleError,
+      LIVE_LOCATION_WATCH_OPTIONS
+    );
+  } catch (error) {
+    console.warn('Failed to start geolocation watch', error);
+    liveLocationWatchId = null;
+  }
+}
+
 function buildPlayerStatsPayload(profile) {
   if (!profile) {
     return null;
@@ -1657,6 +1843,7 @@ function buildPlayerStatsPayload(profile) {
       ? profile.homeDistrictName.trim()
       : null;
   const cooldownState = buildCooldownStatePayload(profile);
+  const markerColor = normaliseMarkerColor(profile.mapMarkerColor);
 
   return {
     score,
@@ -1669,6 +1856,7 @@ function buildPlayerStatsPayload(profile) {
     home_district: homeName || '',
     cooldowns: cooldownState.cooldowns,
     cooldown_details: cooldownState.details,
+    map_marker_color: markerColor,
   };
 }
 
@@ -1727,12 +1915,21 @@ function ensurePreciseLocationResolution(profile) {
       }
       const districtName = getDistrictName(feature) || null;
       if (
-        saveProfileLocation(profile, {
-          lng: lastKnownLocation[0],
-          lat: lastKnownLocation[1],
-          districtId,
-          districtName,
-        })
+        saveProfileLocation(
+          profile,
+          {
+            lng: lastKnownLocation[0],
+            lat: lastKnownLocation[1],
+            districtId,
+            districtName,
+            source: 'geolocated',
+          },
+          {
+            origin: 'geolocated',
+            forcePersist: true,
+            syncBackend: false,
+          }
+        )
       ) {
         savePlayers();
         updateHomePresenceIndicator();
@@ -1793,19 +1990,30 @@ function updateHomePresenceIndicator() {
       }
       if (!preciseInfo || !preciseInfo.id) {
         ensurePreciseLocationResolution(profile);
-        const fallbackInfo = getCurrentLocationDistrictInfo({ profile, allowHomeFallback: true });
-        if (fallbackInfo && fallbackInfo.source === 'home-fallback') {
-          statusText = 'Last known: Home district (fallback)';
-          statusClass = 'neutral';
-          titleText = 'No recent location data. Showing home district as a fallback.';
-        } else if (fallbackInfo && fallbackInfo.id) {
-          const label = fallbackInfo.name || `District ${fallbackInfo.id}`;
-          statusText = `Last known: ${label}`;
-          statusClass = 'enemy';
-          titleText = 'Location derived from your most recent activity.';
+        const profileSummary = getProfileLastKnownSummary(profile);
+        if (profileSummary) {
+          const isHome =
+            profile.homeDistrictId && profileSummary.id
+              ? safeId(profile.homeDistrictId) === safeId(profileSummary.id)
+              : false;
+          statusText = `Last known: ${profileSummary.name}`;
+          statusClass = isHome ? 'home' : 'enemy';
+          titleText = 'Last reported position from the server.';
         } else {
-          statusText = 'Unknown location';
-          titleText = 'No recent location data available.';
+          const fallbackInfo = getCurrentLocationDistrictInfo({ profile, allowHomeFallback: true });
+          if (fallbackInfo && fallbackInfo.source === 'home-fallback') {
+            statusText = 'Last known: Home district (fallback)';
+            statusClass = 'neutral';
+            titleText = 'No recent location data. Showing home district as a fallback.';
+          } else if (fallbackInfo && fallbackInfo.id) {
+            const label = fallbackInfo.name || `District ${fallbackInfo.id}`;
+            statusText = `Last known: ${label}`;
+            statusClass = 'enemy';
+            titleText = 'Location derived from your most recent activity.';
+          } else {
+            statusText = 'Unknown location';
+            titleText = 'No recent location data available.';
+          }
         }
       } else {
         const atHome = safeId(profile.homeDistrictId) === safeId(preciseInfo.id);
@@ -2055,6 +2263,9 @@ function showActionContextMenu(lng, lat, point, options = {}) {
     const matchesLocalPosition = Boolean(profile && targetId && localId && localId === targetId);
     const isPreciseLocal =
       matchesLocalPosition && (locationSource === 'map' || locationSource === 'geolocated');
+    const hasLocalPresence =
+      matchesLocalPosition &&
+      (locationSource === 'map' || locationSource === 'geolocated' || locationSource === 'cached' || locationSource === 'profile');
     const willDefend = profile && targetId && homeId && homeId === targetId;
     const allowCheck = profile && targetId && (willDefend || matchesLocalPosition || matchesLastKnown);
     const expectedLocalMultiplier = !profile
@@ -2071,9 +2282,8 @@ function showActionContextMenu(lng, lat, point, options = {}) {
     const attackOnCooldown = profile ? isActionOnCooldown(profile, COOLDOWN_KEYS.ATTACK, nowLocal) : true;
     const enemyLocalAttack = Boolean(
       profile &&
-      matchesLocalPosition &&
-      (!homeId || homeId !== localId) &&
-      (locationSource === 'map' || locationSource === 'geolocated')
+      hasLocalPresence &&
+      (!homeId || homeId !== localId)
     );
 
     if (menu.chargeButton) {
@@ -2127,7 +2337,7 @@ function showActionContextMenu(lng, lat, point, options = {}) {
     }
 
     if (menu.rangedButton) {
-      if (profile && !willDefend && !isPreciseLocal && !enemyLocalAttack && menu.targetDistrictId) {
+      if (profile && !willDefend && !enemyLocalAttack && menu.targetDistrictId) {
         menu.rangedButton.style.display = 'block';
         menu.rangedButton.disabled = attackOnCooldown;
         const rangedLabel = chargeMultiplier > 1 ? `Ranged Attack (x${chargeMultiplier})` : 'Ranged Attack (10 pts)';
@@ -2509,6 +2719,8 @@ let mobileContextMenuHandlersBound = false;
 let recentCheckinsShowAll = false;
 let recentCheckinsLastTrigger = null;
 let friendsLastTrigger = null;
+let liveLocationWatchId = null;
+let lastLiveLocationUpdate = 0;
 let friendsState = {
   loading: false,
   loaded: false,
@@ -2597,6 +2809,65 @@ function normaliseNumber(value, fallback = 0) {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+const LOCATION_SOURCE_VALUES = new Set([
+  'geolocated',
+  'map',
+  'profile',
+  'cached',
+  'home-fallback',
+  'home-remote',
+]);
+
+function normaliseLocationSource(value, fallback = null) {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+  const trimmed = value.trim().toLowerCase();
+  return LOCATION_SOURCE_VALUES.has(trimmed) ? trimmed : fallback;
+}
+
+function getProfileLastKnownSummary(profile) {
+  if (!profile || !profile.lastKnownLocation) {
+    return null;
+  }
+  const raw = profile.lastKnownLocation;
+  let id = raw.districtId ? safeId(raw.districtId) : null;
+  let name =
+    typeof raw.districtName === 'string' && raw.districtName.trim() ? raw.districtName.trim() : null;
+  const lng = typeof raw.lng === 'number' && Number.isFinite(raw.lng) ? raw.lng : null;
+  const lat = typeof raw.lat === 'number' && Number.isFinite(raw.lat) ? raw.lat : null;
+
+  if (!id && lng !== null && lat !== null && districtGeoJson && Array.isArray(districtGeoJson.features)) {
+    const feature = findDistrictFeatureByPoint(lng, lat);
+    if (feature) {
+      const inferredId = getDistrictId(feature);
+      if (inferredId) {
+        id = safeId(inferredId);
+        if (!name) {
+          name = getDistrictName(feature) || null;
+        }
+      }
+    }
+  }
+
+  if (!name && id) {
+    name = `District ${id}`;
+  }
+
+  if (!name && lng !== null && lat !== null) {
+    name = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  }
+
+  if (!name) {
+    return null;
+  }
+
+  return {
+    id: id ? safeId(id) : null,
+    name,
+  };
 }
 
 function isValidUsername(value) {
@@ -3066,11 +3337,18 @@ function showDistrictTooltip(feature, lngLat) {
   popup.setDOMContent(content).setLngLat(lngLat).addTo(map);
 }
 
-function updateCurrentDistrictFromCoordinates(lng, lat) {
+function updateCurrentDistrictFromCoordinates(lng, lat, options = {}) {
   ensureDistrictDataLoaded();
 
-  let currentFeature = null;
+  const persist = Boolean(options && options.persist);
+  const origin = normaliseLocationSource(options && options.origin ? options.origin : null, null);
+  const syncBackend =
+    options && Object.prototype.hasOwnProperty.call(options, 'syncBackend')
+      ? Boolean(options.syncBackend)
+      : true;
+
   const datasetReady = Boolean(districtGeoJson && Array.isArray(districtGeoJson.features));
+  let currentFeature = datasetReady ? findDistrictFeatureByPoint(lng, lat) : null;
   const canUseMapQuery =
     mapReady &&
     map &&
@@ -3079,7 +3357,7 @@ function updateCurrentDistrictFromCoordinates(lng, lat) {
     map.getLayer('districts-fill') &&
     (typeof map.isSourceLoaded !== 'function' || map.isSourceLoaded('prague-districts'));
 
-  if (canUseMapQuery) {
+  if (!currentFeature && canUseMapQuery) {
     const point = map.project([lng, lat]);
     const padding = 6;
     const queryGeometry = [
@@ -3092,15 +3370,11 @@ function updateCurrentDistrictFromCoordinates(lng, lat) {
     }
   }
 
-  if (!currentFeature && datasetReady) {
-    currentFeature = findDistrictFeatureByPoint(lng, lat);
-  }
-
   if (!currentFeature && !datasetReady && districtGeoJsonPromise) {
     districtGeoJsonPromise
       .then(() => {
         if (districtGeoJson) {
-          updateCurrentDistrictFromCoordinates(lng, lat);
+          updateCurrentDistrictFromCoordinates(lng, lat, options);
         }
       })
       .catch(() => {});
@@ -3110,17 +3384,26 @@ function updateCurrentDistrictFromCoordinates(lng, lat) {
     const resolvedId = getDistrictId(currentFeature);
     currentDistrictId = resolvedId ? safeId(resolvedId) : null;
     currentDistrictName = getDistrictName(currentFeature);
-    if (currentUser && players[currentUser] && currentDistrictId) {
+    if (persist && origin === 'geolocated' && currentUser && players[currentUser] && currentDistrictId) {
       const profile = ensurePlayerProfile(currentUser);
       if (
-        saveProfileLocation(profile, {
-          lng,
-          lat,
-          districtId: currentDistrictId,
-          districtName: currentDistrictName,
-        })
+        saveProfileLocation(
+          profile,
+          {
+            lng,
+            lat,
+            districtId: currentDistrictId,
+            districtName: currentDistrictName,
+            source: origin,
+          },
+          {
+            origin,
+            syncBackend,
+          }
+        )
       ) {
         savePlayers();
+        renderPlayerState();
       }
     }
   } else {
@@ -3219,6 +3502,7 @@ document.addEventListener('prague-themechange', (event) => {
 
 ensureWelcomeLogoTheme(activeTheme);
 renderAppVersionBadge();
+applyMarkerColorTheme(DEFAULT_MARKER_COLOR);
 
 document.addEventListener('click', (event) => {
   if (!actionContextMenuVisible || !actionContextMenu) {
@@ -3429,10 +3713,13 @@ function completeLogoutTransition() {
     incoming: [],
     outgoing: [],
   };
+  clearFriendLocationMarkers();
+  updateFriendLocationsLayer();
   renderFriendRequestsSection();
   closeFriendsManagePanel();
   updateFriendsDrawerContent();
   renderPlayerState();
+  applyMarkerColorTheme(DEFAULT_MARKER_COLOR);
   switchToWelcome();
 }
 
@@ -3610,6 +3897,8 @@ function renderKnownPlayers() {
 }
 
 let profileImageHandlersInitialised = false;
+let markerColorHandlersInitialised = false;
+const friendLocationMarkers = new Map();
 
 function isValidHttpUrl(value) {
   if (typeof value !== 'string') return false;
@@ -3746,17 +4035,149 @@ function initialiseProfileImageControls(profile) {
   }
 }
 
+function normaliseMarkerColor(value, fallback = DEFAULT_MARKER_COLOR) {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (MARKER_COLOR_PATTERN.test(trimmed)) {
+      return trimmed.toLowerCase();
+    }
+  }
+  return fallback;
+}
+
+function applyMarkerColorTheme(color = DEFAULT_MARKER_COLOR) {
+  if (typeof document === 'undefined' || !document.documentElement) {
+    return;
+  }
+  const resolved = normaliseMarkerColor(color);
+  document.documentElement.style.setProperty('--player-marker-color', resolved);
+}
+
+function setMarkerColorFeedback(message, type = 'info') {
+  if (!markerColorFeedback) {
+    return;
+  }
+  markerColorFeedback.textContent = message || '';
+  markerColorFeedback.dataset.type = type;
+}
+
+async function saveMarkerColor(profile, color) {
+  if (!profile || !profile.backendId) {
+    setMarkerColorFeedback('Sign in to customize your map marker.', 'error');
+    return;
+  }
+  if (!isSessionAuthenticated) {
+    setMarkerColorFeedback('Your session expired. Please sign in again.', 'error');
+    return;
+  }
+  const resolvedColor = normaliseMarkerColor(color);
+  setMarkerColorFeedback('Saving...', 'info');
+  if (markerColorInput) {
+    markerColorInput.disabled = true;
+  }
+  if (markerColorResetButton) {
+    markerColorResetButton.disabled = true;
+  }
+  try {
+    const updated = await apiRequest(`players/${profile.backendId}/`, {
+      method: 'PATCH',
+      body: { map_marker_color: resolvedColor },
+    });
+    applyServerPlayerData(profile, updated);
+    savePlayers();
+    const nextColor =
+      updated && typeof updated.map_marker_color === 'string'
+        ? normaliseMarkerColor(updated.map_marker_color)
+        : resolvedColor;
+    if (markerColorInput) {
+      markerColorInput.value = nextColor;
+    }
+    profile.mapMarkerColor = nextColor;
+    applyMarkerColorTheme(nextColor);
+    setMarkerColorFeedback('Marker color saved.', 'success');
+    updateFriendLocationsLayer();
+    if (isSessionAuthenticated && currentUser) {
+      refreshFriends(true).catch(() => null);
+    }
+    updateStatus('Marker color updated. Friends will see this on your next shared check-in.');
+  } catch (error) {
+    console.warn('Failed to save map marker color', error);
+    const message = (error && error.message) || 'Failed to save. Please try again.';
+    setMarkerColorFeedback(message, 'error');
+  } finally {
+    const editable = Boolean(profile && profile.backendId && isSessionAuthenticated);
+    if (markerColorInput) {
+      markerColorInput.disabled = !editable;
+    }
+    if (markerColorResetButton) {
+      markerColorResetButton.disabled = !editable;
+    }
+  }
+}
+
+function initialiseMarkerColorControl(profile) {
+  if (!markerColorInput || !markerColorResetButton || !markerColorFeedback) {
+    return;
+  }
+
+  const canEdit = Boolean(profile && profile.backendId && isSessionAuthenticated);
+  const activeColor = profile ? normaliseMarkerColor(profile.mapMarkerColor) : DEFAULT_MARKER_COLOR;
+  markerColorInput.value = activeColor;
+  markerColorInput.disabled = !canEdit;
+  markerColorResetButton.disabled = !canEdit;
+  markerColorInput.title = canEdit ? 'Click to pick a color for your map marker.' : 'Sign in to customize your map marker.';
+  markerColorResetButton.title = canEdit
+    ? 'Reset your marker color to the default.'
+    : 'Sign in to customize your map marker.';
+
+  if (!canEdit) {
+    setMarkerColorFeedback('Sign in to customize your map marker.', 'info');
+  } else if (!markerColorFeedback.textContent) {
+    setMarkerColorFeedback('Pick a color to update your map marker.', 'info');
+  }
+
+  if (!markerColorHandlersInitialised) {
+    markerColorHandlersInitialised = true;
+
+    markerColorInput.addEventListener('change', async () => {
+      const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+      if (!profile) {
+        setMarkerColorFeedback('Sign in to customize your map marker.', 'error');
+        markerColorInput.value = DEFAULT_MARKER_COLOR;
+        return;
+      }
+      const selected = normaliseMarkerColor(markerColorInput.value);
+      markerColorInput.value = selected;
+      await saveMarkerColor(profile, selected);
+    });
+
+    markerColorResetButton.addEventListener('click', async () => {
+      const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+      if (!profile) {
+        setMarkerColorFeedback('Sign in to customize your map marker.', 'error');
+        return;
+      }
+      markerColorInput.value = DEFAULT_MARKER_COLOR;
+      await saveMarkerColor(profile, DEFAULT_MARKER_COLOR);
+    });
+  }
+}
+
 function renderPlayerState() {
-  // Ensure profile image controls reflect current state
+  const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+
   if (profileImageUrlInput && profileImagePreview && profileImageSaveButton && profileImageClearButton) {
-    const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
     initialiseProfileImageControls(profile);
+  }
+  if (markerColorInput && markerColorResetButton && markerColorFeedback) {
+    initialiseMarkerColorControl(profile);
   }
   if (!playerUsernameLabel || !playerPointsLabel || !playerCheckinsLabel || !checkInButton) {
     return;
   }
 
-  if (!currentUser || !players[currentUser]) {
+  if (!currentUser || !profile) {
+    applyMarkerColorTheme(DEFAULT_MARKER_COLOR);
     playerUsernameLabel.textContent = 'Guest';
     playerPointsLabel.textContent = '0';
     playerCheckinsLabel.textContent = '0';
@@ -3815,7 +4236,7 @@ function renderPlayerState() {
     return;
   }
 
-  const profile = ensurePlayerProfile(currentUser);
+  applyMarkerColorTheme(profile.mapMarkerColor);
   playerUsernameLabel.textContent = currentUser;
   playerPointsLabel.textContent = Math.round(profile.points).toString();
   playerCheckinsLabel.textContent = profile.checkins.length.toString();
@@ -4404,6 +4825,189 @@ function updateRecentCheckinCooldownBadges(now = Date.now(), profile = undefined
   }
 }
 
+function createFriendLocationFeature(friend) {
+  if (!friend || typeof friend !== 'object') {
+    return null;
+  }
+  const location = friend.last_known_location;
+  if (!location || typeof location !== 'object') {
+    return null;
+  }
+  const lng = Number(location.lng);
+  const lat = Number(location.lat);
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+    return null;
+  }
+
+  const feature = {
+    type: 'Feature',
+    geometry: {
+      type: 'Point',
+      coordinates: [lng, lat],
+    },
+    properties: {
+      username: typeof friend.username === 'string' ? friend.username : '',
+      markerColor: normaliseMarkerColor(friend.map_marker_color),
+    },
+  };
+
+  if (typeof friend.display_name === 'string' && friend.display_name.trim()) {
+    feature.properties.displayName = friend.display_name.trim();
+  }
+  const districtId = location.districtId ? safeId(location.districtId) : null;
+  if (districtId) {
+    feature.properties.districtId = districtId;
+  }
+  if (typeof location.districtName === 'string' && location.districtName.trim()) {
+    feature.properties.districtName = location.districtName.trim();
+  }
+  const timestamp = Number(location.timestamp);
+  if (Number.isFinite(timestamp)) {
+    feature.properties.timestamp = Math.trunc(timestamp);
+  }
+  return feature;
+}
+
+function buildFriendLocationsGeoJson(friends) {
+  if (!Array.isArray(friends)) {
+    return { type: 'FeatureCollection', features: [] };
+  }
+  const features = [];
+  friends.forEach((friend) => {
+    const feature = createFriendLocationFeature(friend);
+    if (feature) {
+      features.push(feature);
+    }
+  });
+  return {
+    type: 'FeatureCollection',
+    features,
+  };
+}
+
+function clearFriendLocationMarkers() {
+  friendLocationMarkers.forEach((marker) => {
+    try {
+      marker.remove();
+    } catch (error) {
+      // no-op
+    }
+  });
+  friendLocationMarkers.clear();
+}
+
+function rebuildFriendLocationMarkers() {
+  if (!map || typeof map.getSource !== 'function') {
+    return;
+  }
+  clearFriendLocationMarkers();
+  if (!friendLocationsGeoJson || !Array.isArray(friendLocationsGeoJson.features)) {
+    return;
+  }
+  friendLocationsGeoJson.features.forEach((feature, index) => {
+    if (!feature || feature.type !== 'Feature' || !feature.geometry) {
+      return;
+    }
+    const coords = Array.isArray(feature.geometry.coordinates) ? feature.geometry.coordinates : null;
+    if (!coords || coords.length !== 2) {
+      return;
+    }
+    const username = feature.properties && typeof feature.properties.username === 'string' ? feature.properties.username : '';
+    const label = username ? `@${username}` : 'Friend';
+    const markerColor = feature.properties && feature.properties.markerColor ? normaliseMarkerColor(feature.properties.markerColor) : DEFAULT_MARKER_COLOR;
+
+    const el = document.createElement('div');
+    el.className = 'friend-location-label';
+    el.textContent = label;
+    el.style.setProperty('--friend-label-color', markerColor);
+
+    const key = `${label}-${coords[0]}-${coords[1]}-${index}`;
+    const marker = new maplibregl.Marker({
+      element: el,
+      anchor: 'bottom',
+      pitchAlignment: 'map',
+      rotationAlignment: 'map',
+    })
+      .setLngLat([coords[0], coords[1]])
+      .addTo(map);
+    friendLocationMarkers.set(key, marker);
+  });
+}
+
+function updateFriendLocationsLayer() {
+  const friends = Array.isArray(friendsState.items) ? friendsState.items : [];
+  friendLocationsGeoJson = buildFriendLocationsGeoJson(friends);
+  ensureMap(() => {
+    if (!map || typeof map.getSource !== 'function') {
+      return;
+    }
+    const source = map.getSource(FRIEND_LOCATIONS_SOURCE_ID);
+    if (source && typeof source.setData === 'function') {
+      source.setData(friendLocationsGeoJson);
+    }
+    rebuildFriendLocationMarkers();
+  });
+}
+
+function focusFriendLocation({ username, lng, lat, color }) {
+  const numericLng = Number(lng);
+  const numericLat = Number(lat);
+  if (!Number.isFinite(numericLng) || !Number.isFinite(numericLat)) {
+    updateStatus('Location unavailable for this friend.');
+    return;
+  }
+
+  if (!map) {
+    showMap(false);
+  }
+
+  ensureMap(() => {
+    closeFriendsDrawer({ restoreFocus: false });
+    const currentZoom = map && typeof map.getZoom === 'function' ? map.getZoom() : 12;
+    const targetZoom = Math.max(currentZoom, 14.2);
+    map.flyTo({
+      center: [numericLng, numericLat],
+      zoom: targetZoom,
+      speed: 0.9,
+      curve: 1.5,
+      essential: true,
+    });
+    const markerColor = normaliseMarkerColor(color);
+    let highlightShown = false;
+    const spawnHighlight = () => {
+      if (highlightShown) {
+        return;
+      }
+      highlightShown = true;
+      const highlight = document.createElement('div');
+      highlight.className = 'friend-highlight-pulse';
+      highlight.style.setProperty('--friend-highlight-color', markerColor);
+      highlight.setAttribute('aria-hidden', 'true');
+      const marker = new maplibregl.Marker({
+        element: highlight,
+        anchor: 'center',
+        pitchAlignment: 'map',
+        rotationAlignment: 'map',
+      })
+        .setLngLat([numericLng, numericLat])
+        .addTo(map);
+      window.setTimeout(() => {
+        marker.remove();
+      }, 2600);
+    };
+
+    if (map && typeof map.once === 'function') {
+      map.once('moveend', spawnHighlight);
+      window.setTimeout(spawnHighlight, 900);
+    } else {
+      spawnHighlight();
+    }
+
+    const label = username ? `@${username}` : 'Friend';
+    updateStatus(`${label}'s last check-in highlighted on the map.`);
+  });
+}
+
 function sortFriends(list) {
   if (!Array.isArray(list)) {
     return [];
@@ -4448,6 +5052,7 @@ function upsertFriend(friend) {
   friendsState.items = sortFriends(friendsState.items);
   friendsState.loaded = true;
   friendsState.error = null;
+  updateFriendLocationsLayer();
 }
 
 function removeFriendFromState(username) {
@@ -4458,6 +5063,7 @@ function removeFriendFromState(username) {
   friendsState.items = friendsState.items.filter(
     (friend) => !(friend && typeof friend.username === 'string' && friend.username.toLowerCase() === target),
   );
+  updateFriendLocationsLayer();
 }
 
 function formatFriendStatsSummary(friend) {
@@ -4482,6 +5088,14 @@ function renderFriendCard(friend) {
 
   const header = document.createElement('div');
   header.className = 'friend-header';
+  const markerColor = normaliseMarkerColor(friend.map_marker_color);
+  if (markerColor) {
+    const swatch = document.createElement('span');
+    swatch.className = 'friend-marker-swatch';
+    swatch.style.backgroundColor = markerColor;
+    swatch.title = 'Map marker color';
+    header.appendChild(swatch);
+  }
   const name = document.createElement('span');
   name.className = 'friend-name';
   name.textContent = `@${friend.username}`;
@@ -4541,6 +5155,39 @@ function renderFriendCard(friend) {
   }
 
   card.appendChild(main);
+
+  const actions = document.createElement('div');
+  actions.className = 'friend-actions';
+  let hasActions = false;
+
+  const lastKnown = friend.last_known_location;
+  if (
+    lastKnown &&
+    typeof lastKnown === 'object' &&
+    Number.isFinite(Number(lastKnown.lng)) &&
+    Number.isFinite(Number(lastKnown.lat))
+  ) {
+    const locateButton = document.createElement('button');
+    locateButton.type = 'button';
+    locateButton.className = 'secondary small friend-locate-button';
+    locateButton.dataset.friendLocate = friend.username;
+    locateButton.dataset.lng = String(lastKnown.lng);
+    locateButton.dataset.lat = String(lastKnown.lat);
+    locateButton.dataset.color = normaliseMarkerColor(friend.map_marker_color);
+    const locationLabel =
+      typeof lastKnown.districtName === 'string' && lastKnown.districtName.trim()
+        ? lastKnown.districtName.trim()
+        : lastKnown.districtId
+        ? `District ${lastKnown.districtId}`
+        : 'map';
+    locateButton.textContent = `View on map (${locationLabel})`;
+    actions.appendChild(locateButton);
+    hasActions = true;
+  }
+
+  if (hasActions) {
+    card.appendChild(actions);
+  }
 
   const favoriteBadge = document.createElement('span');
   favoriteBadge.className = 'friend-favorite';
@@ -5029,6 +5676,7 @@ async function refreshFriends(force = false) {
       items: [],
     };
     updateFriendsDrawerContent();
+    updateFriendLocationsLayer();
     return;
   }
   if (friendsState.loading) {
@@ -5048,6 +5696,7 @@ async function refreshFriends(force = false) {
     friendsState.items = sortFriends(items);
     friendsState.loaded = true;
     friendsState.error = null;
+    updateFriendLocationsLayer();
   } catch (error) {
     if (error && (error.status === 401 || error.status === 403)) {
       isSessionAuthenticated = false;
@@ -5059,6 +5708,7 @@ async function refreshFriends(force = false) {
         items: [],
       };
       updateFriendsDrawerContent();
+      updateFriendLocationsLayer();
       return;
     }
     console.warn('Failed to load friends', error);
@@ -5876,8 +6526,16 @@ function updateDrawerSummaries(profile) {
   }
 
   if (!locationInfo || !locationInfo.id) {
+    const profileSummary = getProfileLastKnownSummary(profile);
     drawerLocationSummary.classList.remove('home', 'away', 'fallback');
-    if (fallbackInfo && fallbackInfo.source === 'home-fallback') {
+    if (profileSummary) {
+      drawerLocationSummary.textContent = profileSummary.name;
+      if (profile.homeDistrictId && profileSummary.id && safeId(profile.homeDistrictId) === safeId(profileSummary.id)) {
+        drawerLocationSummary.classList.add('home');
+      } else {
+        drawerLocationSummary.classList.add('away');
+      }
+    } else if (fallbackInfo && fallbackInfo.source === 'home-fallback') {
       drawerLocationSummary.textContent = 'Home district (fallback)';
       drawerLocationSummary.classList.add('fallback');
     } else if (fallbackInfo && fallbackInfo.id) {
@@ -6051,6 +6709,7 @@ function completeAuthenticatedLogin(username, profile, options = {}) {
   ensureProfileCooldownState(profile);
   currentUser = username;
   players[username] = profile;
+  applyMarkerColorTheme(profile.mapMarkerColor || DEFAULT_MARKER_COLOR);
   friendsState = {
     loading: false,
     loaded: false,
@@ -6064,6 +6723,7 @@ function completeAuthenticatedLogin(username, profile, options = {}) {
     incoming: [],
     outgoing: [],
   };
+  updateFriendLocationsLayer();
   renderFriendRequestsSection();
   closeFriendsManagePanel();
   if (profile.backendId !== undefined && profile.backendId !== null) {
@@ -6101,6 +6761,11 @@ function completeAuthenticatedLogin(username, profile, options = {}) {
   renderPlayerState();
   if (isMobileViewport()) {
     setMobileDrawerState(false);
+  }
+  refreshFriends(true).catch(() => null);
+
+  if (isSecureOrigin()) {
+    startLiveLocationWatch();
   }
 
   if (typeof options.message === 'string' && options.message.trim()) {
@@ -6182,6 +6847,7 @@ function switchToWelcome() {
   lastPreciseLocationInfo = null;
   currentDistrictId = null;
   currentDistrictName = null;
+  stopLiveLocationWatch();
   if (isMobileViewport()) {
     setMobileDrawerState(false);
   }
@@ -6290,6 +6956,8 @@ async function handleCheckIn(options = {}) {
   }
   updateHomePresenceIndicator();
 
+  const normalizedLocationSource = normaliseLocationSource(locationSource, null);
+
   const actionKey = isDefending ? COOLDOWN_KEYS.DEFEND : COOLDOWN_KEYS.ATTACK;
   const cooldownMode =
     isDefending && (locationSource === 'home-remote' || locationSource === 'home-fallback') ? 'remote' : 'local';
@@ -6307,10 +6975,10 @@ async function handleCheckIn(options = {}) {
 
   const chargeMultiplier = profile.nextCheckinMultiplier > 1 ? profile.nextCheckinMultiplier : 1;
   const isPreciseLocal =
-    locationSource &&
-    (locationSource === 'map' || locationSource === 'geolocated') &&
+    normalizedLocationSource &&
+    (normalizedLocationSource === 'map' || normalizedLocationSource === 'geolocated') &&
     locationContextId === districtId;
-  const isLocalAttack = !isDefending && (isPreciseLocal || locationSource === 'profile');
+  const isLocalAttack = !isDefending && (isPreciseLocal || normalizedLocationSource === 'profile');
 
   let basePoints = POINTS_PER_CHECKIN;
   let effectiveMultiplier = chargeMultiplier;
@@ -6355,14 +7023,23 @@ async function handleCheckIn(options = {}) {
     profile.attackPoints += pointsAwarded;
   }
   profile.serverCheckinCount = profile.checkins.length;
+  const locationPersistOrigin = normalizedLocationSource === 'geolocated' ? 'geolocated' : null;
   if (
-    (locationSource === 'map' || locationSource === 'geolocated' || locationSource === 'profile') &&
-    saveProfileLocation(profile, {
-      lng: locationLng,
-      lat: locationLat,
-      districtId: locationContextId,
-      districtName: locationDisplayName,
-    })
+    locationPersistOrigin &&
+    saveProfileLocation(
+      profile,
+      {
+        lng: locationLng,
+        lat: locationLat,
+        districtId: locationContextId,
+        districtName: locationDisplayName,
+        source: locationPersistOrigin,
+      },
+      {
+        origin: locationPersistOrigin,
+        syncBackend: true,
+      }
+    )
   ) {
     savePlayers();
   } else if (
@@ -6477,6 +7154,23 @@ async function handleRangedAttack({ districtId, districtName, contextCoords = nu
 
   if (!name) {
     name = `District ${safeDistrictId}`;
+  }
+
+  const homeDistrictId = profile.homeDistrictId ? safeId(profile.homeDistrictId) : null;
+  const lastKnownDistrictId =
+    profile.lastKnownLocation && profile.lastKnownLocation.districtId
+      ? safeId(profile.lastKnownLocation.districtId)
+      : null;
+  const locationInfo = getCurrentLocationDistrictInfo({ profile, allowHomeFallback: false });
+  const locationDistrictId = locationInfo && locationInfo.id ? safeId(locationInfo.id) : null;
+  const isEnemyDistrict = (districtId) => districtId && (!homeDistrictId || districtId !== homeDistrictId);
+  const targetIsEnemy = isEnemyDistrict(safeDistrictId);
+  const locationMatchesTarget = Boolean(locationDistrictId && locationDistrictId === safeDistrictId);
+  const lastKnownMatchesTarget = Boolean(lastKnownDistrictId && lastKnownDistrictId === safeDistrictId);
+
+  if (targetIsEnemy && (locationMatchesTarget || lastKnownMatchesTarget)) {
+    updateStatus('You are in this district. Launch a melee attack instead of a ranged attack.');
+    return;
   }
 
   const chargeMultiplier = profile.nextCheckinMultiplier > 1 ? profile.nextCheckinMultiplier : 1;
@@ -6728,6 +7422,75 @@ function addSourcesAndLayers() {
     },
   });
 
+  map.addSource(FRIEND_LOCATIONS_SOURCE_ID, {
+    type: 'geojson',
+    data: friendLocationsGeoJson,
+  });
+
+  map.addLayer({
+    id: FRIEND_LOCATIONS_GLOW_LAYER_ID,
+    type: 'circle',
+    source: FRIEND_LOCATIONS_SOURCE_ID,
+    paint: {
+      'circle-radius': 10,
+      'circle-color': ['get', 'markerColor'],
+      'circle-opacity': 0.28,
+      'circle-blur': 0.6,
+    },
+  });
+
+  map.addLayer({
+    id: FRIEND_LOCATIONS_LAYER_ID,
+    type: 'circle',
+    source: FRIEND_LOCATIONS_SOURCE_ID,
+    paint: {
+      'circle-radius': 6,
+      'circle-color': ['get', 'markerColor'],
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#ffffff',
+      'circle-opacity': 0.95,
+    },
+  });
+
+  map.on('mouseenter', FRIEND_LOCATIONS_LAYER_ID, () => {
+    if (map && typeof map.getCanvas === 'function') {
+      const canvas = map.getCanvas();
+      if (canvas && canvas.style) {
+        canvas.style.cursor = 'pointer';
+      }
+    }
+  });
+
+  map.on('mouseleave', FRIEND_LOCATIONS_LAYER_ID, () => {
+    if (map && typeof map.getCanvas === 'function') {
+      const canvas = map.getCanvas();
+      if (canvas && canvas.style) {
+        canvas.style.cursor = '';
+      }
+    }
+  });
+
+  map.on('click', FRIEND_LOCATIONS_LAYER_ID, (event) => {
+    if (!event.features || !event.features.length) {
+      return;
+    }
+    const feature = event.features[0];
+    const props = feature && feature.properties ? feature.properties : {};
+    const usernameRaw = props && typeof props.username === 'string' ? props.username : '';
+    const username = usernameRaw ? `@${usernameRaw}` : 'Friend';
+    const districtName =
+      props && typeof props.districtName === 'string' && props.districtName.trim()
+        ? props.districtName.trim()
+        : null;
+    const districtId =
+      props && typeof props.districtId === 'string' && props.districtId.trim() ? props.districtId.trim() : null;
+    const timestampRaw = props && props.timestamp !== undefined ? Number(props.timestamp) : null;
+    const timestamp = Number.isFinite(timestampRaw) ? timestampRaw : null;
+    const timeLabel = timestamp ? formatTimeAgo(timestamp) : 'recently';
+    const locationLabel = districtName || (districtId ? `District ${districtId}` : 'their last known location');
+    updateStatus(`${username} last checked in ${timeLabel} at ${locationLabel}.`);
+  });
+
   map.addSource('prague-parks', {
     type: 'geojson',
     data: resolveDataUrl('prague-parks.geojson'),
@@ -6905,6 +7668,25 @@ function addSourcesAndLayers() {
     showActionContextMenu(event.lngLat.lng, event.lngLat.lat, point);
   });
 
+  // Fallback: on some setups, layer-specific contextmenu may not fire reliably.
+  // In that case, intercept the map-level contextmenu and open our menu if a building is under the cursor.
+  map.on('contextmenu', (event) => {
+    try {
+      if (!event || !event.point || !event.lngLat) return;
+      const features = typeof map.queryRenderedFeatures === 'function'
+        ? map.queryRenderedFeatures(event.point, { layers: ['buildings-3d'] })
+        : null;
+      if (features && features.length) {
+        event.preventDefault();
+        hideActionContextMenu();
+        const pt = map.project(event.lngLat);
+        showActionContextMenu(event.lngLat.lng, event.lngLat.lat, pt);
+      }
+    } catch (err) {
+      // Non-fatal; ignore
+    }
+  });
+
   map.on('click', () => {
     hideActionContextMenu();
   });
@@ -6952,6 +7734,15 @@ function addSourcesAndLayers() {
       'line-blur': 0.4,
     },
   });
+
+  if (map && typeof map.moveLayer === 'function') {
+    try {
+      map.moveLayer(FRIEND_LOCATIONS_LAYER_ID);
+      map.moveLayer(FRIEND_LOCATIONS_GLOW_LAYER_ID, FRIEND_LOCATIONS_LAYER_ID);
+    } catch (error) {
+      // Layer may not be present yet; safe to ignore.
+    }
+  }
 }
 
 function initialiseMap() {
@@ -7060,8 +7851,13 @@ function initialiseMap() {
     lastKnownLocation = [coords.longitude, coords.latitude];
     setGeolocationUiState(true);
     ensureMap(() => {
-      updateCurrentDistrictFromCoordinates(coords.longitude, coords.latitude);
+      updateCurrentDistrictFromCoordinates(coords.longitude, coords.latitude, {
+        persist: true,
+        origin: 'geolocated',
+        syncBackend: true,
+      });
     });
+    startLiveLocationWatch();
     if (map && typeof map.getSource === 'function' && map.getSource('prague-districts')) {
       const currentZoom = map.getZoom();
       if (currentZoom < 12.5) {
@@ -7206,6 +8002,21 @@ if (friendSearchResults) {
 if (friendManageList) {
   friendManageList.addEventListener('click', (event) => {
     handleFriendManageAction(event);
+  });
+}
+
+if (friendsListContainer) {
+  friendsListContainer.addEventListener('click', (event) => {
+    const locateButton = event.target.closest('[data-friend-locate]');
+    if (!locateButton) {
+      return;
+    }
+    event.preventDefault();
+    const username = locateButton.dataset.friendLocate || '';
+    const lng = Number.parseFloat(locateButton.dataset.lng);
+    const lat = Number.parseFloat(locateButton.dataset.lat);
+    const color = locateButton.dataset.color || DEFAULT_MARKER_COLOR;
+    focusFriendLocation({ username, lng, lat, color });
   });
 }
 

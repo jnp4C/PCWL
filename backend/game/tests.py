@@ -1,14 +1,17 @@
 from django.test import TestCase
 from django.urls import reverse
 
-from .models import Player
+from .models import FriendLink, Player
 
 
 class HealthEndpointTests(TestCase):
     def test_health_endpoint_returns_ok(self):
         response = self.client.get(reverse("api-health"))
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"status": "ok"})
+        body = response.json()
+        self.assertEqual(body.get("status"), "ok")
+        if "db" in body:
+            self.assertIn(body["db"], {"ok", "pending", "unknown"})
 
 
 class PlayerApiTests(TestCase):
@@ -29,6 +32,7 @@ class PlayerApiTests(TestCase):
         self.assertEqual(player.checkin_history, [])
         self.assertEqual(player.cooldowns, {})
         self.assertEqual(player.cooldown_details, {})
+        self.assertEqual(player.map_marker_color, "#6366f1")
 
     def test_update_last_known_location(self):
         player = Player.objects.create(username="loc-user")
@@ -140,6 +144,32 @@ class PlayerApiTests(TestCase):
             {"attack": {"duration": 60000, "startedAt": 1700000000000, "mode": "local"}},
         )
 
+    def test_update_map_marker_color(self):
+        player = Player.objects.create(username="color-user")
+        self._login_player(player)
+        url = reverse("player-detail", args=[player.id])
+        response = self.client.patch(
+            url,
+            {"map_marker_color": "#ff8800"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        player.refresh_from_db()
+        self.assertEqual(player.map_marker_color, "#ff8800")
+
+    def test_invalid_map_marker_color_rejected(self):
+        player = Player.objects.create(username="color-invalid")
+        self._login_player(player)
+        url = reverse("player-detail", args=[player.id])
+        response = self.client.patch(
+            url,
+            {"map_marker_color": "not-a-color"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        player.refresh_from_db()
+        self.assertEqual(player.map_marker_color, "#6366f1")
+
 
 class SessionAuthTests(TestCase):
     def setUp(self):
@@ -198,3 +228,41 @@ class SessionAuthTests(TestCase):
         self.player.ensure_auth_user(password=None)
         response = self.client.get(reverse("player-list"))
         self.assertIn(response.status_code, (200, 403, 405))  # Endpoint exists and protected
+
+
+class FriendApiTests(TestCase):
+    def setUp(self):
+        self.primary = Player.objects.create(username="primary-user")
+        self.primary.ensure_auth_user(password="friendpass")
+        self.friend = Player.objects.create(
+            username="ally",
+            map_marker_color="#ff8800",
+            last_known_location={
+                "lng": 14.42076,
+                "lat": 50.08804,
+                "districtId": "1100",
+                "districtName": "Prague 1",
+                "timestamp": 1700000000000,
+            },
+        )
+        FriendLink.objects.create(player=self.primary, friend=self.friend)
+        FriendLink.objects.create(player=self.friend, friend=self.primary)
+
+    def _login_primary(self):
+        self.client.force_login(self.primary.ensure_auth_user(password="friendpass"))
+
+    def test_friend_list_includes_location_and_color(self):
+        self._login_primary()
+        response = self.client.get(reverse("friend-list"))
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        friends = body.get("friends", [])
+        self.assertEqual(len(friends), 1)
+        friend_entry = friends[0]
+        self.assertEqual(friend_entry["username"], "ally")
+        self.assertEqual(friend_entry["map_marker_color"], "#ff8800")
+        location = friend_entry.get("last_known_location")
+        self.assertIsInstance(location, dict)
+        self.assertEqual(location["districtId"], "1100")
+        self.assertAlmostEqual(location["lng"], 14.42076, places=5)
+        self.assertAlmostEqual(location["lat"], 50.08804, places=5)

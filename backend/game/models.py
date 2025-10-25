@@ -9,6 +9,12 @@ class Player(models.Model):
     username = models.CharField(max_length=50, unique=True)
     display_name = models.CharField(max_length=100, blank=True)
     profile_image_url = models.URLField(blank=True, default="")
+    map_marker_color = models.CharField(
+        max_length=16,
+        blank=True,
+        default="#6366f1",
+        help_text="Hex color (e.g. #ff0000) used to render the player's map marker.",
+    )
     score = models.PositiveIntegerField(default=0)
     checkins = models.PositiveIntegerField(default=0)
     home_district = models.CharField(max_length=120, blank=True)

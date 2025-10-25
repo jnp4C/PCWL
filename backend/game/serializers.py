@@ -1,8 +1,14 @@
-from typing import Any, Dict, List, Set
+import math
+import re
+from typing import Any, Dict, List, Optional, Set
 
 from rest_framework import serializers
 
 from .models import FriendLink, FriendRequest, Player
+
+
+DEFAULT_MAP_MARKER_COLOR = "#6366f1"
+HEX_COLOR_PATTERN = re.compile(r"^#(?:[0-9a-fA-F]{6})$")
 
 
 class PlayerSerializer(serializers.ModelSerializer):
@@ -22,6 +28,7 @@ class PlayerSerializer(serializers.ModelSerializer):
             "username",
             "display_name",
             "profile_image_url",
+            "map_marker_color",
             "score",
             "checkins",
             "home_district",
@@ -51,6 +58,7 @@ class PlayerSerializer(serializers.ModelSerializer):
             "cooldowns": {"required": False},
             "cooldown_details": {"required": False},
             "profile_image_url": {"required": False, "allow_blank": True},
+            "map_marker_color": {"required": False, "allow_blank": True},
         }
 
     def create(self, validated_data):
@@ -208,6 +216,18 @@ class PlayerSerializer(serializers.ModelSerializer):
 
         return sanitized
 
+    def validate_map_marker_color(self, value: Any) -> str:
+        if value in (None, ""):
+            return DEFAULT_MAP_MARKER_COLOR
+        if not isinstance(value, str):
+            raise serializers.ValidationError("Map marker color must be a string.")
+        trimmed = value.strip()
+        if not trimmed:
+            return DEFAULT_MAP_MARKER_COLOR
+        if not HEX_COLOR_PATTERN.match(trimmed):
+            raise serializers.ValidationError("Map marker color must be a hex color like #ff0000.")
+        return trimmed.lower()
+
 
 class FriendLinkSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="friend.username", read_only=True)
@@ -224,6 +244,8 @@ class FriendLinkSerializer(serializers.ModelSerializer):
     checkins = serializers.IntegerField(source="friend.checkins", read_only=True)
     checkin_counts = serializers.SerializerMethodField()
     recent_checkins = serializers.SerializerMethodField()
+    last_known_location = serializers.SerializerMethodField()
+    map_marker_color = serializers.SerializerMethodField()
 
     class Meta:
         model = FriendLink
@@ -239,6 +261,8 @@ class FriendLinkSerializer(serializers.ModelSerializer):
             "checkins",
             "checkin_counts",
             "recent_checkins",
+            "last_known_location",
+            "map_marker_color",
             "is_favorite",
             "created_at",
             "updated_at",
@@ -255,6 +279,8 @@ class FriendLinkSerializer(serializers.ModelSerializer):
             "checkins",
             "checkin_counts",
             "recent_checkins",
+            "last_known_location",
+            "map_marker_color",
             "created_at",
             "updated_at",
         ]
@@ -308,6 +334,50 @@ class FriendLinkSerializer(serializers.ModelSerializer):
             if len(recent) >= 10:
                 break
         return recent
+
+    def get_last_known_location(self, obj: FriendLink) -> Optional[Dict[str, Any]]:
+        data = getattr(obj.friend, "last_known_location", None)
+        if not isinstance(data, dict):
+            return None
+        try:
+            lng = float(data.get("lng"))
+            lat = float(data.get("lat"))
+        except (TypeError, ValueError):
+            return None
+        if not (math.isfinite(lng) and math.isfinite(lat)):
+            return None
+
+        district_id_raw = data.get("districtId")
+        district_id = str(district_id_raw).strip() if district_id_raw else None
+        district_name_raw = data.get("districtName")
+        district_name = str(district_name_raw).strip() if district_name_raw else None
+
+        timestamp_raw = data.get("timestamp")
+        try:
+            timestamp = int(timestamp_raw)
+        except (TypeError, ValueError):
+            timestamp = None
+
+        payload: Dict[str, Any] = {
+            "lng": lng,
+            "lat": lat,
+        }
+        if district_id:
+            payload["districtId"] = district_id
+        if district_name:
+            payload["districtName"] = district_name
+        if timestamp:
+            payload["timestamp"] = timestamp
+        return payload
+
+    def get_map_marker_color(self, obj: FriendLink) -> str:
+        color_raw = getattr(obj.friend, "map_marker_color", "") or ""
+        color = color_raw.strip() if isinstance(color_raw, str) else ""
+        if not color:
+            return DEFAULT_MAP_MARKER_COLOR
+        if not HEX_COLOR_PATTERN.match(color):
+            return DEFAULT_MAP_MARKER_COLOR
+        return color.lower()
 
 
 class FriendFavoriteSerializer(serializers.Serializer):

@@ -47,14 +47,11 @@ if ! "$PY_BIN" -c "import django" >/dev/null 2>&1; then
   exit 1
 fi
 
-# Ensure DB schema is up-to-date
-if [[ -x "$REPO_ROOT/scripts/migrate.sh" ]]; then
-  "$REPO_ROOT/scripts/migrate.sh"
-else
-  bash "$REPO_ROOT/scripts/migrate.sh"
-fi
+# Apply database migrations using the same interpreter that will run the server.
+cd "$REPO_ROOT/backend"
+echo "[PCWL run] Applying database migrations..."
+$PY_BIN manage.py migrate --noinput
 
 # Start the dev server
-cd "$REPO_ROOT/backend"
 echo "[PCWL run] Starting Django dev server at http://$HOST:$PORT/ (Ctrl+C to stop)"
 exec $PY_BIN manage.py runserver "$HOST:$PORT"

@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'inline-speculation-rules' https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://localhost:* http://127.0.0.1:*; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; frame-src https://apis.google.com;" />
   <title>PCWL</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='48' fill='%234c1d95'/%3E%3Ctext x='50' y='58' font-size='48' text-anchor='middle' fill='white' font-family='Segoe UI, Tahoma, sans-serif'%3EP%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="assets/maplibre/maplibre-gl.css" />
@@ -252,6 +253,17 @@
           <div class="character-meta">
             <h3 id="character-name">Guest</h3>
             <p id="character-tagline" class="character-tagline">Sign in to personalise your character.</p>
+          </div>
+        </section>
+        <section class="character-customisation">
+          <h3 class="character-section-title">Appearance</h3>
+          <div class="character-color-control">
+            <label class="character-color-label" for="marker-color-input">Map marker color</label>
+            <div class="character-color-row">
+              <input type="color" id="marker-color-input" value="#6366f1" />
+              <button id="marker-color-reset" class="secondary small" type="button">Reset Color</button>
+            </div>
+            <p id="marker-color-feedback" class="help-text"></p>
           </div>
         </section>
         <section class="character-stats">

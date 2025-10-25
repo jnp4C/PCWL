@@ -178,8 +178,7 @@ class SessionLogoutView(APIView):
     authentication_classes = []  # Avoid SessionAuthentication CSRF checks on logout
 
     def post(self, request):
-        if request.user.is_authenticated:
-            logout(request)
+        logout(request)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
