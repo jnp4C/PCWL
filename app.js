@@ -247,6 +247,12 @@ async function apiRequest(path, options = {}) {
     signal,
   } = options;
 
+  if (isFileOrigin()) {
+    const error = new Error('API calls are unavailable when the app is opened from the file:// protocol. Please start a local server (e.g., python3 -m http.server) and open via http://localhost.');
+    error.code = 'UNSUPPORTED_PROTOCOL';
+    throw error;
+  }
+
   const requestHeaders = {
     Accept: 'application/json',
     ...headers,
@@ -339,6 +345,39 @@ function isSecureOrigin() {
     return true;
   }
   return false;
+}
+
+// Returns true when the page is served over http(s) (including http://localhost),
+// and false when opened via file:// or other unsupported schemes.
+// Be robust to blob:/data:/about:blank wrappers by inspecting referrers/baseURI.
+function isHttpLikeOrigin() {
+  if (typeof window === 'undefined') return false;
+  try {
+    const loc = window.location || {};
+    const { protocol, hostname } = loc;
+    if (protocol === 'http:' || protocol === 'https:') return true;
+
+    // If the document is a blob/data/about:blank created from an http(s) page,
+    // consider it http-like based on the referrer or baseURI.
+    const base = (typeof document !== 'undefined' && (document.baseURI || document.referrer)) || '';
+    if (typeof base === 'string' && (base.startsWith('http://') || base.startsWith('https://'))) {
+      return true;
+    }
+
+    // As a last resort, treat localhost/127.0.0.1 as http-like in dev.
+    if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
+  } catch (e) {
+    // ignore and fall through
+  }
+  return false;
+}
+
+function isFileOrigin() {
+  try {
+    return typeof window !== 'undefined' && window.location && window.location.protocol === 'file:';
+  } catch (_) {
+    return false;
+  }
 }
 
 function setGeolocationUiState(isAvailable) {
@@ -877,6 +916,10 @@ function getEntryCooldownInfo(profile, entry, now = Date.now()) {
 function ensureDistrictDataLoaded() {
   if (districtGeoJson || districtGeoJsonPromise || typeof fetch !== 'function') {
     return districtGeoJsonPromise || Promise.resolve(districtGeoJson);
+  }
+  if (isFileOrigin()) {
+    console.warn('Skipping district data preload on file:// origin. Start a local server (e.g., python3 -m http.server) to enable data loading.');
+    return Promise.resolve(null);
   }
   districtGeoJsonPromise = fetch(resolveDataUrl('prague-districts.geojson'))
     .then((response) => (response.ok ? response.json() : null))
@@ -6492,6 +6535,12 @@ function addSourcesAndLayers() {
       'background-color': '#f3f4fb',
     },
   });
+
+  if (isFileOrigin()) {
+    updateStatus('Limited demo mode: Open via http://localhost or https:// to load map data and enable login.');
+    // Do not add GeoJSON sources when running from file:// to avoid noisy CORS errors.
+    return;
+  }
 
   map.addSource('prague-boundary', {
     type: 'geojson',
