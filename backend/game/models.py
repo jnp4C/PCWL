@@ -19,6 +19,8 @@ class Player(models.Model):
     home_district_code = models.CharField(max_length=64, blank=True)
     home_district_name = models.CharField(max_length=120, blank=True)
     checkin_history = models.JSONField(default=list, blank=True)
+    cooldowns = models.JSONField(default=dict, blank=True)
+    cooldown_details = models.JSONField(default=dict, blank=True)
     last_known_location = models.JSONField(
         null=True,
         blank=True,
@@ -64,3 +66,79 @@ class Player(models.Model):
             user.set_password(password)
             user.save(update_fields=["password"])
         return user
+
+
+class FriendLink(models.Model):
+    """Directional friend relationship between two players."""
+
+    player = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="friend_links",
+    )
+    friend = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="reverse_friend_links",
+    )
+    is_favorite = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["player", "friend"],
+                name="unique_friend_link",
+            ),
+            models.CheckConstraint(
+                check=~models.Q(player=models.F("friend")),
+                name="prevent_self_friendship",
+            ),
+        ]
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.player.username} -> {self.friend.username}"
+
+
+class FriendRequest(models.Model):
+    """Pending friend relationship that requires approval."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        ACCEPTED = "accepted", "Accepted"
+        DECLINED = "declined", "Declined"
+        CANCELLED = "cancelled", "Cancelled"
+
+    from_player = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="sent_friend_requests",
+    )
+    to_player = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="received_friend_requests",
+    )
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["from_player", "to_player"],
+                condition=models.Q(status="pending"),
+                name="unique_pending_friend_request",
+            ),
+            models.CheckConstraint(
+                check=~models.Q(from_player=models.F("to_player")),
+                name="prevent_self_friend_request",
+            ),
+        ]
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.from_player.username} -> {self.to_player.username} ({self.status})"

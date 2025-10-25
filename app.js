@@ -32,9 +32,7 @@ const devOptionsContainer = document.getElementById('dev-options');
 const devSkipCooldownCheckbox = document.getElementById('dev-skip-cooldown');
 const devChangeUserButton = document.getElementById('dev-change-user');
 const devClearUsersButton = document.getElementById('dev-clear-users');
-const checkInCooldownElement = document.getElementById('check-in-cooldown');
-const checkInCooldownFill = document.getElementById('check-in-cooldown-fill');
-const checkInCooldownLabel = document.getElementById('check-in-cooldown-label');
+const cooldownStrip = document.getElementById('cooldown-strip');
 const homeDistrictModal = document.getElementById('home-district-modal');
 const homeDistrictModalOverlay = document.getElementById('home-district-modal-overlay');
 const homeDistrictModalCloseButton = document.getElementById('home-district-modal-close');
@@ -66,7 +64,6 @@ const drawerCheckinButton = document.getElementById('drawer-checkin-button');
 const drawerLogoutButton = document.getElementById('drawer-logout-button');
 const drawerThemeToggleButton = document.getElementById('drawer-theme-toggle');
 const drawerLeaderboardLink = document.getElementById('drawer-leaderboard');
-const cooldownBadge = document.getElementById('cooldown-badge');
 const recentCheckinTagPrimary = document.getElementById('recent-checkin-1');
 const currentUserTag = document.getElementById('current-user-tag');
 const settingsButton = document.getElementById('settings-button');
@@ -94,6 +91,23 @@ const friendsContent = document.getElementById('friends-content');
 const friendsListContainer = document.getElementById('friends-list');
 const friendsEmptyState = document.getElementById('friends-empty');
 const friendsInviteButton = document.getElementById('friends-invite-button');
+const friendsManageButton = document.getElementById('friends-manage-button');
+const friendsManagePanel = document.getElementById('friends-manage-panel');
+const friendSearchForm = document.getElementById('friend-search-form');
+const friendSearchInput = document.getElementById('friend-search-input');
+const friendSearchButton = document.getElementById('friend-search-button');
+const friendSearchResults = document.getElementById('friend-search-results');
+const friendSearchFeedback = document.getElementById('friend-search-feedback');
+const friendManageList = document.getElementById('friend-manage-list');
+const friendManageCloseButton = document.getElementById('friend-manage-close');
+const friendSearchDirect = document.getElementById('friend-search-direct');
+const friendSearchAddDirectButton = document.getElementById('friend-search-add-direct');
+const friendRequestsPanel = document.getElementById('friend-requests-panel');
+const friendRequestsFeedback = document.getElementById('friend-requests-feedback');
+const friendRequestsIncomingList = document.getElementById('friend-requests-incoming');
+const friendRequestsOutgoingList = document.getElementById('friend-requests-outgoing');
+const friendRequestsIncomingEmpty = document.getElementById('friend-requests-incoming-empty');
+const friendRequestsOutgoingEmpty = document.getElementById('friend-requests-outgoing-empty');
 const districtDrawer = document.getElementById('district-drawer');
 const districtOverlay = document.getElementById('district-overlay');
 const districtCloseButton = document.getElementById('district-close');
@@ -338,25 +352,6 @@ function setGeolocationUiState(isAvailable) {
   }
 }
 
-function stopCheckInCooldownTimer() {
-  if (checkInCooldownTimerId !== null) {
-    window.clearInterval(checkInCooldownTimerId);
-    checkInCooldownTimerId = null;
-  }
-}
-
-function hideCheckInCooldownUI() {
-  if (checkInCooldownElement) {
-    checkInCooldownElement.classList.add('hidden');
-  }
-  if (checkInCooldownFill) {
-    checkInCooldownFill.style.transform = 'scaleX(1)';
-  }
-  if (checkInCooldownLabel) {
-    checkInCooldownLabel.textContent = '';
-  }
-}
-
 function formatCooldownTime(milliseconds) {
   const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
   const minutes = Math.floor(totalSeconds / 60);
@@ -364,136 +359,471 @@ function formatCooldownTime(milliseconds) {
   return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
 
-function stopCheckInCooldown(enableButton = true) {
-  stopCheckInCooldownTimer();
-  checkInCooldownDeadline = null;
-  hideCheckInCooldownUI();
-  updateCooldownBadge(0, false);
-  if (enableButton && checkInButton) {
-    checkInButton.disabled = false;
-    checkInButton.title = '';
+function formatCooldownLabel(actionKey, mode = null) {
+  if (actionKey === COOLDOWN_KEYS.DEFEND) {
+    return mode === 'remote' ? 'Defend (Remote)' : 'Defend';
   }
-  if (mobileCheckInButton) {
-    if (enableButton) {
-      mobileCheckInButton.removeAttribute('disabled');
-    } else {
-      mobileCheckInButton.setAttribute('disabled', 'disabled');
-    }
+  if (actionKey === COOLDOWN_KEYS.CHARGE) {
+    return 'Charge';
   }
-  if (enableButton && chargeAttackButton) {
-    if (currentUser && players[currentUser]) {
-      const profile = ensurePlayerProfile(currentUser);
-      const fallbackInfo = getCurrentLocationDistrictInfo({ profile, allowHomeFallback: true });
-      const locationId = fallbackInfo && fallbackInfo.id ? safeId(fallbackInfo.id) : null;
-      const isAtHome = profile.homeDistrictId && locationId && safeId(profile.homeDistrictId) === locationId;
-      const baseText = isAtHome ? 'Charge Defend' : 'Charge Attack';
-      const chargedText = isAtHome ? 'Recharge Defend' : 'Recharge Attack';
-      chargeAttackButton.disabled = false;
-      chargeAttackButton.textContent = profile.nextCheckinMultiplier > 1 ? chargedText : baseText;
-      chargeAttackButton.title = profile.nextCheckinMultiplier > 1
-        ? `Charged: next check-in worth x${profile.nextCheckinMultiplier} points. Recharge to reset the timer.`
-        : isAtHome
-        ? 'Charge to defend your district with a boosted check-in.'
-        : 'Charge to start a countdown and multiply your next attack.';
-    } else {
-      chargeAttackButton.disabled = true;
-      chargeAttackButton.textContent = 'Charge Attack';
-      chargeAttackButton.title = 'Log in to charge your next attack.';
-    }
-  }
+  return 'Attack';
 }
 
-function updateCheckInCooldownUI() {
-  if (!checkInCooldownDeadline) {
-    stopCheckInCooldown();
+function resolveCooldownColors(actionKey, mode = null) {
+  if (actionKey === COOLDOWN_KEYS.DEFEND) {
+    if (mode === 'remote') {
+      return {
+        fill: 'linear-gradient(135deg, rgba(40, 90, 220, 0.65), rgba(90, 140, 255, 0.45))',
+        track: 'rgba(40, 90, 220, 0.16)',
+        text: 'rgba(230, 240, 255, 0.92)',
+      };
+    }
+    return {
+      fill: 'linear-gradient(135deg, rgba(70, 130, 255, 0.68), rgba(120, 170, 255, 0.46))',
+      track: 'rgba(70, 130, 255, 0.18)',
+      text: 'rgba(226, 237, 255, 0.94)',
+    };
+  }
+  if (actionKey === COOLDOWN_KEYS.CHARGE) {
+    return {
+      fill: 'linear-gradient(135deg, rgba(155, 105, 255, 0.68), rgba(205, 155, 255, 0.42))',
+      track: 'rgba(155, 105, 255, 0.16)',
+      text: 'rgba(246, 240, 255, 0.94)',
+    };
+  }
+  return {
+    fill: 'linear-gradient(135deg, rgba(236, 35, 74, 0.68), rgba(255, 125, 145, 0.42))',
+    track: 'rgba(236, 35, 74, 0.18)',
+    text: 'rgba(255, 240, 244, 0.94)',
+  };
+}
+
+const VALID_COOLDOWN_ACTIONS = new Set(['attack', 'defend', 'charge']);
+const VALID_COOLDOWN_MODES = new Set(['local', 'remote', 'ranged']);
+
+function ensureProfileCooldownState(profile) {
+  if (!profile || typeof profile !== 'object') {
     return;
   }
-
-  const remaining = checkInCooldownDeadline - Date.now();
-  if (remaining <= 0) {
-    updateCooldownBadge(0, false);
-    stopCheckInCooldown(true);
-    if (currentUser && players[currentUser] && players[currentUser].cooldownUntil) {
-      delete players[currentUser].cooldownUntil;
-      savePlayers();
-    }
-    if (currentUser && players[currentUser]) {
-      const profile = ensurePlayerProfile(currentUser);
-      if (profile.nextCheckinMultiplier > 1) {
-        updateStatus(`Charge complete! Next check-in pays x${profile.nextCheckinMultiplier} points.`);
+  if (!profile.cooldowns || typeof profile.cooldowns !== 'object') {
+    profile.cooldowns = {};
+  }
+  if (!profile.cooldownDetails || typeof profile.cooldownDetails !== 'object') {
+    profile.cooldownDetails = {};
+  }
+  const now = Date.now();
+  Object.keys(profile.cooldowns).forEach((key) => {
+    const parsed = Number(profile.cooldowns[key]);
+    if (!Number.isFinite(parsed) || parsed <= now) {
+      delete profile.cooldowns[key];
+      delete profile.cooldownDetails[key];
+    } else {
+      profile.cooldowns[key] = parsed;
+      const details = profile.cooldownDetails[key];
+      if (!details || typeof details !== 'object') {
+        profile.cooldownDetails[key] = {
+          mode: null,
+          duration: parsed - now,
+          startedAt: now,
+        };
+      } else {
+        const durationValue = Number(details.duration);
+        const startedAtValue = Number(details.startedAt);
+        profile.cooldownDetails[key] = {
+          mode: typeof details.mode === 'string' ? details.mode : null,
+          duration: Number.isFinite(durationValue) && durationValue > 0 ? durationValue : parsed - now,
+          startedAt: Number.isFinite(startedAtValue) ? startedAtValue : now,
+        };
       }
     }
-    renderPlayerState();
-    return;
+  });
+  if (typeof profile.cooldownUntil === 'number' && profile.cooldownUntil > now) {
+    const legacyDuration = profile.cooldownUntil - now;
+    profile.cooldowns[COOLDOWN_KEYS.ATTACK] = profile.cooldownUntil;
+    profile.cooldowns[COOLDOWN_KEYS.DEFEND] = profile.cooldownUntil;
+    profile.cooldowns[COOLDOWN_KEYS.CHARGE] = profile.cooldownUntil;
+    profile.cooldownDetails[COOLDOWN_KEYS.ATTACK] = {
+      mode: null,
+      duration: legacyDuration,
+      startedAt: now,
+    };
+    profile.cooldownDetails[COOLDOWN_KEYS.DEFEND] = {
+      mode: null,
+      duration: legacyDuration,
+      startedAt: now,
+    };
+    profile.cooldownDetails[COOLDOWN_KEYS.CHARGE] = {
+      mode: null,
+      duration: legacyDuration,
+      startedAt: now,
+    };
   }
-
-  if (checkInButton) {
-    checkInButton.disabled = true;
-    checkInButton.title = 'Check-in available once the cooldown completes.';
-  }
-  if (mobileCheckInButton) {
-    mobileCheckInButton.setAttribute('disabled', 'disabled');
-  }
-  if (chargeAttackButton) {
-    chargeAttackButton.disabled = true;
-    chargeAttackButton.title = 'Cooldown active. Wait until it completes to charge again.';
-  }
-  if (checkInCooldownElement) {
-    checkInCooldownElement.classList.remove('hidden');
-  }
-  if (checkInCooldownFill) {
-    const ratio = Math.max(0, Math.min(1, remaining / CHECK_IN_COOLDOWN_MS));
-    checkInCooldownFill.style.transform = `scaleX(${ratio})`;
-  }
-  if (checkInCooldownLabel) {
-    checkInCooldownLabel.textContent = `Ready in ${formatCooldownTime(remaining)}`;
-  }
-  updateCooldownBadge(Math.max(0, Math.ceil(remaining / 1000)), true);
+  delete profile.cooldownUntil;
 }
 
-function startCheckInCooldown(deadline) {
-  const profile = currentUser ? players[currentUser] && ensurePlayerProfile(currentUser) : null;
-  if (profile && profile.skipCooldown && isDevUser(currentUser)) {
-    profile.cooldownUntil = null;
-    stopCheckInCooldown(true);
-    savePlayers();
+function normaliseApiCooldowns(value) {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+  const sanitized = {};
+  Object.keys(value).forEach((key) => {
+    if (!key && key !== 0) {
+      return;
+    }
+    const normalizedKey = typeof key === 'string' ? key.trim().toLowerCase() : String(key);
+    if (!VALID_COOLDOWN_ACTIONS.has(normalizedKey)) {
+      return;
+    }
+    const deadline = Number(value[key]);
+    if (Number.isFinite(deadline) && deadline > 0) {
+      sanitized[normalizedKey] = deadline;
+    }
+  });
+  return sanitized;
+}
+
+function normaliseApiCooldownDetails(value) {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+  const sanitized = {};
+  Object.keys(value).forEach((key) => {
+    if (!key && key !== 0) {
+      return;
+    }
+    const normalizedKey = typeof key === 'string' ? key.trim().toLowerCase() : String(key);
+    if (!VALID_COOLDOWN_ACTIONS.has(normalizedKey)) {
+      return;
+    }
+    const rawDetail = value[key];
+    if (!rawDetail || typeof rawDetail !== 'object') {
+      return;
+    }
+    const detail = {};
+    const mode = typeof rawDetail.mode === 'string' ? rawDetail.mode.trim().toLowerCase() : '';
+    if (VALID_COOLDOWN_MODES.has(mode)) {
+      detail.mode = mode;
+    }
+    const duration = Number(rawDetail.duration);
+    if (Number.isFinite(duration) && duration > 0) {
+      detail.duration = duration;
+    }
+    const startedAt = Number(rawDetail.startedAt);
+    if (Number.isFinite(startedAt) && startedAt > 0) {
+      detail.startedAt = startedAt;
+    }
+    if (Object.keys(detail).length) {
+      sanitized[normalizedKey] = detail;
+    }
+  });
+  return sanitized;
+}
+
+function buildCooldownStatePayload(profile) {
+  if (!profile) {
+    return { cooldowns: {}, details: {} };
+  }
+  ensureProfileCooldownState(profile);
+  const cooldowns = {};
+  const details = {};
+  Object.keys(profile.cooldowns || {}).forEach((key) => {
+    const normalizedKey = typeof key === 'string' ? key.trim().toLowerCase() : key;
+    const deadline = Number(profile.cooldowns[key]);
+    if (VALID_COOLDOWN_ACTIONS.has(normalizedKey) && Number.isFinite(deadline) && deadline > 0) {
+      cooldowns[normalizedKey] = deadline;
+    }
+  });
+  Object.keys(profile.cooldownDetails || {}).forEach((key) => {
+    const normalizedKey = typeof key === 'string' ? key.trim().toLowerCase() : key;
+    if (!VALID_COOLDOWN_ACTIONS.has(normalizedKey)) {
+      return;
+    }
+    const rawDetail = profile.cooldownDetails[key];
+    if (!rawDetail || typeof rawDetail !== 'object') {
+      return;
+    }
+    const detail = {};
+    const mode = typeof rawDetail.mode === 'string' ? rawDetail.mode.trim().toLowerCase() : '';
+    if (VALID_COOLDOWN_MODES.has(mode)) {
+      detail.mode = mode;
+    }
+    const duration = Number(rawDetail.duration);
+    if (Number.isFinite(duration) && duration > 0) {
+      detail.duration = Math.round(duration);
+    }
+    const startedAt = Number(rawDetail.startedAt);
+    if (Number.isFinite(startedAt) && startedAt > 0) {
+      detail.startedAt = Math.round(startedAt);
+    }
+    if (Object.keys(detail).length) {
+      details[normalizedKey] = detail;
+    }
+  });
+  return { cooldowns, details };
+}
+
+function isActionOnCooldown(profile, actionKey, now = Date.now()) {
+  if (!profile || profile.skipCooldown) {
+    return false;
+  }
+  ensureProfileCooldownState(profile);
+  const deadline = profile.cooldowns && typeof profile.cooldowns[actionKey] === 'number' ? profile.cooldowns[actionKey] : null;
+  return Boolean(deadline && deadline > now);
+}
+
+function setProfileCooldown(profile, actionKey, duration, details = {}) {
+  if (!profile || profile.skipCooldown) {
+    clearProfileCooldown(profile, actionKey);
+    return null;
+  }
+  const safeDuration = Math.max(0, Number(duration) || 0);
+  if (!safeDuration) {
+    clearProfileCooldown(profile, actionKey);
+    return null;
+  }
+  ensureProfileCooldownState(profile);
+  const now = Date.now();
+  const deadline = now + safeDuration;
+  if (!profile.cooldowns) {
+    profile.cooldowns = {};
+  }
+  profile.cooldowns[actionKey] = deadline;
+  if (!profile.cooldownDetails) {
+    profile.cooldownDetails = {};
+  }
+  profile.cooldownDetails[actionKey] = {
+    mode: typeof details.mode === 'string' ? details.mode : null,
+    duration: safeDuration,
+    startedAt: now,
+  };
+  activeCooldowns.set(actionKey, {
+    deadline,
+    duration: safeDuration,
+    mode: typeof details.mode === 'string' ? details.mode : null,
+  });
+  startCooldownTicker();
+  renderCooldownStrip(now);
+  return deadline;
+}
+
+function clearProfileCooldown(profile, actionKey) {
+  if (profile && profile.cooldowns) {
+    delete profile.cooldowns[actionKey];
+  }
+  if (profile && profile.cooldownDetails) {
+    delete profile.cooldownDetails[actionKey];
+  }
+  if (activeCooldowns.has(actionKey)) {
+    activeCooldowns.delete(actionKey);
+    if (!activeCooldowns.size) {
+      stopCooldownTicker();
+    }
+    renderCooldownStrip();
+  }
+}
+
+function syncCooldownsFromProfile(profile) {
+  activeCooldowns.clear();
+  if (!profile) {
+    stopCooldownTicker();
+    renderCooldownStrip();
     return;
   }
+  ensureProfileCooldownState(profile);
+  const now = Date.now();
+  Object.keys(profile.cooldowns || {}).forEach((key) => {
+    const deadline = profile.cooldowns[key];
+    if (typeof deadline === 'number' && deadline > now) {
+      const details = profile.cooldownDetails ? profile.cooldownDetails[key] : null;
+      activeCooldowns.set(key, {
+        deadline,
+        duration:
+          details && Number.isFinite(Number(details.duration)) && Number(details.duration) > 0
+            ? Number(details.duration)
+            : deadline - now,
+        mode: details && typeof details.mode === 'string' ? details.mode : null,
+      });
+    }
+  });
+  if (activeCooldowns.size) {
+    startCooldownTicker();
+  } else {
+    stopCooldownTicker();
+  }
+  renderCooldownStrip(now);
+}
 
-  if (!deadline || Number.isNaN(deadline)) {
-    stopCheckInCooldown();
+function startCooldownTicker() {
+  if (cooldownTickerId !== null) {
     return;
   }
+  cooldownTickerId = window.setInterval(tickCooldowns, 1000);
+}
 
-  if (checkInCooldownDeadline === deadline && checkInCooldownTimerId !== null) {
-    updateCheckInCooldownUI();
+function stopCooldownTicker() {
+  if (cooldownTickerId !== null) {
+    window.clearInterval(cooldownTickerId);
+    cooldownTickerId = null;
+  }
+}
+
+function tickCooldowns() {
+  const now = Date.now();
+  let removedAny = false;
+  const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+
+  activeCooldowns.forEach((info, key) => {
+    if (!info || typeof info.deadline !== 'number' || info.deadline <= now) {
+      activeCooldowns.delete(key);
+      removedAny = true;
+      if (profile) {
+        ensureProfileCooldownState(profile);
+        if (profile.cooldowns) {
+          delete profile.cooldowns[key];
+        }
+        if (profile.cooldownDetails) {
+          delete profile.cooldownDetails[key];
+        }
+      }
+    }
+  });
+
+  if (!activeCooldowns.size) {
+    stopCooldownTicker();
+  }
+
+  renderCooldownStrip(now);
+
+  if (removedAny) {
+    if (profile) {
+      savePlayers();
+      if (profile.nextCheckinMultiplier > 1 && !isActionOnCooldown(profile, COOLDOWN_KEYS.CHARGE, now)) {
+        updateStatus(`Charge complete! Next check-in pays x${profile.nextCheckinMultiplier} points.`);
+      }
+      scheduleProfileStatsSync(profile);
+    }
+    renderPlayerState();
+  }
+}
+
+function renderCooldownStrip(now = Date.now()) {
+  if (!cooldownStrip) {
     return;
   }
+  if (!activeCooldowns.size) {
+    cooldownStrip.classList.add('hidden');
+    cooldownStrip.innerHTML = '';
+    return;
+  }
+  cooldownStrip.classList.remove('hidden');
+  const fragment = document.createDocumentFragment();
+  const sortedEntries = Array.from(activeCooldowns.entries()).sort((a, b) => {
+    const deadlineA = a[1] && typeof a[1].deadline === 'number' ? a[1].deadline : Number.POSITIVE_INFINITY;
+    const deadlineB = b[1] && typeof b[1].deadline === 'number' ? b[1].deadline : Number.POSITIVE_INFINITY;
+    return deadlineA - deadlineB;
+  });
+  sortedEntries.forEach(([key, info]) => {
+    if (!info || typeof info.deadline !== 'number') {
+      return;
+    }
+    const remaining = Math.max(0, info.deadline - now);
+    const duration = Math.max(1, Number(info.duration) || remaining || 1);
+    const ratio = Math.max(0, Math.min(1, remaining / duration));
+    const colors = resolveCooldownColors(key, info.mode);
+    const item = document.createElement('div');
+    item.className = 'cooldown-item';
+    item.dataset.cooldownAction = key;
+    item.style.setProperty('--cooldown-track-color', colors.track);
+    item.style.setProperty('--cooldown-fill-color', colors.fill);
+    item.style.setProperty('--cooldown-text-color', colors.text);
+    item.setAttribute('aria-label', `${formatCooldownLabel(key, info.mode)} cooldown ${formatCooldownTime(remaining)}`);
 
-  checkInCooldownDeadline = deadline;
-  stopCheckInCooldownTimer();
+    const track = document.createElement('div');
+    track.className = 'cooldown-track';
+    const fill = document.createElement('div');
+    fill.className = 'cooldown-fill';
+    fill.style.transform = `scaleX(${ratio})`;
+    track.appendChild(fill);
 
-  updateCooldownBadge(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)), true);
+    const timeLabel = document.createElement('span');
+    timeLabel.className = 'cooldown-time';
+    timeLabel.textContent = formatCooldownTime(remaining);
 
-  if (checkInButton) {
-    checkInButton.disabled = true;
-    checkInButton.title = 'Check-in available once the cooldown completes.';
+    item.appendChild(track);
+    item.appendChild(timeLabel);
+    fragment.appendChild(item);
+  });
+  cooldownStrip.innerHTML = '';
+  cooldownStrip.appendChild(fragment);
+}
+
+function resolveCheckInAction(profile, options = {}) {
+  if (!profile) {
+    return {
+      key: COOLDOWN_KEYS.ATTACK,
+      mode: 'attack',
+      label: formatCooldownLabel(COOLDOWN_KEYS.ATTACK),
+      info: null,
+      preciseInfo: null,
+      fallbackInfo: null,
+    };
   }
-  if (mobileCheckInButton) {
-    mobileCheckInButton.setAttribute('disabled', 'disabled');
+  const preciseInfo =
+    Object.prototype.hasOwnProperty.call(options, 'preciseInfo') && options.preciseInfo !== undefined
+      ? options.preciseInfo
+      : getCurrentLocationDistrictInfo({ profile, allowHomeFallback: false });
+  const fallbackInfo =
+    Object.prototype.hasOwnProperty.call(options, 'fallbackInfo') && options.fallbackInfo !== undefined
+      ? options.fallbackInfo
+      : preciseInfo
+      ? null
+      : getCurrentLocationDistrictInfo({ profile, allowHomeFallback: true });
+  const selectedInfo = preciseInfo || fallbackInfo;
+  const homeId = profile.homeDistrictId ? safeId(profile.homeDistrictId) : null;
+  const matchesHome =
+    homeId && selectedInfo && selectedInfo.id ? safeId(selectedInfo.id) === homeId : false;
+  const actionKey = matchesHome ? COOLDOWN_KEYS.DEFEND : COOLDOWN_KEYS.ATTACK;
+  const mode =
+    actionKey === COOLDOWN_KEYS.DEFEND && (!preciseInfo || (selectedInfo && selectedInfo.source === 'home-fallback'))
+      ? 'remote'
+      : 'local';
+  return {
+    key: actionKey,
+    mode,
+    label: formatCooldownLabel(actionKey, mode === 'remote' ? 'remote' : null),
+    info: selectedInfo,
+    preciseInfo,
+    fallbackInfo,
+  };
+}
+
+function getEntryCooldownInfo(profile, entry, now = Date.now()) {
+  if (!profile || !entry || typeof entry.cooldownType !== 'string') {
+    return null;
   }
-  if (chargeAttackButton) {
-    chargeAttackButton.disabled = true;
-    chargeAttackButton.title = 'Cooldown active. Wait until it completes to charge again.';
+  ensureProfileCooldownState(profile);
+  const actionKey = entry.cooldownType;
+  const deadline =
+    profile.cooldowns && typeof profile.cooldowns[actionKey] === 'number'
+      ? profile.cooldowns[actionKey]
+      : null;
+  if (!deadline || deadline <= now) {
+    return null;
   }
-  if (checkInCooldownElement) {
-    checkInCooldownElement.classList.remove('hidden');
-  }
-  if (checkInCooldownFill) {
-    checkInCooldownFill.style.transform = 'scaleX(1)';
-  }
-  updateCheckInCooldownUI();
-  checkInCooldownTimerId = window.setInterval(updateCheckInCooldownUI, 1000);
+  const entryMode = typeof entry.cooldownMode === 'string' ? entry.cooldownMode : null;
+  const details = profile.cooldownDetails ? profile.cooldownDetails[actionKey] : null;
+  const mode =
+    entryMode === 'remote' || entryMode === 'local'
+      ? entryMode
+      : details && typeof details.mode === 'string'
+      ? details.mode
+      : null;
+  return {
+    key: actionKey,
+    mode,
+    remaining: deadline - now,
+    label: formatCooldownLabel(actionKey, mode === 'remote' ? 'remote' : null),
+  };
 }
 
 function ensureDistrictDataLoaded() {
@@ -600,15 +930,7 @@ function ensurePlayerProfile(username) {
   if (!profile.lastKnownLocation || typeof profile.lastKnownLocation !== 'object') {
     profile.lastKnownLocation = null;
   }
-  if (profile.cooldownUntil !== undefined && profile.cooldownUntil !== null) {
-    const parsedCooldown = Number(profile.cooldownUntil);
-    profile.cooldownUntil = Number.isFinite(parsedCooldown) ? parsedCooldown : null;
-    if (profile.cooldownUntil && profile.cooldownUntil <= Date.now()) {
-      profile.cooldownUntil = null;
-    }
-  } else {
-    profile.cooldownUntil = null;
-  }
+  ensureProfileCooldownState(profile);
   profile.nextCheckinMultiplier = Math.max(1, normaliseNumber(profile.nextCheckinMultiplier, 1));
   profile.skipCooldown = Boolean(profile.skipCooldown);
   const rememberOnDevice = Boolean(profile.auth && profile.auth.rememberOnDevice);
@@ -679,8 +1001,14 @@ function sanitiseCheckinHistoryEntry(entry) {
 
   const multiplierValue = Number(entry.multiplier);
   const multiplier = Number.isFinite(multiplierValue) && multiplierValue > 0 ? multiplierValue : 1;
+  const rawCooldownType = typeof entry.cooldownType === 'string' ? entry.cooldownType.trim().toLowerCase() : '';
+  const validCooldownTypes = new Set([COOLDOWN_KEYS.ATTACK, COOLDOWN_KEYS.DEFEND, COOLDOWN_KEYS.CHARGE]);
+  const cooldownType = validCooldownTypes.has(rawCooldownType) ? rawCooldownType : null;
+  const rawCooldownMode = typeof entry.cooldownMode === 'string' ? entry.cooldownMode.trim().toLowerCase() : '';
+  const validCooldownModes = new Set(['local', 'remote', 'ranged']);
+  const cooldownMode = validCooldownModes.has(rawCooldownMode) ? rawCooldownMode : null;
 
-  return {
+  const payload = {
     timestamp: Math.trunc(tsNumber),
     districtId,
     districtName,
@@ -689,6 +1017,14 @@ function sanitiseCheckinHistoryEntry(entry) {
     ranged: Boolean(entry.ranged),
     melee: Boolean(entry.melee),
   };
+  if (cooldownType) {
+    payload.cooldownType = cooldownType;
+  }
+  if (cooldownMode) {
+    payload.cooldownMode = cooldownMode;
+  }
+
+  return payload;
 }
 
 function sanitizeApiCheckinHistory(history) {
@@ -750,6 +1086,13 @@ function applyServerPlayerData(profile, apiPlayer) {
     profile.checkins = [];
   }
 
+  if (Object.prototype.hasOwnProperty.call(apiPlayer, 'cooldowns')) {
+    profile.cooldowns = normaliseApiCooldowns(apiPlayer.cooldowns);
+  }
+  if (Object.prototype.hasOwnProperty.call(apiPlayer, 'cooldown_details')) {
+    profile.cooldownDetails = normaliseApiCooldownDetails(apiPlayer.cooldown_details);
+  }
+
   const serverCheckinsCount = normaliseNumber(apiPlayer.checkins, profile.checkins ? profile.checkins.length : 0);
   profile.serverCheckinCount = Math.max(serverCheckinsCount, Array.isArray(profile.checkins) ? profile.checkins.length : 0);
 
@@ -796,6 +1139,7 @@ function applyServerPlayerData(profile, apiPlayer) {
   }
 
   profile.backendSyncedAt = Date.now();
+  ensureProfileCooldownState(profile);
   return profile;
 }
 
@@ -1126,6 +1470,7 @@ function buildPlayerStatsPayload(profile) {
     typeof profile.homeDistrictName === 'string' && profile.homeDistrictName.trim()
       ? profile.homeDistrictName.trim()
       : null;
+  const cooldownState = buildCooldownStatePayload(profile);
 
   return {
     score,
@@ -1136,6 +1481,8 @@ function buildPlayerStatsPayload(profile) {
     home_district_code: homeCode,
     home_district_name: homeName,
     home_district: homeName || '',
+    cooldowns: cooldownState.cooldowns,
+    cooldown_details: cooldownState.details,
   };
 }
 
@@ -1501,13 +1848,13 @@ function showActionContextMenu(lng, lat, point, options = {}) {
     element.style.top = `${top}px`;
   };
   const profile = currentUser ? ensurePlayerProfile(currentUser) : null;
-  const now = Date.now();
 
   const applyButtonStates = () => {
     if (!menu) {
       return;
     }
-    const cooldownActive = profile ? Boolean(profile.cooldownUntil && profile.cooldownUntil > now) : true;
+    const nowLocal = Date.now();
+    const chargeOnCooldown = profile ? isActionOnCooldown(profile, COOLDOWN_KEYS.CHARGE, nowLocal) : true;
     const chargeMultiplier = profile ? (profile.nextCheckinMultiplier > 1 ? profile.nextCheckinMultiplier : 1) : 1;
     const homeId = profile && profile.homeDistrictId ? safeId(profile.homeDistrictId) : null;
     const targetId = menu.targetDistrictId ? safeId(menu.targetDistrictId) : null;
@@ -1530,20 +1877,30 @@ function showActionContextMenu(lng, lat, point, options = {}) {
       : isPreciseLocal
       ? chargeMultiplier * 2
       : chargeMultiplier;
+    const checkActionKey = willDefend ? COOLDOWN_KEYS.DEFEND : COOLDOWN_KEYS.ATTACK;
+    const checkMode =
+      willDefend && (locationSource === 'home-remote' || locationSource === 'home-fallback') ? 'remote' : 'local';
+    const checkOnCooldown = profile ? isActionOnCooldown(profile, checkActionKey, nowLocal) : true;
+    const attackOnCooldown = profile ? isActionOnCooldown(profile, COOLDOWN_KEYS.ATTACK, nowLocal) : true;
 
     if (menu.chargeButton) {
       menu.chargeButton.style.display = 'block';
-      menu.chargeButton.disabled = !profile || cooldownActive;
       if (!profile) {
+        menu.chargeButton.disabled = true;
         menu.chargeButton.textContent = 'Log in to charge';
         menu.chargeButton.title = 'Log in to start charging.';
       } else {
+        menu.chargeButton.disabled = chargeOnCooldown;
         const baseText = willDefend ? 'Charge Defend' : 'Charge Attack';
         const chargedText = willDefend ? 'Recharge Defend' : 'Recharge Attack';
         menu.chargeButton.textContent = profile.nextCheckinMultiplier > 1 ? chargedText : baseText;
-        menu.chargeButton.title = willDefend
-          ? 'Charge to defend your district with a boosted check-in.'
-          : 'Charge to start a countdown and multiply your next attack.';
+        if (chargeOnCooldown) {
+          menu.chargeButton.title = 'Charge cooldown active. Wait until it completes to charge again.';
+        } else {
+          menu.chargeButton.title = willDefend
+            ? 'Charge to defend your district with a boosted check-in.'
+            : 'Charge to start a countdown and multiply your next attack.';
+        }
       }
     }
 
@@ -1556,10 +1913,11 @@ function showActionContextMenu(lng, lat, point, options = {}) {
       } else if (allowCheck) {
         const targetLabel = menu.targetDistrictName || (targetId ? `District ${targetId}` : 'district');
         menu.checkButton.style.display = 'block';
-        menu.checkButton.disabled = cooldownActive;
-        if (cooldownActive) {
-          menu.checkButton.textContent = willDefend ? 'Defend (Cooldown)' : 'Check In (Cooldown)';
-          menu.checkButton.title = 'Cooldown active. Wait before checking in again.';
+        menu.checkButton.disabled = checkOnCooldown;
+        if (checkOnCooldown) {
+          const label = formatCooldownLabel(checkActionKey, checkMode === 'remote' ? 'remote' : null);
+          menu.checkButton.textContent = `${label} (Cooldown)`;
+          menu.checkButton.title = `${label} cooldown active. Wait before checking in again.`;
         } else if (willDefend) {
           const defendLabel = targetId && homeId && targetId === homeId ? 'Defend Home' : `Defend ${targetLabel}`;
           menu.checkButton.textContent = expectedLocalMultiplier > 1 ? `${defendLabel} (x${expectedLocalMultiplier})` : defendLabel;
@@ -1578,11 +1936,11 @@ function showActionContextMenu(lng, lat, point, options = {}) {
     if (menu.rangedButton) {
       if (profile && !willDefend && !isPreciseLocal && menu.targetDistrictId) {
         menu.rangedButton.style.display = 'block';
-        menu.rangedButton.disabled = cooldownActive;
+        menu.rangedButton.disabled = attackOnCooldown;
         const rangedLabel = chargeMultiplier > 1 ? `Ranged Attack (x${chargeMultiplier})` : 'Ranged Attack (10 pts)';
-        menu.rangedButton.textContent = cooldownActive ? 'Ranged Attack (Cooldown)' : rangedLabel;
-        menu.rangedButton.title = cooldownActive
-          ? 'Cooldown active. Wait before launching another ranged attack.'
+        menu.rangedButton.textContent = attackOnCooldown ? 'Ranged Attack (Cooldown)' : rangedLabel;
+        menu.rangedButton.title = attackOnCooldown
+          ? 'Attack cooldown active. Wait before launching another ranged attack.'
           : `Launch a ranged attack for ${10 * chargeMultiplier} points.`;
       } else if (!profile && menu.targetDistrictId) {
         menu.rangedButton.style.display = 'block';
@@ -1936,8 +2294,8 @@ let resolvingPreciseLocation = false;
 let activeBuildingGifMarker = null;
 let activeParkGifMarker = null;
 let activeAttackHitmarker = null;
-let checkInCooldownDeadline = null;
-let checkInCooldownTimerId = null;
+const activeCooldowns = new Map();
+let cooldownTickerId = null;
 let districtGeoJson = null;
 let districtGeoJsonPromise = null;
 let homeDistrictOptions = null;
@@ -1958,6 +2316,20 @@ let mobileContextMenuHandlersBound = false;
 let recentCheckinsShowAll = false;
 let recentCheckinsLastTrigger = null;
 let friendsLastTrigger = null;
+let friendsState = {
+  loading: false,
+  loaded: false,
+  error: null,
+  items: [],
+};
+let friendRequestsState = {
+  loading: false,
+  loaded: false,
+  error: null,
+  incoming: [],
+  outgoing: [],
+};
+let friendsManageOpen = false;
 let districtLastTrigger = null;
 let characterLastTrigger = null;
 let lastHoverFeature = null;
@@ -1967,7 +2339,18 @@ let isPointerOverDistrict = false;
 let districtScores = {};
 
 const STORAGE_KEY = 'pragueExplorerPlayers';
-const CHECK_IN_COOLDOWN_MS = 10 * 60 * 1000;
+const COOLDOWN_KEYS = {
+  ATTACK: 'attack',
+  DEFEND: 'defend',
+  CHARGE: 'charge',
+};
+
+const COOLDOWN_DURATIONS = {
+  attack: 3 * 60 * 1000,
+  defendLocal: 3 * 60 * 1000,
+  defendRemote: 10 * 60 * 1000,
+  charge: 2 * 60 * 1000,
+};
 const CHARGE_ATTACK_MULTIPLIER = 3;
 const MIN_PASSWORD_LENGTH = 4;
 const DEV_USERNAME = 'dev';
@@ -2624,11 +3007,6 @@ function applyViewportUiState() {
   if (!mobile) {
     setMobileDrawerState(false);
   }
-  if (!checkInCooldownDeadline || checkInCooldownDeadline <= Date.now()) {
-    updateCooldownBadge(0, false);
-  } else {
-    updateCooldownBadge(Math.ceil((checkInCooldownDeadline - Date.now()) / 1000), true);
-  }
 }
 
 function ensureMap(action) {
@@ -2836,6 +3214,22 @@ async function logoutCurrentSession() {
 function completeLogoutTransition() {
   currentUser = null;
   activePlayerBackendId = null;
+  friendsState = {
+    loading: false,
+    loaded: false,
+    error: null,
+    items: [],
+  };
+  friendRequestsState = {
+    loading: false,
+    loaded: false,
+    error: null,
+    incoming: [],
+    outgoing: [],
+  };
+  renderFriendRequestsSection();
+  closeFriendsManagePanel();
+  updateFriendsDrawerContent();
   renderPlayerState();
   switchToWelcome();
 }
@@ -3027,7 +3421,7 @@ function renderPlayerState() {
       attackDefendRatioLabel.textContent = '0 / 0';
       attackDefendRatioLabel.title = 'No attack or defend points yet.';
     }
-    stopCheckInCooldown(false);
+    syncCooldownsFromProfile(null);
     updateHomePresenceIndicator();
     hideActionContextMenu();
     if (devOptionsContainer && devSkipCooldownCheckbox && devChangeUserButton) {
@@ -3109,7 +3503,12 @@ function renderPlayerState() {
   const preciseId = preciseInfo && preciseInfo.id ? safeId(preciseInfo.id) : null;
   const fallbackId = fallbackInfo && fallbackInfo.id ? safeId(fallbackInfo.id) : null;
   const locationId = preciseId || (fallbackInfo && fallbackInfo.source !== 'home-fallback' ? fallbackId : null);
-  const isAtHome = profile.homeDistrictId && locationId && safeId(profile.homeDistrictId) === locationId;
+  const actionDescriptor = resolveCheckInAction(profile, { preciseInfo, fallbackInfo });
+  const now = Date.now();
+  const checkCooldownActive = isActionOnCooldown(profile, actionDescriptor.key, now);
+  const chargeCooldownActive = isActionOnCooldown(profile, COOLDOWN_KEYS.CHARGE, now);
+  const isAtHome =
+    actionDescriptor.key === COOLDOWN_KEYS.DEFEND && actionDescriptor.mode !== 'remote';
   if (homeDistrictValue) {
     homeDistrictValue.textContent = homeDescription;
     homeDistrictValue.title = profile.homeDistrictId ? `District ID: ${profile.homeDistrictId}` : '';
@@ -3125,15 +3524,20 @@ function renderPlayerState() {
         : `Attack: ${attackDisplay} pts • Defend: ${defendDisplay} pts • Ratio: ${ratioText}`;
   }
   if (chargeAttackButton) {
-    chargeAttackButton.disabled = false;
     const baseChargeText = isAtHome ? 'Charge Defend' : 'Charge Attack';
     const chargedText = isAtHome ? 'Recharge Defend' : 'Recharge Attack';
     chargeAttackButton.textContent = profile.nextCheckinMultiplier > 1 ? chargedText : baseChargeText;
-    chargeAttackButton.title = profile.nextCheckinMultiplier > 1
-      ? `Charged: next check-in worth x${profile.nextCheckinMultiplier} points. Recharge to reset the timer.`
-      : isAtHome
-      ? 'Charge to defend your district with a boosted check-in.'
-      : 'Charge to start a countdown and multiply your next attack.';
+    if (chargeCooldownActive) {
+      chargeAttackButton.disabled = true;
+      chargeAttackButton.title = 'Charge cooldown active. Wait until it completes to charge again.';
+    } else {
+      chargeAttackButton.disabled = false;
+      chargeAttackButton.title = profile.nextCheckinMultiplier > 1
+        ? `Charged: next check-in worth x${profile.nextCheckinMultiplier} points. Recharge to reset the timer.`
+        : isAtHome
+        ? 'Charge to defend your district with a boosted check-in.'
+        : 'Charge to start a countdown and multiply your next attack.';
+    }
   }
   if (setHomeDistrictButton) {
     setHomeDistrictButton.disabled = false;
@@ -3141,28 +3545,14 @@ function renderPlayerState() {
       ? `Current home: ${homeDescription}. Click to change.`
       : 'Click to choose your home district from the list.';
   }
-  const cooldownUntil =
-    typeof profile.cooldownUntil === 'number' && Number.isFinite(profile.cooldownUntil)
-      ? profile.cooldownUntil
-      : null;
-  const now = Date.now();
-  const cooldownActive = Boolean(cooldownUntil && cooldownUntil > now);
-  if (cooldownActive) {
-    startCheckInCooldown(cooldownUntil);
-  } else {
-    stopCheckInCooldown(true);
-    if (profile.cooldownUntil) {
-      delete profile.cooldownUntil;
-      savePlayers();
-    }
-  }
   if (checkInButton) {
     const chargeMultiplier = profile.nextCheckinMultiplier > 1 ? profile.nextCheckinMultiplier : 1;
     const baseMultiplier = !profile || !preciseId ? 1 : isAtHome ? 1 : 2;
     const effectiveMultiplier = chargeMultiplier * baseMultiplier;
-    checkInButton.textContent = effectiveMultiplier > 1 ? `Check In (x${effectiveMultiplier})` : 'Check In';
-    if (cooldownActive) {
-      checkInButton.title = 'Wait for the cooldown to finish.';
+    const buttonLabel = actionDescriptor.key === COOLDOWN_KEYS.DEFEND ? 'Defend' : 'Check In';
+    checkInButton.textContent = effectiveMultiplier > 1 ? `${buttonLabel} (x${effectiveMultiplier})` : buttonLabel;
+    if (checkCooldownActive) {
+      checkInButton.title = `${actionDescriptor.label} cooldown active. Wait for it to finish.`;
     } else if (chargeMultiplier > 1) {
       checkInButton.title = `Charged! Next check-in pays x${chargeMultiplier}.`;
     } else if (baseMultiplier > 1) {
@@ -3170,22 +3560,17 @@ function renderPlayerState() {
     } else {
       checkInButton.title = 'Log a check-in to earn points.';
     }
-    checkInButton.disabled = cooldownActive;
-  }
-  if (chargeAttackButton) {
-    if (cooldownActive) {
-      chargeAttackButton.disabled = true;
-      chargeAttackButton.title = 'Cooldown active. Wait until it completes to charge again.';
-    }
+    checkInButton.disabled = checkCooldownActive;
   }
   if (clearHistoryButton) {
     clearHistoryButton.disabled = !(profile.checkins && profile.checkins.length);
   }
 
+  syncCooldownsFromProfile(profile);
   updateHomePresenceIndicator();
 }
 
-function createCheckinListItem(entry) {
+function createCheckinListItem(entry, profile = null, now = Date.now()) {
   const li = document.createElement('li');
   const safeEntry = entry || {};
   const entryType = typeof safeEntry.type === 'string' ? safeEntry.type.toLowerCase() : '';
@@ -3226,6 +3611,22 @@ function createCheckinListItem(entry) {
   meta.textContent = formatTimeAgo(safeEntry.timestamp);
   li.appendChild(meta);
 
+  const cooldownInfo = profile ? getEntryCooldownInfo(profile, safeEntry, now) : null;
+  if (cooldownInfo) {
+    const cooldownTag = document.createElement('span');
+    cooldownTag.className = 'checkin-cooldown-indicator';
+    cooldownTag.textContent = `${cooldownInfo.label} ${formatCooldownTime(cooldownInfo.remaining)}`;
+    cooldownTag.dataset.cooldownAction = cooldownInfo.key;
+    if (cooldownInfo.mode) {
+      cooldownTag.dataset.cooldownMode = cooldownInfo.mode;
+    }
+    const colors = resolveCooldownColors(cooldownInfo.key, cooldownInfo.mode);
+    cooldownTag.style.background = colors.fill;
+    cooldownTag.style.color = colors.text;
+    cooldownTag.style.boxShadow = '0 6px 14px rgba(15, 6, 32, 0.24)';
+    li.appendChild(cooldownTag);
+  }
+
   const multiplierValue = Number(safeEntry.multiplier);
   if (Number.isFinite(multiplierValue) && multiplierValue > 1) {
     const multiplierTag = document.createElement('span');
@@ -3258,9 +3659,14 @@ function renderCheckins(history) {
   const allEntries = safeHistory.slice(0, MAX_HISTORY_ITEMS);
   const primaryEntries = allEntries.slice(0, 2);
   const additionalEntries = allEntries.slice(2);
+  const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+  if (profile) {
+    ensureProfileCooldownState(profile);
+  }
+  const now = Date.now();
 
   primaryEntries.forEach((entry) => {
-    checkinList.appendChild(createCheckinListItem(entry));
+    checkinList.appendChild(createCheckinListItem(entry, profile, now));
   });
 
   if (additionalEntries.length) {
@@ -3281,7 +3687,7 @@ function renderCheckins(history) {
     const moreList = document.createElement('ul');
     moreList.className = 'checkin-more-list';
     additionalEntries.forEach((entry) => {
-      moreList.appendChild(createCheckinListItem(entry));
+      moreList.appendChild(createCheckinListItem(entry, profile, now));
     });
     details.appendChild(moreList);
 
@@ -3401,6 +3807,10 @@ function updateRecentCheckinsDrawerContent(profile = undefined) {
   const history =
     resolvedProfile && Array.isArray(resolvedProfile.checkins) ? resolvedProfile.checkins.slice(0, MAX_HISTORY_ITEMS) : [];
   const hasHistory = history.length > 0;
+  if (resolvedProfile) {
+    ensureProfileCooldownState(resolvedProfile);
+  }
+  const now = Date.now();
 
   recentCheckinsList.innerHTML = '';
 
@@ -3443,6 +3853,7 @@ function updateRecentCheckinsDrawerContent(profile = undefined) {
     const multiplier = Number(entry.multiplier) > 1 ? `x${Number(entry.multiplier)}` : null;
     const mode = entry.ranged ? 'Ranged' : entry.melee ? 'Local' : null;
     const when = entry.timestamp ? formatTimeAgo(entry.timestamp) : 'Unknown time';
+    const cooldownInfo = resolvedProfile ? getEntryCooldownInfo(resolvedProfile, entry, now) : null;
 
     const metaParts = [typeLabel];
     if (mode) {
@@ -3456,11 +3867,48 @@ function updateRecentCheckinsDrawerContent(profile = undefined) {
 
     const meta = document.createElement('div');
     meta.className = 'recent-checkins-meta';
-    meta.textContent = metaParts.join(' • ');
+    metaParts
+      .filter((part) => typeof part === 'string' && part.trim())
+      .forEach((part, index) => {
+        if (index > 0) {
+          meta.appendChild(document.createTextNode(' • '));
+        }
+        meta.appendChild(document.createTextNode(part));
+      });
+    if (cooldownInfo) {
+      if (meta.childNodes.length) {
+        meta.appendChild(document.createTextNode(' • '));
+      }
+      const cooldownText = document.createElement('span');
+      cooldownText.className = 'recent-checkin-cooldown-text';
+      cooldownText.dataset.cooldownAction = cooldownInfo.key;
+      cooldownText.dataset.cooldownLabel = cooldownInfo.label;
+      cooldownText.textContent = `${cooldownInfo.label} ${formatCooldownTime(cooldownInfo.remaining)}`;
+      meta.appendChild(cooldownText);
+    }
     li.appendChild(meta);
+
+    if (cooldownInfo) {
+      const cooldownBadge = document.createElement('span');
+      cooldownBadge.className = 'recent-checkin-cooldown';
+      cooldownBadge.textContent = formatCooldownTime(cooldownInfo.remaining);
+      cooldownBadge.dataset.cooldownAction = cooldownInfo.key;
+      if (cooldownInfo.label) {
+        cooldownBadge.dataset.cooldownLabel = cooldownInfo.label;
+      }
+      if (cooldownInfo.mode) {
+        cooldownBadge.dataset.cooldownMode = cooldownInfo.mode;
+      }
+      const colors = resolveCooldownColors(cooldownInfo.key, cooldownInfo.mode);
+      cooldownBadge.style.background = colors.fill;
+      cooldownBadge.style.color = colors.text;
+      cooldownBadge.style.boxShadow = '0 6px 18px rgba(15, 6, 32, 0.28)';
+      li.appendChild(cooldownBadge);
+    }
 
     recentCheckinsList.appendChild(li);
   });
+  updateRecentCheckinCooldownBadges(now, resolvedProfile);
 
   if (recentCheckinsToggleButton) {
     if (history.length > 4) {
@@ -3521,26 +3969,637 @@ function toggleRecentCheckinsDrawerMore() {
   }
 }
 
+function updateRecentCheckinCooldownBadges(now = Date.now(), profile = undefined) {
+  if (!recentCheckinsList) {
+    return;
+  }
+  const targets = recentCheckinsList.querySelectorAll('[data-cooldown-action]');
+  if (!targets.length) {
+    return;
+  }
+  const resolvedProfile =
+    profile === undefined ? (currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null) : profile;
+  if (!resolvedProfile) {
+    return;
+  }
+  ensureProfileCooldownState(resolvedProfile);
+  targets.forEach((node) => {
+    const actionKey = node.dataset.cooldownAction;
+    if (!actionKey) {
+      return;
+    }
+    const deadline =
+      resolvedProfile.cooldowns && typeof resolvedProfile.cooldowns[actionKey] === 'number'
+        ? resolvedProfile.cooldowns[actionKey]
+        : null;
+    if (!deadline || deadline <= now) {
+      return;
+    }
+    const remaining = Math.max(0, deadline - now);
+    if (node.dataset.cooldownLabel) {
+      node.textContent = `${node.dataset.cooldownLabel} ${formatCooldownTime(remaining)}`;
+    } else {
+      node.textContent = formatCooldownTime(remaining);
+    }
+  });
+}
+
+function sortFriends(list) {
+  if (!Array.isArray(list)) {
+    return [];
+  }
+  return list
+    .slice()
+    .sort((a, b) => {
+      const aFav = Boolean(a && a.is_favorite);
+      const bFav = Boolean(b && b.is_favorite);
+      if (aFav !== bFav) {
+        return aFav ? -1 : 1;
+      }
+      const aName = a && typeof a.username === 'string' ? a.username.toLowerCase() : '';
+      const bName = b && typeof b.username === 'string' ? b.username.toLowerCase() : '';
+      return aName.localeCompare(bName, undefined, { sensitivity: 'base' });
+    });
+}
+
+function isFriendUsername(username) {
+  if (!username) {
+    return false;
+  }
+  const target = username.toLowerCase();
+  return friendsState.items.some(
+    (friend) => friend && typeof friend.username === 'string' && friend.username.toLowerCase() === target,
+  );
+}
+
+function upsertFriend(friend) {
+  if (!friend || typeof friend.username !== 'string') {
+    return;
+  }
+  const target = friend.username.toLowerCase();
+  const existingIndex = friendsState.items.findIndex(
+    (item) => item && typeof item.username === 'string' && item.username.toLowerCase() === target,
+  );
+  if (existingIndex >= 0) {
+    friendsState.items[existingIndex] = friend;
+  } else {
+    friendsState.items.push(friend);
+  }
+  friendsState.items = sortFriends(friendsState.items);
+  friendsState.loaded = true;
+  friendsState.error = null;
+}
+
+function removeFriendFromState(username) {
+  if (!username) {
+    return;
+  }
+  const target = username.toLowerCase();
+  friendsState.items = friendsState.items.filter(
+    (friend) => !(friend && typeof friend.username === 'string' && friend.username.toLowerCase() === target),
+  );
+}
+
+function formatFriendStatsSummary(friend) {
+  const score = Math.max(0, Math.round(normaliseNumber(friend?.score, 0))).toLocaleString();
+  const checkins = Math.max(0, Math.round(normaliseNumber(friend?.checkins, 0))).toLocaleString();
+  return `${score} pts • ${checkins} check-ins`;
+}
+
+function renderFriendCard(friend) {
+  if (!friend || typeof friend.username !== 'string') {
+    return null;
+  }
+  const card = document.createElement('div');
+  card.className = 'friend-card';
+  card.dataset.username = friend.username;
+  if (friend.is_favorite) {
+    card.classList.add('favorite');
+  }
+
+  const main = document.createElement('div');
+  main.className = 'friend-main';
+
+  const header = document.createElement('div');
+  header.className = 'friend-header';
+  const name = document.createElement('span');
+  name.className = 'friend-name';
+  name.textContent = `@${friend.username}`;
+  header.appendChild(name);
+  const displayName =
+    typeof friend.display_name === 'string' && friend.display_name.trim() ? friend.display_name.trim() : '';
+  if (displayName) {
+    const display = document.createElement('span');
+    display.className = 'friend-display';
+    display.textContent = displayName;
+    header.appendChild(display);
+  }
+  main.appendChild(header);
+
+  const stats = document.createElement('div');
+  stats.className = 'friend-stats';
+  const scoreStat = document.createElement('span');
+  scoreStat.className = 'friend-stat friend-meta';
+  scoreStat.textContent = `${Math.max(0, Math.round(normaliseNumber(friend.score, 0))).toLocaleString()} pts`;
+  stats.appendChild(scoreStat);
+  const checkinsStat = document.createElement('span');
+  checkinsStat.className = 'friend-stat friend-meta';
+  checkinsStat.textContent = `${Math.max(0, Math.round(normaliseNumber(friend.checkins, 0))).toLocaleString()} check-ins`;
+  stats.appendChild(checkinsStat);
+  const attackPoints = Math.max(0, Math.round(normaliseNumber(friend.attack_points, 0)));
+  const defendPoints = Math.max(0, Math.round(normaliseNumber(friend.defend_points, 0)));
+  if (attackPoints || defendPoints) {
+    const attackDefendStat = document.createElement('span');
+    attackDefendStat.className = 'friend-stat friend-meta';
+    attackDefendStat.textContent = `${attackPoints.toLocaleString()} atk • ${defendPoints.toLocaleString()} def`;
+    stats.appendChild(attackDefendStat);
+  }
+  main.appendChild(stats);
+
+  const checkinCounts = friend.checkin_counts || {};
+  const attackCount = Math.max(0, Math.round(normaliseNumber(checkinCounts.attack, 0)));
+  const defendCount = Math.max(0, Math.round(normaliseNumber(checkinCounts.defend, 0)));
+  if (attackCount || defendCount) {
+    const activity = document.createElement('div');
+    activity.className = 'friend-activity';
+    const attackSpan = document.createElement('span');
+    attackSpan.className = 'friend-meta';
+    attackSpan.textContent = `Attacks: ${attackCount.toLocaleString()}`;
+    activity.appendChild(attackSpan);
+    const defendSpan = document.createElement('span');
+    defendSpan.className = 'friend-meta';
+    defendSpan.textContent = `Defends: ${defendCount.toLocaleString()}`;
+    activity.appendChild(defendSpan);
+    const latest = Array.isArray(friend.recent_checkins) ? friend.recent_checkins[0] : null;
+    if (latest) {
+      const latestSpan = document.createElement('span');
+      latestSpan.className = 'friend-meta';
+      latestSpan.textContent = `Latest: ${formatRecentCheckinTag(latest)}`;
+      activity.appendChild(latestSpan);
+    }
+    main.appendChild(activity);
+  }
+
+  card.appendChild(main);
+
+  const favoriteBadge = document.createElement('span');
+  favoriteBadge.className = 'friend-favorite';
+  favoriteBadge.textContent = '★';
+  favoriteBadge.hidden = !friend.is_favorite;
+  card.appendChild(favoriteBadge);
+
+  return card;
+}
+
+function renderFriendManageList() {
+  if (!friendManageList) {
+    return;
+  }
+  friendManageList.innerHTML = '';
+  const friends = Array.isArray(friendsState.items) ? friendsState.items : [];
+  if (!friends.length) {
+    const empty = document.createElement('p');
+    empty.className = 'friend-manage-empty';
+    empty.textContent = 'No friends yet. Use search above to add someone.';
+    friendManageList.appendChild(empty);
+    return;
+  }
+
+  friends.forEach((friend) => {
+    if (!friend || typeof friend.username !== 'string') {
+      return;
+    }
+    const item = document.createElement('div');
+    item.className = 'friend-manage-item';
+    item.dataset.username = friend.username;
+
+    const info = document.createElement('div');
+    info.className = 'friend-info';
+
+    const name = document.createElement('span');
+    name.className = 'friend-name';
+    name.textContent = `@${friend.username}`;
+    info.appendChild(name);
+
+    const displayName =
+      typeof friend.display_name === 'string' && friend.display_name.trim() ? friend.display_name.trim() : '';
+    if (displayName) {
+      const display = document.createElement('span');
+      display.className = 'friend-display';
+      display.textContent = displayName;
+      info.appendChild(display);
+    }
+
+    const meta = document.createElement('span');
+    meta.className = 'friend-meta';
+    meta.textContent = formatFriendStatsSummary(friend);
+    info.appendChild(meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'friend-manage-actions';
+
+    const favoriteButton = document.createElement('button');
+    favoriteButton.type = 'button';
+    favoriteButton.className = 'secondary small';
+    favoriteButton.dataset.friendAction = 'toggle-favorite';
+    favoriteButton.dataset.username = friend.username;
+    favoriteButton.textContent = friend.is_favorite ? 'Unfavorite' : 'Favorite';
+    actions.appendChild(favoriteButton);
+
+    const unfriendButton = document.createElement('button');
+    unfriendButton.type = 'button';
+    unfriendButton.className = 'secondary small danger';
+    unfriendButton.dataset.friendAction = 'unfriend';
+    unfriendButton.dataset.username = friend.username;
+    unfriendButton.textContent = 'Unfriend';
+    actions.appendChild(unfriendButton);
+
+    item.appendChild(info);
+    item.appendChild(actions);
+    friendManageList.appendChild(item);
+  });
+
+  renderFriendRequestsSection();
+}
+
+function getFriendRequestTimeLabel(createdAt) {
+  if (!createdAt) {
+    return 'Moments ago';
+  }
+  const parsed = Date.parse(createdAt);
+  if (Number.isNaN(parsed)) {
+    return 'Moments ago';
+  }
+  return formatTimeAgo(parsed);
+}
+
+function createFriendRequestItem(request, type) {
+  if (!request || typeof request.id === 'undefined') {
+    return null;
+  }
+  const item = document.createElement('div');
+  item.className = 'friend-request-item';
+  item.dataset.requestId = String(request.id);
+
+  const info = document.createElement('div');
+  info.className = 'friend-info';
+
+  const resolvedUsername =
+    typeof request.username === 'string' && request.username.trim() ? request.username.trim() : 'unknown';
+  const name = document.createElement('span');
+  name.className = 'friend-name';
+  name.textContent = `@${resolvedUsername}`;
+  info.appendChild(name);
+
+  const displayName =
+    typeof request.display_name === 'string' && request.display_name.trim() ? request.display_name.trim() : '';
+  if (displayName) {
+    const display = document.createElement('span');
+    display.className = 'friend-display';
+    display.textContent = displayName;
+    info.appendChild(display);
+  }
+
+  const meta = document.createElement('span');
+  meta.className = 'friend-meta';
+  const timeLabel = getFriendRequestTimeLabel(request.created_at);
+  meta.textContent = type === 'incoming' ? `Requested ${timeLabel}` : `Sent ${timeLabel}`;
+  info.appendChild(meta);
+
+  item.appendChild(info);
+
+  const actions = document.createElement('div');
+  actions.className = 'friend-request-actions';
+
+  if (type === 'incoming') {
+    const acceptButton = document.createElement('button');
+    acceptButton.type = 'button';
+    acceptButton.className = 'primary small';
+    acceptButton.dataset.requestAction = 'accept';
+    acceptButton.dataset.requestId = String(request.id);
+    acceptButton.textContent = 'Accept';
+    actions.appendChild(acceptButton);
+
+    const declineButton = document.createElement('button');
+    declineButton.type = 'button';
+    declineButton.className = 'secondary small danger';
+    declineButton.dataset.requestAction = 'decline';
+    declineButton.dataset.requestId = String(request.id);
+    declineButton.textContent = 'Decline';
+    actions.appendChild(declineButton);
+  } else {
+    const cancelButton = document.createElement('button');
+    cancelButton.type = 'button';
+    cancelButton.className = 'secondary small';
+    cancelButton.dataset.requestAction = 'cancel';
+    cancelButton.dataset.requestId = String(request.id);
+    cancelButton.textContent = 'Cancel';
+    actions.appendChild(cancelButton);
+  }
+
+  item.appendChild(actions);
+  return item;
+}
+
+function renderFriendRequestsSection() {
+  if (!friendRequestsPanel) {
+    return;
+  }
+
+  const isLoggedIn = Boolean(isSessionAuthenticated && currentUser);
+  if (!isLoggedIn) {
+    if (friendRequestsFeedback) {
+      friendRequestsFeedback.textContent = '';
+    }
+    if (friendRequestsIncomingList) {
+      friendRequestsIncomingList.innerHTML = '';
+    }
+    if (friendRequestsOutgoingList) {
+      friendRequestsOutgoingList.innerHTML = '';
+    }
+    if (friendRequestsIncomingEmpty) {
+      friendRequestsIncomingEmpty.hidden = false;
+    }
+    if (friendRequestsOutgoingEmpty) {
+      friendRequestsOutgoingEmpty.hidden = false;
+    }
+    return;
+  }
+
+  if (friendRequestsFeedback) {
+    if (friendRequestsState.error) {
+      friendRequestsFeedback.textContent = friendRequestsState.error;
+    } else if (friendRequestsState.loading && !friendRequestsState.loaded) {
+      friendRequestsFeedback.textContent = 'Loading friend requests…';
+    } else {
+      friendRequestsFeedback.textContent = '';
+    }
+  }
+
+  const incoming = Array.isArray(friendRequestsState.incoming) ? friendRequestsState.incoming : [];
+  const outgoing = Array.isArray(friendRequestsState.outgoing) ? friendRequestsState.outgoing : [];
+
+  if (friendRequestsIncomingList) {
+    friendRequestsIncomingList.innerHTML = '';
+    incoming.forEach((request) => {
+      const item = createFriendRequestItem(request, 'incoming');
+      if (item) {
+        friendRequestsIncomingList.appendChild(item);
+      }
+    });
+  }
+  if (friendRequestsIncomingEmpty) {
+    friendRequestsIncomingEmpty.hidden = incoming.length > 0;
+  }
+
+  if (friendRequestsOutgoingList) {
+    friendRequestsOutgoingList.innerHTML = '';
+    outgoing.forEach((request) => {
+      const item = createFriendRequestItem(request, 'outgoing');
+      if (item) {
+        friendRequestsOutgoingList.appendChild(item);
+      }
+    });
+  }
+  if (friendRequestsOutgoingEmpty) {
+    friendRequestsOutgoingEmpty.hidden = outgoing.length > 0;
+  }
+}
+
+async function refreshFriendRequests(force = false) {
+  if (!isSessionAuthenticated || !currentUser) {
+    friendRequestsState = {
+      loading: false,
+      loaded: false,
+      error: null,
+      incoming: [],
+      outgoing: [],
+    };
+    renderFriendRequestsSection();
+    return;
+  }
+
+  if (friendRequestsState.loading && !force) {
+    return;
+  }
+  if (!force && friendRequestsState.loaded) {
+    renderFriendRequestsSection();
+    return;
+  }
+
+  friendRequestsState.loading = true;
+  friendRequestsState.error = null;
+  renderFriendRequestsSection();
+
+  let sessionExpired = false;
+  try {
+    const response = await apiRequest('friend-requests/');
+    friendRequestsState.incoming = Array.isArray(response?.incoming) ? response.incoming : [];
+    friendRequestsState.outgoing = Array.isArray(response?.outgoing) ? response.outgoing : [];
+    friendRequestsState.loaded = true;
+    friendRequestsState.error = null;
+  } catch (error) {
+    if (error && (error.status === 401 || error.status === 403)) {
+      isSessionAuthenticated = false;
+      activePlayerBackendId = null;
+      friendRequestsState = {
+        loading: false,
+        loaded: false,
+        error: null,
+        incoming: [],
+        outgoing: [],
+      };
+      sessionExpired = true;
+    } else {
+      friendRequestsState.error = 'Unable to load friend requests right now.';
+      friendRequestsState.loaded = false;
+      console.warn('Failed to load friend requests', error);
+    }
+  } finally {
+    friendRequestsState.loading = false;
+    renderFriendRequestsSection();
+    if (sessionExpired) {
+      updateStatus('Session expired. Sign in again to manage friend requests.');
+    }
+  }
+}
+
+function resetFriendSearchDirect() {
+  if (!friendSearchDirect || !friendSearchAddDirectButton) {
+    return;
+  }
+  friendSearchAddDirectButton.dataset.username = '';
+  friendSearchAddDirectButton.disabled = false;
+  friendSearchAddDirectButton.textContent = 'Send Friend Request';
+  friendSearchDirect.classList.add('hidden');
+}
+
+function updateFriendSearchDirect(results, query) {
+  if (!friendSearchDirect || !friendSearchAddDirectButton) {
+    return;
+  }
+  friendSearchAddDirectButton.dataset.username = '';
+  friendSearchAddDirectButton.disabled = false;
+  const trimmedQuery = typeof query === 'string' ? query.trim() : '';
+  if (!trimmedQuery) {
+    friendSearchDirect.classList.add('hidden');
+    return;
+  }
+  if (!Array.isArray(results) || !results.length) {
+    friendSearchDirect.classList.add('hidden');
+    return;
+  }
+
+  const exactMatch = results.find((player) => {
+    if (!player || typeof player.username !== 'string') {
+      return false;
+    }
+    return player.username.toLowerCase() === trimmedQuery.toLowerCase();
+  });
+
+  const preventDirectAdd =
+    !exactMatch ||
+    isFriendUsername(exactMatch.username) ||
+    Boolean(exactMatch.is_friend) ||
+    Boolean(exactMatch.incoming_request) ||
+    Boolean(exactMatch.outgoing_request);
+
+  if (preventDirectAdd) {
+    friendSearchDirect.classList.add('hidden');
+    return;
+  }
+
+  friendSearchAddDirectButton.dataset.username = exactMatch.username;
+  friendSearchAddDirectButton.textContent = `Send request to @${exactMatch.username}`;
+  friendSearchDirect.classList.remove('hidden');
+}
+
+function renderFriendSearchResults(results) {
+  if (!friendSearchResults) {
+    return;
+  }
+  friendSearchResults.innerHTML = '';
+  if (!Array.isArray(results) || !results.length) {
+    updateFriendSearchDirect([], friendSearchInput ? friendSearchInput.value : '');
+    return;
+  }
+
+  results.forEach((player) => {
+    if (!player || typeof player.username !== 'string') {
+      return;
+    }
+    const item = document.createElement('div');
+    item.className = 'friend-search-result';
+    item.dataset.username = player.username;
+
+    const info = document.createElement('div');
+    info.className = 'friend-info';
+
+    const name = document.createElement('span');
+    name.className = 'friend-name';
+    name.textContent = `@${player.username}`;
+    info.appendChild(name);
+
+    const displayName =
+      typeof player.display_name === 'string' && player.display_name.trim() ? player.display_name.trim() : '';
+    if (displayName) {
+      const display = document.createElement('span');
+      display.className = 'friend-display';
+      display.textContent = displayName;
+      info.appendChild(display);
+    }
+
+    const meta = document.createElement('span');
+    meta.className = 'friend-meta';
+    meta.textContent = formatFriendStatsSummary(player);
+    info.appendChild(meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'friend-search-actions';
+    const alreadyFriend = Boolean(player.is_friend || isFriendUsername(player.username));
+    const hasIncomingRequest = Boolean(player.incoming_request);
+    const hasOutgoingRequest = Boolean(player.outgoing_request);
+    if (alreadyFriend) {
+      const label = document.createElement('span');
+      label.className = 'friend-meta';
+      label.textContent = 'Already friends';
+      actions.appendChild(label);
+    } else if (hasIncomingRequest) {
+      const label = document.createElement('span');
+      label.className = 'friend-meta';
+      label.textContent = 'Request received';
+      actions.appendChild(label);
+    } else if (hasOutgoingRequest) {
+      const label = document.createElement('span');
+      label.className = 'friend-meta';
+      label.textContent = 'Request sent';
+      actions.appendChild(label);
+    } else {
+      const addButton = document.createElement('button');
+      addButton.type = 'button';
+      addButton.className = 'primary small';
+      addButton.dataset.friendAction = 'add';
+      addButton.dataset.username = player.username;
+      addButton.textContent = 'Send Request';
+      actions.appendChild(addButton);
+    }
+
+    item.appendChild(info);
+    item.appendChild(actions);
+    friendSearchResults.appendChild(item);
+  });
+
+  updateFriendSearchDirect(results, friendSearchInput ? friendSearchInput.value : '');
+}
+
 function updateFriendsDrawerContent() {
   if (!friendsListContainer || !friendsEmptyState) {
     return;
   }
-  const knownNames = Object.keys(players || {});
-  const friendNames = knownNames
-    .filter((name) => name && isValidUsername(name) && name !== currentUser)
-    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 
-  if (friendsInviteButton) {
-    const canInvite = Boolean(currentUser);
-    friendsInviteButton.disabled = !canInvite;
-    friendsInviteButton.title = canInvite ? 'Share your invite link with a teammate.' : 'Sign in to invite friends.';
+  const isLoggedIn = Boolean(isSessionAuthenticated && currentUser);
+
+  if (friendsManageButton) {
+    friendsManageButton.disabled = !isLoggedIn;
+    friendsManageButton.title = isLoggedIn ? 'Manage your friend list.' : 'Sign in to manage friends.';
   }
 
-  if (!friendNames.length) {
+  if (friendsInviteButton) {
+    friendsInviteButton.disabled = !isLoggedIn;
+    friendsInviteButton.title = isLoggedIn
+      ? 'Share your invite link with a teammate.'
+      : 'Sign in to invite friends.';
+  }
+
+  if (!isLoggedIn) {
+    closeFriendsManagePanel();
     friendsEmptyState.hidden = false;
-    friendsEmptyState.textContent = currentUser
-      ? 'No friends linked yet. Invite a teammate to watch their progress.'
-      : 'Sign in to see your friends list.';
+    friendsEmptyState.textContent = 'Sign in to see your friends list.';
+    friendsListContainer.hidden = true;
+    friendsListContainer.innerHTML = '';
+    return;
+  }
+
+  if (friendsState.loading) {
+    friendsEmptyState.hidden = false;
+    friendsEmptyState.textContent = 'Loading your friends…';
+    friendsListContainer.hidden = true;
+    friendsListContainer.innerHTML = '';
+    return;
+  }
+
+  if (friendsState.error) {
+    friendsEmptyState.hidden = false;
+    friendsEmptyState.textContent = friendsState.error;
+    friendsListContainer.hidden = true;
+    friendsListContainer.innerHTML = '';
+    return;
+  }
+
+  const friends = Array.isArray(friendsState.items) ? friendsState.items : [];
+  if (!friends.length) {
+    friendsEmptyState.hidden = false;
+    friendsEmptyState.textContent = 'No friends linked yet. Use Manage Friends to add teammates.';
     friendsListContainer.hidden = true;
     friendsListContainer.innerHTML = '';
     return;
@@ -3549,26 +4608,423 @@ function updateFriendsDrawerContent() {
   friendsEmptyState.hidden = true;
   friendsListContainer.hidden = false;
   friendsListContainer.innerHTML = '';
-
-  friendNames.forEach((name) => {
-    const profile = ensurePlayerProfile(name);
-    const card = document.createElement('div');
-    card.className = 'friend-card';
-
-    const friendName = document.createElement('span');
-    friendName.className = 'friend-name';
-    friendName.textContent = `@${name}`;
-    card.appendChild(friendName);
-
-    const friendMeta = document.createElement('span');
-    friendMeta.className = 'friend-meta';
-    const points = Math.max(0, Math.round(Number(profile.points) || 0));
-    const checkinsCount = profile.serverCheckinCount || (Array.isArray(profile.checkins) ? profile.checkins.length : 0);
-    friendMeta.textContent = `${points.toLocaleString()} pts • ${checkinsCount.toLocaleString()} check-ins`;
-    card.appendChild(friendMeta);
-
-    friendsListContainer.appendChild(card);
+  friends.forEach((friend) => {
+    const card = renderFriendCard(friend);
+    if (card) {
+      friendsListContainer.appendChild(card);
+    }
   });
+
+  if (friendsManageOpen) {
+    renderFriendManageList();
+  }
+}
+
+async function refreshFriends(force = false) {
+  if (!isSessionAuthenticated || !currentUser) {
+    friendsState = {
+      loading: false,
+      loaded: true,
+      error: null,
+      items: [],
+    };
+    updateFriendsDrawerContent();
+    return;
+  }
+  if (friendsState.loading) {
+    return;
+  }
+  if (!force && friendsState.loaded) {
+    return;
+  }
+
+  friendsState.loading = true;
+  friendsState.error = null;
+  updateFriendsDrawerContent();
+
+  try {
+    const response = await apiRequest('friends/');
+    const items = Array.isArray(response?.friends) ? response.friends : [];
+    friendsState.items = sortFriends(items);
+    friendsState.loaded = true;
+    friendsState.error = null;
+  } catch (error) {
+    if (error && (error.status === 401 || error.status === 403)) {
+      isSessionAuthenticated = false;
+      activePlayerBackendId = null;
+      friendsState = {
+        loading: false,
+        loaded: false,
+        error: null,
+        items: [],
+      };
+      updateFriendsDrawerContent();
+      return;
+    }
+    console.warn('Failed to load friends', error);
+    friendsState.error = 'Unable to load friends right now.';
+    friendsState.loaded = false;
+  } finally {
+    friendsState.loading = false;
+    updateFriendsDrawerContent();
+    if (friendsManageOpen) {
+      renderFriendManageList();
+    }
+  }
+}
+
+function openFriendsManagePanel() {
+  if (!friendsManagePanel || !isSessionAuthenticated || !currentUser) {
+    return;
+  }
+  friendsManageOpen = true;
+  friendsManagePanel.classList.remove('hidden');
+  friendsManagePanel.setAttribute('aria-hidden', 'false');
+  refreshFriends();
+  refreshFriendRequests(true);
+  renderFriendManageList();
+  if (friendSearchInput) {
+    friendSearchInput.focus();
+  }
+}
+
+function closeFriendsManagePanel() {
+  if (!friendsManagePanel) {
+    friendsManageOpen = false;
+    return;
+  }
+  friendsManageOpen = false;
+  friendsManagePanel.classList.add('hidden');
+  friendsManagePanel.setAttribute('aria-hidden', 'true');
+  if (friendSearchResults) {
+    friendSearchResults.innerHTML = '';
+  }
+  if (friendSearchFeedback) {
+    friendSearchFeedback.textContent = '';
+  }
+  resetFriendSearchDirect();
+  if (friendSearchInput) {
+    friendSearchInput.value = '';
+  }
+}
+
+async function performFriendSearch(query) {
+  if (!friendSearchResults || !friendSearchFeedback) {
+    return;
+  }
+  resetFriendSearchDirect();
+  const trimmed = typeof query === 'string' ? query.trim() : '';
+  if (!trimmed) {
+    friendSearchFeedback.textContent = 'Enter a username to search.';
+    friendSearchResults.innerHTML = '';
+    return;
+  }
+  if (trimmed.length < 2) {
+    friendSearchFeedback.textContent = 'Enter at least two characters.';
+    friendSearchResults.innerHTML = '';
+    return;
+  }
+  if (!isSessionAuthenticated || !currentUser) {
+    friendSearchFeedback.textContent = 'Sign in to search for friends.';
+    friendSearchResults.innerHTML = '';
+    return;
+  }
+
+  friendSearchFeedback.textContent = 'Searching…';
+  friendSearchResults.innerHTML = '';
+  if (friendSearchButton) {
+    friendSearchButton.disabled = true;
+  }
+  if (friendSearchInput) {
+    friendSearchInput.disabled = true;
+  }
+
+  try {
+    const response = await apiRequest(`friends/search/?q=${encodeURIComponent(trimmed)}`);
+    const results = Array.isArray(response?.results) ? response.results : [];
+    if (results.length) {
+      friendSearchFeedback.textContent = '';
+    } else {
+      friendSearchFeedback.textContent = 'No players found.';
+    }
+    renderFriendSearchResults(results);
+  } catch (error) {
+    if (error && (error.status === 401 || error.status === 403)) {
+      isSessionAuthenticated = false;
+      activePlayerBackendId = null;
+      friendSearchFeedback.textContent = 'Session expired. Sign in and try again.';
+      resetFriendSearchDirect();
+    } else if (error && error.cause) {
+      friendSearchFeedback.textContent = 'Network error. Check your connection and try again.';
+      resetFriendSearchDirect();
+    } else {
+      friendSearchFeedback.textContent = 'Unable to search for players right now.';
+      resetFriendSearchDirect();
+    }
+    console.warn('Friend search failed', error);
+  } finally {
+    if (friendSearchButton) {
+      friendSearchButton.disabled = false;
+    }
+    if (friendSearchInput) {
+      friendSearchInput.disabled = false;
+    }
+  }
+}
+
+async function addFriendByUsername(username) {
+  if (!username || !isSessionAuthenticated || !currentUser) {
+    return;
+  }
+  try {
+    const payload = await apiRequest('friends/', {
+      method: 'POST',
+      body: { username },
+    });
+    const friendData = payload && typeof payload === 'object' ? payload.friend : null;
+    const requestData = payload && typeof payload === 'object' ? payload.friend_request : null;
+    if (friendData && typeof friendData === 'object') {
+      upsertFriend(friendData);
+      updateFriendsDrawerContent();
+      if (friendsManageOpen) {
+        renderFriendManageList();
+      }
+      const addedUsername =
+        typeof friendData.username === 'string' && friendData.username.trim() ? friendData.username.trim() : username;
+      if (friendSearchFeedback) {
+        friendSearchFeedback.textContent = `You're now friends with @${addedUsername}.`;
+      }
+      updateStatus(`You're now friends with @${addedUsername}.`);
+      await refreshFriendRequests(true);
+    }
+
+    if (requestData && typeof requestData === 'object' && requestData.status === 'pending') {
+      const requestedUsername =
+        typeof requestData.username === 'string' && requestData.username.trim()
+          ? requestData.username.trim()
+          : username;
+      if (friendSearchFeedback) {
+        friendSearchFeedback.textContent = `Friend request sent to @${requestedUsername}.`;
+      }
+      await refreshFriendRequests(true);
+      updateStatus(`Friend request sent to @${requestedUsername}.`);
+    }
+  } catch (error) {
+    if (error && error.data && typeof error.data.detail === 'string' && friendSearchFeedback) {
+      friendSearchFeedback.textContent = error.data.detail;
+    } else if (error && error.status === 404 && friendSearchFeedback) {
+      friendSearchFeedback.textContent = 'Player not found.';
+    } else if (error && (error.status === 401 || error.status === 403)) {
+      isSessionAuthenticated = false;
+      activePlayerBackendId = null;
+      if (friendSearchFeedback) {
+        friendSearchFeedback.textContent = 'Session expired. Sign in and try again.';
+      }
+    } else if (friendSearchFeedback) {
+      friendSearchFeedback.textContent = 'Unable to send friend request right now.';
+    }
+    console.warn('Failed to send friend request', error);
+    return;
+  }
+  if (friendSearchInput && friendSearchInput.value.trim()) {
+    performFriendSearch(friendSearchInput.value.trim());
+  }
+}
+
+async function updateFriendFavorite(username, isFavorite) {
+  if (!username || !isSessionAuthenticated || !currentUser) {
+    return;
+  }
+  try {
+    const payload = await apiRequest(`friends/${encodeURIComponent(username)}/`, {
+      method: 'PATCH',
+      body: { is_favorite: Boolean(isFavorite) },
+    });
+    if (payload && typeof payload === 'object') {
+      upsertFriend(payload);
+      updateFriendsDrawerContent();
+      if (friendsManageOpen) {
+        renderFriendManageList();
+      }
+    }
+  } catch (error) {
+    if (error && (error.status === 401 || error.status === 403)) {
+      isSessionAuthenticated = false;
+      activePlayerBackendId = null;
+      updateStatus('Session expired. Sign in again to manage friends.');
+    } else {
+      updateStatus('Unable to update favorite status right now.');
+    }
+    console.warn('Failed to update friend favorite', error);
+  }
+}
+
+async function removeFriend(username) {
+  if (!username || !isSessionAuthenticated || !currentUser) {
+    return;
+  }
+  try {
+    await apiRequest(`friends/${encodeURIComponent(username)}/`, {
+      method: 'DELETE',
+    });
+    removeFriendFromState(username);
+    updateFriendsDrawerContent();
+    if (friendsManageOpen) {
+      renderFriendManageList();
+    }
+    if (friendSearchInput && friendSearchInput.value.trim()) {
+      performFriendSearch(friendSearchInput.value.trim());
+    }
+    updateStatus(`Removed @${username} from your friends.`);
+  } catch (error) {
+    if (error && (error.status === 401 || error.status === 403)) {
+      isSessionAuthenticated = false;
+      activePlayerBackendId = null;
+      updateStatus('Session expired. Sign in again to manage friends.');
+    } else {
+      updateStatus('Unable to remove friend. Try again later.');
+    }
+    console.warn('Failed to remove friend', error);
+  }
+}
+
+async function handleFriendSearchSubmit(event) {
+  event.preventDefault();
+  if (!friendSearchInput) {
+    return;
+  }
+  await performFriendSearch(friendSearchInput.value);
+}
+
+function handleFriendSearchAction(event) {
+  const actionButton = event.target.closest('button[data-friend-action]');
+  if (!actionButton) {
+    return;
+  }
+  const action = actionButton.dataset.friendAction;
+  const username = actionButton.dataset.username;
+  if (!action || !username) {
+    return;
+  }
+  if (action !== 'add') {
+    return;
+  }
+  actionButton.disabled = true;
+  addFriendByUsername(username)
+    .catch((error) => {
+      console.warn('Failed to process friend search action', error);
+      if (friendSearchFeedback) {
+        friendSearchFeedback.textContent = 'Unable to send friend request. Try again.';
+      }
+    })
+    .finally(() => {
+      actionButton.disabled = false;
+    });
+}
+
+function handleFriendManageAction(event) {
+  const actionButton = event.target.closest('button[data-friend-action]');
+  if (!actionButton) {
+    return;
+  }
+  const action = actionButton.dataset.friendAction;
+  const username = actionButton.dataset.username;
+  if (!action || !username) {
+    return;
+  }
+
+  if (!isSessionAuthenticated || !currentUser) {
+    updateStatus('Sign in to manage friends.');
+    return;
+  }
+
+  if (action === 'toggle-favorite') {
+    const friend = friendsState.items.find(
+      (item) => item && typeof item.username === 'string' && item.username.toLowerCase() === username.toLowerCase(),
+    );
+    const nextFavorite = !(friend && friend.is_favorite);
+    actionButton.disabled = true;
+    updateFriendFavorite(username, nextFavorite).finally(() => {
+      actionButton.disabled = false;
+    });
+    return;
+  }
+
+  if (action === 'unfriend') {
+    if (!window.confirm(`Remove @${username} from your friends?`)) {
+      return;
+    }
+    actionButton.disabled = true;
+    removeFriend(username).finally(() => {
+      actionButton.disabled = false;
+    });
+  }
+}
+
+async function handleFriendRequestAction(event) {
+  const actionButton = event.target.closest('button[data-request-action]');
+  if (!actionButton) {
+    return;
+  }
+
+  const action = actionButton.dataset.requestAction;
+  const requestIdRaw = actionButton.dataset.requestId;
+  const requestId = Number.parseInt(requestIdRaw, 10);
+  if (!action || Number.isNaN(requestId)) {
+    return;
+  }
+
+  if (!isSessionAuthenticated || !currentUser) {
+    updateStatus('Sign in to manage friend requests.');
+    return;
+  }
+
+  actionButton.disabled = true;
+  try {
+    const payload = await apiRequest(`friend-requests/${requestId}/`, {
+      method: 'PATCH',
+      body: { action },
+    });
+    const friendData = payload && typeof payload === 'object' ? payload.friend : null;
+    const requestData = payload && typeof payload === 'object' ? payload.friend_request : null;
+    if (friendData && typeof friendData === 'object') {
+      upsertFriend(friendData);
+      refreshFriends(true);
+      updateFriendsDrawerContent();
+      if (friendsManageOpen) {
+        renderFriendManageList();
+      }
+    }
+    await refreshFriendRequests(true);
+    const username =
+      requestData && typeof requestData.username === 'string' && requestData.username.trim()
+        ? requestData.username.trim()
+        : '';
+    let message = '';
+    if (action === 'accept') {
+      message = username ? `You're now friends with @${username}.` : 'Friend request accepted.';
+    } else if (action === 'decline') {
+      message = username ? `Declined @${username}'s friend request.` : 'Friend request declined.';
+    } else if (action === 'cancel') {
+      message = username ? `Canceled friend request to @${username}.` : 'Friend request canceled.';
+    }
+    if (message) {
+      updateStatus(message);
+    }
+  } catch (error) {
+    if (error && (error.status === 401 || error.status === 403)) {
+      isSessionAuthenticated = false;
+      activePlayerBackendId = null;
+      updateStatus('Session expired. Sign in again to manage friend requests.');
+    } else if (error && error.data && typeof error.data.detail === 'string') {
+      updateStatus(error.data.detail);
+    } else {
+      updateStatus('Unable to update friend request. Try again.');
+    }
+    console.warn('Failed to update friend request', error);
+  } finally {
+    actionButton.disabled = false;
+  }
 }
 
 function openFriendsDrawer(trigger = null) {
@@ -3579,6 +5035,8 @@ function openFriendsDrawer(trigger = null) {
   closeCharacterDrawer({ restoreFocus: false });
   closeDistrictDrawer({ restoreFocus: false });
   updateFriendsDrawerContent();
+  refreshFriends();
+  refreshFriendRequests();
   document.body.classList.add('friends-open');
   friendsDrawer.setAttribute('aria-hidden', 'false');
   friendsOverlay.classList.remove('hidden');
@@ -3611,6 +5069,7 @@ function closeFriendsDrawer({ restoreFocus = true } = {}) {
     friendsLastTrigger.focus();
   }
   friendsLastTrigger = null;
+  closeFriendsManagePanel();
 }
 
 function updateDistrictDrawerContent(profile = null) {
@@ -3801,12 +5260,22 @@ function updateCharacterDrawerContent(profile = null) {
   const multiplier = Math.max(1, Number(resolvedProfile.nextCheckinMultiplier) || 1);
   characterChargeValue.textContent = `x${multiplier}`;
 
-  const cooldownUntil =
-    typeof resolvedProfile.cooldownUntil === 'number' && Number.isFinite(resolvedProfile.cooldownUntil)
-      ? resolvedProfile.cooldownUntil
-      : null;
-  if (cooldownUntil && cooldownUntil > Date.now()) {
-    characterCooldownValue.textContent = `Ready in ${formatCooldownTime(cooldownUntil - Date.now())}`;
+  ensureProfileCooldownState(resolvedProfile);
+  const now = Date.now();
+  let closestKey = null;
+  let closestDeadline = Number.POSITIVE_INFINITY;
+  Object.keys(resolvedProfile.cooldowns || {}).forEach((key) => {
+    const deadline = resolvedProfile.cooldowns[key];
+    if (typeof deadline === 'number' && deadline > now && deadline < closestDeadline) {
+      closestKey = key;
+      closestDeadline = deadline;
+    }
+  });
+  if (closestKey) {
+    const remaining = closestDeadline - now;
+    const details = resolvedProfile.cooldownDetails ? resolvedProfile.cooldownDetails[closestKey] : null;
+    const mode = details && typeof details.mode === 'string' ? details.mode : null;
+    characterCooldownValue.textContent = `${formatCooldownLabel(closestKey, mode)} ${formatCooldownTime(remaining)}`;
   } else {
     characterCooldownValue.textContent = 'Ready';
   }
@@ -3869,20 +5338,6 @@ function closeCharacterDrawer({ restoreFocus = true } = {}) {
     characterLastTrigger.focus();
   }
   characterLastTrigger = null;
-}
-
-function updateCooldownBadge(secondsRemaining, active) {
-  if (!cooldownBadge) {
-    return;
-  }
-  if (!active) {
-    cooldownBadge.classList.add('hidden');
-    cooldownBadge.textContent = 'Cooldown: 00:00';
-    return;
-  }
-  const clamped = Math.max(0, secondsRemaining);
-  cooldownBadge.classList.remove('hidden');
-  cooldownBadge.textContent = `Cooldown: ${formatCooldownTime(clamped * 1000)}`;
 }
 
 function populateDrawerHomeSelect(profile) {
@@ -4181,9 +5636,25 @@ function completeAuthenticatedLogin(username, profile, options = {}) {
     return;
   }
 
-  profile.cooldownUntil = null;
+  profile.cooldowns = {};
+  profile.cooldownDetails = {};
   currentUser = username;
   players[username] = profile;
+  friendsState = {
+    loading: false,
+    loaded: false,
+    error: null,
+    items: [],
+  };
+  friendRequestsState = {
+    loading: false,
+    loaded: false,
+    error: null,
+    incoming: [],
+    outgoing: [],
+  };
+  renderFriendRequestsSection();
+  closeFriendsManagePanel();
   if (profile.backendId !== undefined && profile.backendId !== null) {
     activePlayerBackendId = profile.backendId;
     isSessionAuthenticated = true;
@@ -4343,10 +5814,6 @@ async function handleCheckIn(options = {}) {
 
   const profile = ensurePlayerProfile(currentUser);
   const now = Date.now();
-  if (!profile.skipCooldown && profile.cooldownUntil && profile.cooldownUntil > now) {
-    updateStatus('Cooldown active. Wait until it finishes before checking in again.');
-    return;
-  }
   if (!targetDistrictId && contextCoords && contextCoords.length === 2) {
     const contextLng = Number(contextCoords[0]);
     const contextLat = Number(contextCoords[1]);
@@ -4412,6 +5879,21 @@ async function handleCheckIn(options = {}) {
   }
   updateHomePresenceIndicator();
 
+  const actionKey = isDefending ? COOLDOWN_KEYS.DEFEND : COOLDOWN_KEYS.ATTACK;
+  const cooldownMode =
+    isDefending && (locationSource === 'home-remote' || locationSource === 'home-fallback') ? 'remote' : 'local';
+  if (isActionOnCooldown(profile, actionKey, now)) {
+    const label = formatCooldownLabel(actionKey, cooldownMode === 'remote' ? 'remote' : null);
+    updateStatus(`${label} cooldown active. Wait until it finishes before checking in again.`);
+    return;
+  }
+  const cooldownDuration =
+    actionKey === COOLDOWN_KEYS.DEFEND
+      ? cooldownMode === 'remote'
+        ? COOLDOWN_DURATIONS.defendRemote
+        : COOLDOWN_DURATIONS.defendLocal
+      : COOLDOWN_DURATIONS.attack;
+
   const chargeMultiplier = profile.nextCheckinMultiplier > 1 ? profile.nextCheckinMultiplier : 1;
   const isPreciseLocal =
     locationSource &&
@@ -4451,6 +5933,8 @@ async function handleCheckIn(options = {}) {
     multiplier: effectiveMultiplier,
     ranged: rangedAttack,
     melee: meleeAttack,
+    cooldownType: actionKey,
+    cooldownMode,
   });
   profile.checkins = profile.checkins.slice(0, MAX_HISTORY_ITEMS);
   profile.points += pointsAwarded;
@@ -4479,12 +5963,10 @@ async function handleCheckIn(options = {}) {
   }
   profile.nextCheckinMultiplier = 1;
   if (!profile.skipCooldown || !isDevUser(currentUser)) {
-    const cooldownUntil = now + CHECK_IN_COOLDOWN_MS;
-    profile.cooldownUntil = cooldownUntil;
-    startCheckInCooldown(cooldownUntil);
+    const modeDetail = cooldownMode === 'remote' ? 'remote' : null;
+    setProfileCooldown(profile, actionKey, cooldownDuration, { mode: modeDetail });
   } else {
-    profile.cooldownUntil = null;
-    stopCheckInCooldown(true);
+    clearProfileCooldown(profile, actionKey);
   }
 
   savePlayers();
@@ -4534,8 +6016,8 @@ function handleChargeAttack() {
 
   const profile = ensurePlayerProfile(currentUser);
   const now = Date.now();
-  if (!profile.skipCooldown && profile.cooldownUntil && profile.cooldownUntil > now) {
-    updateStatus('Cooldown already in progress. Wait for it to finish before charging again.');
+  if (isActionOnCooldown(profile, COOLDOWN_KEYS.CHARGE, now)) {
+    updateStatus('Charge cooldown active. Wait for it to finish before charging again.');
     return;
   }
 
@@ -4544,18 +6026,16 @@ function handleChargeAttack() {
   const isAtHome = profile.homeDistrictId && locationId && safeId(profile.homeDistrictId) === locationId;
   profile.nextCheckinMultiplier = CHARGE_ATTACK_MULTIPLIER;
   if (!profile.skipCooldown || !isDevUser(currentUser)) {
-    const cooldownUntil = now + CHECK_IN_COOLDOWN_MS;
-    profile.cooldownUntil = cooldownUntil;
-    startCheckInCooldown(cooldownUntil);
+    setProfileCooldown(profile, COOLDOWN_KEYS.CHARGE, COOLDOWN_DURATIONS.charge);
   } else {
-    profile.cooldownUntil = null;
-    stopCheckInCooldown(true);
+    clearProfileCooldown(profile, COOLDOWN_KEYS.CHARGE);
   }
   savePlayers();
   renderPlayerState();
+  scheduleProfileStatsSync(profile);
   const label = isAtHome ? 'defend' : 'attack';
   updateStatus(
-    `Charging ${label}! In ${Math.floor(CHECK_IN_COOLDOWN_MS / 60000)} minutes your next check-in will pay x${CHARGE_ATTACK_MULTIPLIER} points.`
+    `Charging ${label}! In ${Math.floor(COOLDOWN_DURATIONS.charge / 60000)} minutes your next check-in will pay x${CHARGE_ATTACK_MULTIPLIER} points.`
   );
   refreshDistrictHover();
 }
@@ -4570,10 +6050,6 @@ async function handleRangedAttack({ districtId, districtName, contextCoords = nu
 
   const profile = ensurePlayerProfile(currentUser);
   const now = Date.now();
-  if (!profile.skipCooldown && profile.cooldownUntil && profile.cooldownUntil > now) {
-    updateStatus('Cooldown already in progress. Wait until it finishes before attacking again.');
-    return;
-  }
 
   let safeDistrictId = districtId ? safeId(districtId) : null;
   let name = districtName || null;
@@ -4593,6 +6069,10 @@ async function handleRangedAttack({ districtId, districtName, contextCoords = nu
   }
 
   const chargeMultiplier = profile.nextCheckinMultiplier > 1 ? profile.nextCheckinMultiplier : 1;
+  if (isActionOnCooldown(profile, COOLDOWN_KEYS.ATTACK, now)) {
+    updateStatus('Attack cooldown active. Wait until it finishes before attacking again.');
+    return;
+  }
   const pointsAwarded = 10 * chargeMultiplier;
 
   profile.checkins.unshift({
@@ -4603,6 +6083,8 @@ async function handleRangedAttack({ districtId, districtName, contextCoords = nu
     multiplier: chargeMultiplier,
     ranged: true,
     melee: false,
+    cooldownType: COOLDOWN_KEYS.ATTACK,
+    cooldownMode: 'ranged',
   });
   profile.checkins = profile.checkins.slice(0, MAX_HISTORY_ITEMS);
 
@@ -4614,12 +6096,9 @@ async function handleRangedAttack({ districtId, districtName, contextCoords = nu
   applyDistrictScoreDelta(safeDistrictId, -pointsAwarded, name);
 
   if (!profile.skipCooldown || !isDevUser(currentUser)) {
-    const cooldownUntil = now + CHECK_IN_COOLDOWN_MS;
-    profile.cooldownUntil = cooldownUntil;
-    startCheckInCooldown(cooldownUntil);
+    setProfileCooldown(profile, COOLDOWN_KEYS.ATTACK, COOLDOWN_DURATIONS.attack);
   } else {
-    profile.cooldownUntil = null;
-    stopCheckInCooldown(true);
+    clearProfileCooldown(profile, COOLDOWN_KEYS.ATTACK);
   }
 
   savePlayers();
@@ -5258,6 +6737,71 @@ if (friendsButton) {
   });
 }
 
+if (friendsManageButton) {
+  friendsManageButton.addEventListener('click', () => {
+    if (!isSessionAuthenticated || !currentUser) {
+      updateStatus('Sign in to manage friends.');
+      return;
+    }
+    if (friendsManageOpen) {
+      closeFriendsManagePanel();
+    } else {
+      openFriendsManagePanel();
+    }
+  });
+}
+
+if (friendManageCloseButton) {
+  friendManageCloseButton.addEventListener('click', () => {
+    closeFriendsManagePanel();
+    if (friendsManageButton) {
+      friendsManageButton.focus();
+    }
+  });
+}
+
+if (friendSearchForm) {
+  friendSearchForm.addEventListener('submit', (event) => {
+    handleFriendSearchSubmit(event);
+  });
+}
+
+if (friendSearchResults) {
+  friendSearchResults.addEventListener('click', (event) => {
+    handleFriendSearchAction(event);
+  });
+}
+
+if (friendManageList) {
+  friendManageList.addEventListener('click', (event) => {
+    handleFriendManageAction(event);
+  });
+}
+
+if (friendRequestsPanel) {
+  friendRequestsPanel.addEventListener('click', (event) => {
+    handleFriendRequestAction(event);
+  });
+}
+
+if (friendSearchAddDirectButton) {
+  friendSearchAddDirectButton.addEventListener('click', () => {
+    const username = friendSearchAddDirectButton.dataset.username;
+    if (!username) {
+      return;
+    }
+    friendSearchAddDirectButton.disabled = true;
+    addFriendByUsername(username)
+      .catch((error) => {
+        console.warn('Failed to add friend via quick action', error);
+        updateStatus('Unable to send friend request. Try again.');
+      })
+      .finally(() => {
+        friendSearchAddDirectButton.disabled = false;
+      });
+  });
+}
+
 if (districtButton) {
   districtButton.setAttribute('aria-expanded', 'false');
   districtButton.addEventListener('click', () => {
@@ -5429,15 +6973,15 @@ if (devSkipCooldownCheckbox) {
     const profile = ensurePlayerProfile(currentUser);
     profile.skipCooldown = devSkipCooldownCheckbox.checked;
     if (!profile.skipCooldown) {
-      if (profile.cooldownUntil && profile.cooldownUntil < Date.now()) {
-        profile.cooldownUntil = null;
-      }
+      ensureProfileCooldownState(profile);
+    } else {
+      Object.values(COOLDOWN_KEYS).forEach((key) => {
+        clearProfileCooldown(profile, key);
+      });
     }
     savePlayers();
-    if (profile.skipCooldown) {
-      stopCheckInCooldown(true);
-    }
     renderPlayerState();
+    scheduleProfileStatsSync(profile);
   });
 }
 

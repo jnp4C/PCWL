@@ -63,7 +63,7 @@
               <button type="button" class="user-shortcut" id="district-button">District</button>
             </div>
           </div>
-          <span class="cooldown-tag hidden" id="cooldown-badge" role="status" aria-live="polite">Cooldown: 00:00</span>
+          <div id="cooldown-strip" class="cooldown-strip hidden" aria-live="polite"></div>
         </div>
         <div class="player-box">
         <div class="player-heading">
@@ -88,12 +88,6 @@
           </label>
           <button type="button" id="dev-change-user" class="secondary small">Change User</button>
           <button type="button" id="dev-clear-users" class="secondary small danger">Clear Users</button>
-        </div>
-        <div id="check-in-cooldown" class="check-in-cooldown hidden" aria-live="polite">
-          <div class="cooldown-track">
-            <div id="check-in-cooldown-fill" class="cooldown-fill"></div>
-          </div>
-          <span id="check-in-cooldown-label" class="cooldown-label"></span>
         </div>
         <div class="player-stats">
             <div class="stat">
@@ -290,8 +284,45 @@
         </button>
       </header>
       <div class="sheet-body">
+        <div class="friends-toolbar">
+          <button type="button" id="friends-manage-button" class="secondary small sheet-action">Manage Friends</button>
+        </div>
         <p id="friends-empty" class="sheet-empty">Add friends to squad up and keep track of their progress.</p>
         <div id="friends-list" class="friends-list" hidden></div>
+        <div id="friends-manage-panel" class="friends-manage hidden" aria-hidden="true">
+          <form id="friend-search-form" class="friend-search-form">
+            <label class="sr-only" for="friend-search-input">Search username</label>
+            <div class="friend-search-row">
+              <input type="search" id="friend-search-input" class="friend-search-input" placeholder="Search username…" autocomplete="off" />
+              <button type="submit" id="friend-search-button" class="primary small">Search</button>
+            </div>
+          </form>
+          <div id="friend-search-feedback" class="friend-search-feedback" role="status" aria-live="polite"></div>
+          <div id="friend-search-direct" class="friend-search-direct hidden">
+            <button type="button" id="friend-search-add-direct" class="primary small">Send Friend Request</button>
+          </div>
+          <div id="friend-search-results" class="friend-search-results"></div>
+          <div id="friend-requests-panel" class="friend-requests">
+            <h3 class="friend-manage-heading">Friend requests</h3>
+            <p id="friend-requests-feedback" class="friend-search-feedback" role="status" aria-live="polite"></p>
+            <div class="friend-requests-groups">
+              <div class="friend-requests-group">
+                <h4>Incoming</h4>
+                <p id="friend-requests-incoming-empty" class="friend-manage-empty">No pending requests.</p>
+                <div id="friend-requests-incoming" class="friend-request-list"></div>
+              </div>
+              <div class="friend-requests-group">
+                <h4>Sent</h4>
+                <p id="friend-requests-outgoing-empty" class="friend-manage-empty">No sent requests.</p>
+                <div id="friend-requests-outgoing" class="friend-request-list"></div>
+              </div>
+            </div>
+          </div>
+          <hr class="friend-manage-divider" />
+          <h3 class="friend-manage-heading">Your friends</h3>
+          <div id="friend-manage-list" class="friend-manage-list"></div>
+          <button type="button" id="friend-manage-close" class="secondary small">Done</button>
+        </div>
         <button type="button" id="friends-invite-button" class="secondary small sheet-action">Invite Friend</button>
       </div>
     </div>

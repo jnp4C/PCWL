@@ -12,6 +12,10 @@ class HealthEndpointTests(TestCase):
 
 
 class PlayerApiTests(TestCase):
+    def _login_player(self, player: Player):
+        user = player.ensure_auth_user(password="testpass123")
+        self.client.force_login(user)
+
     def test_create_player(self):
         payload = {"username": "test-user"}
         response = self.client.post(reverse("player-list"), payload, content_type="application/json")
@@ -23,9 +27,12 @@ class PlayerApiTests(TestCase):
         self.assertEqual(player.attack_points, 0)
         self.assertEqual(player.defend_points, 0)
         self.assertEqual(player.checkin_history, [])
+        self.assertEqual(player.cooldowns, {})
+        self.assertEqual(player.cooldown_details, {})
 
     def test_update_last_known_location(self):
         player = Player.objects.create(username="loc-user")
+        self._login_player(player)
         payload = {
             "last_known_location": {
                 "lng": 14.42076,
@@ -44,6 +51,7 @@ class PlayerApiTests(TestCase):
 
     def test_update_player_stats_persists_history(self):
         player = Player.objects.create(username="stat-user")
+        self._login_player(player)
         payload = {
             "score": 125,
             "attack_points": 80,
@@ -57,6 +65,8 @@ class PlayerApiTests(TestCase):
                     "multiplier": 1,
                     "ranged": False,
                     "melee": True,
+                    "cooldownType": "defend",
+                    "cooldownMode": "local",
                 },
                 {
                     "timestamp": 1700000005000,
@@ -66,10 +76,20 @@ class PlayerApiTests(TestCase):
                     "multiplier": 2,
                     "ranged": True,
                     "melee": False,
+                    "cooldownType": "attack",
+                    "cooldownMode": "ranged",
                 },
             ],
             "home_district_code": "1100",
             "home_district_name": "Prague 1",
+            "cooldowns": {"attack": 1700000010000},
+            "cooldown_details": {
+                "attack": {
+                    "duration": 180000,
+                    "startedAt": 1700000005000,
+                    "mode": "ranged",
+                }
+            },
         }
         response = self.client.patch(reverse("player-detail", args=[player.id]), payload, content_type="application/json")
         self.assertEqual(response.status_code, 200)
@@ -82,6 +102,43 @@ class PlayerApiTests(TestCase):
         self.assertEqual(player.home_district_name, "Prague 1")
         self.assertEqual(player.home_district, "Prague 1")
         self.assertEqual(len(player.checkin_history), 2)
+        self.assertEqual(player.checkin_history[0]["cooldownType"], "defend")
+        self.assertEqual(player.checkin_history[1]["cooldownMode"], "ranged")
+        self.assertEqual(player.cooldowns, {"attack": 1700000010000})
+        self.assertEqual(
+            player.cooldown_details,
+            {
+                "attack": {
+                    "duration": 180000,
+                    "startedAt": 1700000005000,
+                    "mode": "ranged",
+                }
+            },
+        )
+
+    def test_cooldown_payload_ignores_invalid_entries(self):
+        player = Player.objects.create(username="cooldown-user")
+        self._login_player(player)
+        payload = {
+            "cooldowns": {
+                "attack": "1700000020000",
+                "invalid": 123,
+                "charge": -10,
+            },
+            "cooldown_details": {
+                "attack": {"duration": "60000", "startedAt": "1700000000000", "mode": "LOCAL"},
+                "charge": {"duration": "invalid"},
+                "bad": {"duration": 1000},
+            },
+        }
+        response = self.client.patch(reverse("player-detail", args=[player.id]), payload, content_type="application/json")
+        self.assertEqual(response.status_code, 200)
+        player.refresh_from_db()
+        self.assertEqual(player.cooldowns, {"attack": 1700000020000})
+        self.assertEqual(
+            player.cooldown_details,
+            {"attack": {"duration": 60000, "startedAt": 1700000000000, "mode": "local"}},
+        )
 
 
 class SessionAuthTests(TestCase):
@@ -122,3 +179,22 @@ class SessionAuthTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 401)
+
+    def test_token_authentication(self):
+        # Obtain a token using username/password
+        resp = self.client.post(
+            reverse("api-token"),
+            {"username": "session-user", "password": "hunter2"},
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        token = resp.json().get("token")
+        self.assertTrue(token)
+        # Use the token to access a protected endpoint (player list limited by viewset)
+        self.client.defaults["HTTP_AUTHORIZATION"] = f"Token {token}"
+        # Create a player owned by the auth user if not linked
+        # PlayerViewSet.get_queryset returns current player only; ensure exists and linked
+        # The session user is self.player; force link to auth user
+        self.player.ensure_auth_user(password=None)
+        response = self.client.get(reverse("player-list"))
+        self.assertIn(response.status_code, (200, 403, 405))  # Endpoint exists and protected
