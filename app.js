@@ -1,5 +1,8 @@
 'use strict';
-const backButton = document.getElementById('back-button');
+
+let players = {};
+let currentUser = null;
+
 const findMeButton = document.getElementById('find-me-button');
 const districtsToggle = document.getElementById('districts-toggle');
 const parksToggle = document.getElementById('parks-toggle');
@@ -57,7 +60,6 @@ const recentCheckinsCloseButton = document.getElementById('recent-checkins-close
 const recentCheckinsList = document.getElementById('recent-checkins-list');
 const recentCheckinsToggleButton = document.getElementById('recent-checkins-toggle');
 const recentCheckinsEmptyState = document.getElementById('recent-checkins-empty');
-const floatingCheckInButton = document.getElementById('floating-checkin-button');
 const mobileFindMeButton = document.getElementById('mobile-find-me-button');
 const mobileCheckInButton = document.getElementById('mobile-checkin-button');
 const drawerCheckinButton = document.getElementById('drawer-checkin-button');
@@ -67,9 +69,46 @@ const drawerLeaderboardLink = document.getElementById('drawer-leaderboard');
 const cooldownBadge = document.getElementById('cooldown-badge');
 const recentCheckinTagPrimary = document.getElementById('recent-checkin-1');
 const currentUserTag = document.getElementById('current-user-tag');
+const settingsButton = document.getElementById('settings-button');
+const friendsButton = document.getElementById('friends-button');
+const districtButton = document.getElementById('district-button');
+const characterDrawer = document.getElementById('character-drawer');
+const characterOverlay = document.getElementById('character-overlay');
+const characterCloseButton = document.getElementById('character-close');
+const characterContent = document.getElementById('character-content');
+const characterAvatarInitial = document.getElementById('character-avatar-initial');
+const characterNameLabel = document.getElementById('character-name');
+const characterTagline = document.getElementById('character-tagline');
+const characterPointsValue = document.getElementById('character-points');
+const characterLevelValue = document.getElementById('character-level');
+const characterCheckinsValue = document.getElementById('character-checkins');
+const characterAttackDefendValue = document.getElementById('character-ad');
+const characterChargeValue = document.getElementById('character-charge');
+const characterCooldownValue = document.getElementById('character-cooldown');
+const characterInteractionsList = document.getElementById('character-interactions-list');
+const characterInteractionsEmpty = document.getElementById('character-interactions-empty');
+const friendsDrawer = document.getElementById('friends-drawer');
+const friendsOverlay = document.getElementById('friends-overlay');
+const friendsCloseButton = document.getElementById('friends-close');
+const friendsContent = document.getElementById('friends-content');
+const friendsListContainer = document.getElementById('friends-list');
+const friendsEmptyState = document.getElementById('friends-empty');
+const friendsInviteButton = document.getElementById('friends-invite-button');
+const districtDrawer = document.getElementById('district-drawer');
+const districtOverlay = document.getElementById('district-overlay');
+const districtCloseButton = document.getElementById('district-close');
+const districtContent = document.getElementById('district-content');
+const districtHomeNameValue = document.getElementById('district-home-name');
+const districtContributionValue = document.getElementById('district-contribution');
+const districtRecentActivityValue = document.getElementById('district-recent-activity');
+const districtPerformanceBlurb = document.getElementById('district-performance-blurb');
+const districtCheckinsCountValue = document.getElementById('district-checkins-count');
+const districtLastContestedValue = document.getElementById('district-last-contested');
+const districtControlStatusValue = document.getElementById('district-control-status');
 if (currentUserTag) {
   updateCurrentUserTag(null);
 }
+updateCharacterDrawerContent(null);
 
 const APP_VERSION =
   typeof window !== 'undefined' && window.__APP_VERSION__
@@ -1918,6 +1957,9 @@ let mobileContextMenuSuppressClickResetId = null;
 let mobileContextMenuHandlersBound = false;
 let recentCheckinsShowAll = false;
 let recentCheckinsLastTrigger = null;
+let friendsLastTrigger = null;
+let districtLastTrigger = null;
+let characterLastTrigger = null;
 let lastHoverFeature = null;
 let lastHoverLngLat = null;
 let lastHoverDistrictId = null;
@@ -1933,8 +1975,6 @@ const DEV_DEFAULT_PASSWORD = 'deve';
 const LAST_SIGNED_IN_USER_KEY = 'pragueExplorerLastUser';
 const USERNAME_PATTERN = /^[A-Za-z0-9_]{3,32}$/;
 
-let players = {};
-let currentUser = null;
 let isSessionAuthenticated = false;
 let activePlayerBackendId = null;
 let locationSyncQueue = Promise.resolve();
@@ -3001,6 +3041,12 @@ function renderPlayerState() {
       devClearUsersButton.disabled = true;
     }
     updateRecentCheckinsDrawerContent(null);
+    updateFriendsDrawerContent();
+    updateDistrictDrawerContent(null);
+    updateCharacterDrawerContent(null);
+    closeFriendsDrawer({ restoreFocus: false });
+    closeDistrictDrawer({ restoreFocus: false });
+    closeCharacterDrawer({ restoreFocus: false });
     closeRecentCheckinsDrawer({ restoreFocus: false });
     updateDrawerSummaries(null);
     if (drawerLogoutButton) {
@@ -3022,6 +3068,9 @@ function renderPlayerState() {
   populateDrawerHomeSelect(profile);
   renderCheckins(profile.checkins);
   updateRecentCheckinsDrawerContent(profile);
+  updateFriendsDrawerContent();
+  updateDistrictDrawerContent(profile);
+  updateCharacterDrawerContent(profile);
   if (drawerLogoutButton) {
     drawerLogoutButton.disabled = false;
     drawerLogoutButton.title = 'Log out from this device.';
@@ -3292,16 +3341,33 @@ function updateCurrentUserTag(username) {
     return;
   }
   if (!username) {
-    currentUserTag.textContent = '@Guest';
+    currentUserTag.textContent = 'Guest';
     currentUserTag.classList.add('empty');
     currentUserTag.setAttribute('aria-hidden', 'true');
+    currentUserTag.setAttribute('aria-expanded', 'false');
     currentUserTag.disabled = true;
+    updateSettingsButton(null);
     return;
   }
-  currentUserTag.textContent = `@${username}`;
+  currentUserTag.textContent = username;
   currentUserTag.classList.remove('empty');
   currentUserTag.removeAttribute('aria-hidden');
   currentUserTag.disabled = false;
+  updateSettingsButton(username);
+}
+
+function updateSettingsButton(username) {
+  if (!settingsButton) {
+    return;
+  }
+  if (!username) {
+    settingsButton.textContent = 'Character & Settings';
+    settingsButton.classList.add('disabled');
+    settingsButton.disabled = false;
+    return;
+  }
+  settingsButton.textContent = `@${username}`;
+  settingsButton.classList.remove('disabled');
 }
 
 function updateRecentCheckinTags(history) {
@@ -3412,6 +3478,9 @@ function openRecentCheckinsDrawer(trigger = null) {
   if (!recentCheckinsDrawer || !recentCheckinsOverlay) {
     return;
   }
+  closeCharacterDrawer({ restoreFocus: false });
+  closeFriendsDrawer({ restoreFocus: false });
+  closeDistrictDrawer({ restoreFocus: false });
   const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
   recentCheckinsShowAll = false;
   updateRecentCheckinsDrawerContent(profile);
@@ -3450,6 +3519,356 @@ function toggleRecentCheckinsDrawerMore() {
   if (recentCheckinsToggleButton) {
     recentCheckinsToggleButton.blur();
   }
+}
+
+function updateFriendsDrawerContent() {
+  if (!friendsListContainer || !friendsEmptyState) {
+    return;
+  }
+  const knownNames = Object.keys(players || {});
+  const friendNames = knownNames
+    .filter((name) => name && isValidUsername(name) && name !== currentUser)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
+  if (friendsInviteButton) {
+    const canInvite = Boolean(currentUser);
+    friendsInviteButton.disabled = !canInvite;
+    friendsInviteButton.title = canInvite ? 'Share your invite link with a teammate.' : 'Sign in to invite friends.';
+  }
+
+  if (!friendNames.length) {
+    friendsEmptyState.hidden = false;
+    friendsEmptyState.textContent = currentUser
+      ? 'No friends linked yet. Invite a teammate to watch their progress.'
+      : 'Sign in to see your friends list.';
+    friendsListContainer.hidden = true;
+    friendsListContainer.innerHTML = '';
+    return;
+  }
+
+  friendsEmptyState.hidden = true;
+  friendsListContainer.hidden = false;
+  friendsListContainer.innerHTML = '';
+
+  friendNames.forEach((name) => {
+    const profile = ensurePlayerProfile(name);
+    const card = document.createElement('div');
+    card.className = 'friend-card';
+
+    const friendName = document.createElement('span');
+    friendName.className = 'friend-name';
+    friendName.textContent = `@${name}`;
+    card.appendChild(friendName);
+
+    const friendMeta = document.createElement('span');
+    friendMeta.className = 'friend-meta';
+    const points = Math.max(0, Math.round(Number(profile.points) || 0));
+    const checkinsCount = profile.serverCheckinCount || (Array.isArray(profile.checkins) ? profile.checkins.length : 0);
+    friendMeta.textContent = `${points.toLocaleString()} pts • ${checkinsCount.toLocaleString()} check-ins`;
+    card.appendChild(friendMeta);
+
+    friendsListContainer.appendChild(card);
+  });
+}
+
+function openFriendsDrawer(trigger = null) {
+  if (!friendsDrawer || !friendsOverlay) {
+    return;
+  }
+  closeRecentCheckinsDrawer({ restoreFocus: false });
+  closeCharacterDrawer({ restoreFocus: false });
+  closeDistrictDrawer({ restoreFocus: false });
+  updateFriendsDrawerContent();
+  document.body.classList.add('friends-open');
+  friendsDrawer.setAttribute('aria-hidden', 'false');
+  friendsOverlay.classList.remove('hidden');
+  friendsOverlay.setAttribute('aria-hidden', 'false');
+  friendsLastTrigger = trigger || null;
+  if (friendsButton) {
+    friendsButton.setAttribute('aria-expanded', 'true');
+  }
+  window.setTimeout(() => {
+    if (friendsContent && typeof friendsContent.focus === 'function') {
+      friendsContent.focus();
+    }
+  }, 0);
+}
+
+function closeFriendsDrawer({ restoreFocus = true } = {}) {
+  if (!friendsDrawer || !document.body.classList.contains('friends-open')) {
+    return;
+  }
+  document.body.classList.remove('friends-open');
+  friendsDrawer.setAttribute('aria-hidden', 'true');
+  if (friendsOverlay) {
+    friendsOverlay.classList.add('hidden');
+    friendsOverlay.setAttribute('aria-hidden', 'true');
+  }
+  if (friendsButton) {
+    friendsButton.setAttribute('aria-expanded', 'false');
+  }
+  if (restoreFocus && friendsLastTrigger && typeof friendsLastTrigger.focus === 'function') {
+    friendsLastTrigger.focus();
+  }
+  friendsLastTrigger = null;
+}
+
+function updateDistrictDrawerContent(profile = null) {
+  if (
+    !districtHomeNameValue ||
+    !districtContributionValue ||
+    !districtRecentActivityValue ||
+    !districtPerformanceBlurb ||
+    !districtCheckinsCountValue ||
+    !districtLastContestedValue ||
+    !districtControlStatusValue
+  ) {
+    return;
+  }
+  const resolvedProfile = profile || (currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null);
+  if (!resolvedProfile) {
+    districtHomeNameValue.textContent = 'Not set';
+    districtContributionValue.textContent = '0 pts';
+    districtRecentActivityValue.textContent = 'No check-ins yet';
+    districtPerformanceBlurb.textContent = 'Sign in and choose a home district to see its performance.';
+    districtCheckinsCountValue.textContent = '0';
+    districtLastContestedValue.textContent = '—';
+    districtControlStatusValue.textContent = 'Not assigned';
+    return;
+  }
+
+  const homeName =
+    (resolvedProfile.homeDistrictName && resolvedProfile.homeDistrictName.trim()) ||
+    (resolvedProfile.homeDistrictId ? `District ${resolvedProfile.homeDistrictId}` : 'Not set');
+  districtHomeNameValue.textContent = homeName;
+
+  const points = Math.max(0, Math.round(Number(resolvedProfile.points) || 0));
+  districtContributionValue.textContent = `${points.toLocaleString()} pts`;
+
+  const checkinsCount =
+    resolvedProfile.serverCheckinCount || (Array.isArray(resolvedProfile.checkins) ? resolvedProfile.checkins.length : 0);
+  districtCheckinsCountValue.textContent = checkinsCount.toLocaleString();
+
+  const latestCheckin =
+    Array.isArray(resolvedProfile.checkins) && resolvedProfile.checkins.length
+      ? resolvedProfile.checkins[0]
+      : null;
+  if (latestCheckin) {
+    districtRecentActivityValue.textContent = formatRecentCheckinTag(latestCheckin);
+    districtLastContestedValue.textContent = latestCheckin.timestamp ? formatTimeAgo(latestCheckin.timestamp) : 'Just now';
+  } else {
+    districtRecentActivityValue.textContent = 'No check-ins yet';
+    districtLastContestedValue.textContent = '—';
+  }
+
+  const hasHomeDistrict =
+    Boolean(resolvedProfile.homeDistrictId) || Boolean(resolvedProfile.homeDistrictName && resolvedProfile.homeDistrictName.trim());
+  if (!hasHomeDistrict) {
+    districtPerformanceBlurb.textContent = 'Choose a home district to start building its strength.';
+    districtControlStatusValue.textContent = 'Not assigned';
+    return;
+  }
+
+  const defendCount = Array.isArray(resolvedProfile.checkins)
+    ? resolvedProfile.checkins.filter((entry) => entry && String(entry.type).toLowerCase() === 'defend').length
+    : 0;
+  const latestType = latestCheckin && typeof latestCheckin.type === 'string' ? latestCheckin.type.toLowerCase() : '';
+  let controlStatus = 'Holding steady';
+  if (!latestCheckin) {
+    controlStatus = 'Awaiting activity';
+  } else if (latestType === 'defend') {
+    controlStatus = 'Fortifying defenses';
+  } else if (latestType === 'attack') {
+    controlStatus = 'On the offensive';
+  } else {
+    controlStatus = 'Expanding influence';
+  }
+  districtControlStatusValue.textContent = controlStatus;
+
+  const defendText = defendCount
+    ? `You have logged ${defendCount.toLocaleString()} defend ${defendCount === 1 ? 'action' : 'actions'} in ${homeName}.`
+    : `Visit ${homeName} to defend and boost its resilience.`;
+  districtPerformanceBlurb.textContent = `You have contributed ${points.toLocaleString()} pts across ${checkinsCount.toLocaleString()} check-ins. ${defendText}`;
+}
+
+function openDistrictDrawer(trigger = null) {
+  if (!districtDrawer || !districtOverlay) {
+    return;
+  }
+  closeFriendsDrawer({ restoreFocus: false });
+  closeCharacterDrawer({ restoreFocus: false });
+  closeRecentCheckinsDrawer({ restoreFocus: false });
+  const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+  updateDistrictDrawerContent(profile);
+  document.body.classList.add('district-open');
+  districtDrawer.setAttribute('aria-hidden', 'false');
+  districtOverlay.classList.remove('hidden');
+  districtOverlay.setAttribute('aria-hidden', 'false');
+  districtLastTrigger = trigger || null;
+  if (districtButton) {
+    districtButton.setAttribute('aria-expanded', 'true');
+  }
+  window.setTimeout(() => {
+    if (districtContent && typeof districtContent.focus === 'function') {
+      districtContent.focus();
+    }
+  }, 0);
+}
+
+function closeDistrictDrawer({ restoreFocus = true } = {}) {
+  if (!districtDrawer || !document.body.classList.contains('district-open')) {
+    return;
+  }
+  document.body.classList.remove('district-open');
+  districtDrawer.setAttribute('aria-hidden', 'true');
+  if (districtOverlay) {
+    districtOverlay.classList.add('hidden');
+    districtOverlay.setAttribute('aria-hidden', 'true');
+  }
+  if (districtButton) {
+    districtButton.setAttribute('aria-expanded', 'false');
+  }
+  if (restoreFocus && districtLastTrigger && typeof districtLastTrigger.focus === 'function') {
+    districtLastTrigger.focus();
+  }
+  districtLastTrigger = null;
+}
+
+function updateCharacterDrawerContent(profile = null) {
+  if (
+    !characterNameLabel ||
+    !characterAvatarInitial ||
+    !characterTagline ||
+    !characterPointsValue ||
+    !characterLevelValue ||
+    !characterCheckinsValue ||
+    !characterAttackDefendValue ||
+    !characterChargeValue ||
+    !characterCooldownValue ||
+    !characterInteractionsList ||
+    !characterInteractionsEmpty
+  ) {
+    return;
+  }
+  const resolvedProfile = profile || (currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null);
+  if (!resolvedProfile || !currentUser) {
+    characterNameLabel.textContent = 'Guest';
+    characterAvatarInitial.textContent = 'G';
+    characterTagline.textContent = 'Sign in to personalise your character.';
+    characterPointsValue.textContent = '0';
+    characterLevelValue.textContent = '1';
+    characterCheckinsValue.textContent = '0';
+    characterAttackDefendValue.textContent = '0 / 0';
+    characterChargeValue.textContent = 'x1';
+    characterCooldownValue.textContent = 'Ready';
+    characterInteractionsList.innerHTML = '';
+    characterInteractionsList.hidden = true;
+    characterInteractionsEmpty.hidden = false;
+    return;
+  }
+
+  const displayName = currentUser;
+  const trimmedName = displayName.trim();
+  characterNameLabel.textContent = trimmedName || 'Player';
+  const initial = trimmedName ? trimmedName.charAt(0).toUpperCase() : 'P';
+  characterAvatarInitial.textContent = initial;
+
+  const homeName =
+    (resolvedProfile.homeDistrictName && resolvedProfile.homeDistrictName.trim()) ||
+    (resolvedProfile.homeDistrictId ? `District ${resolvedProfile.homeDistrictId}` : null);
+  if (homeName) {
+    characterTagline.textContent = `Champion of ${homeName}`;
+  } else if (resolvedProfile.points > 0) {
+    characterTagline.textContent = `Rising with ${Math.round(resolvedProfile.points).toLocaleString()} pts earned.`;
+  } else {
+    characterTagline.textContent = 'Set a home district to unlock territory bonuses.';
+  }
+
+  const points = Math.max(0, Math.round(Number(resolvedProfile.points) || 0));
+  characterPointsValue.textContent = points.toLocaleString();
+
+  const calculatedLevel = Math.max(1, Math.floor(points / 250) + 1);
+  characterLevelValue.textContent = calculatedLevel.toLocaleString();
+
+  const checkinsCount =
+    resolvedProfile.serverCheckinCount || (Array.isArray(resolvedProfile.checkins) ? resolvedProfile.checkins.length : 0);
+  characterCheckinsValue.textContent = checkinsCount.toLocaleString();
+
+  const attackPoints = Math.max(0, Math.round(Number(resolvedProfile.attackPoints) || 0));
+  const defendPoints = Math.max(0, Math.round(Number(resolvedProfile.defendPoints) || 0));
+  characterAttackDefendValue.textContent = `${attackPoints.toLocaleString()} / ${defendPoints.toLocaleString()}`;
+
+  const multiplier = Math.max(1, Number(resolvedProfile.nextCheckinMultiplier) || 1);
+  characterChargeValue.textContent = `x${multiplier}`;
+
+  const cooldownUntil =
+    typeof resolvedProfile.cooldownUntil === 'number' && Number.isFinite(resolvedProfile.cooldownUntil)
+      ? resolvedProfile.cooldownUntil
+      : null;
+  if (cooldownUntil && cooldownUntil > Date.now()) {
+    characterCooldownValue.textContent = `Ready in ${formatCooldownTime(cooldownUntil - Date.now())}`;
+  } else {
+    characterCooldownValue.textContent = 'Ready';
+  }
+
+  characterInteractionsList.innerHTML = '';
+  const recentInteractions = Array.isArray(resolvedProfile.checkins) ? resolvedProfile.checkins.slice(0, 4) : [];
+  if (!recentInteractions.length) {
+    characterInteractionsList.hidden = true;
+    characterInteractionsEmpty.hidden = false;
+    characterInteractionsEmpty.textContent = 'No interactions yet. Check in to build your story.';
+  } else {
+    characterInteractionsList.hidden = false;
+    characterInteractionsEmpty.hidden = true;
+    recentInteractions.forEach((entry) => {
+      const item = document.createElement('li');
+      item.textContent = formatRecentCheckinTag(entry);
+      characterInteractionsList.appendChild(item);
+    });
+  }
+}
+
+function openCharacterDrawer(trigger = null) {
+  if (!characterDrawer || !characterOverlay) {
+    return;
+  }
+  closeRecentCheckinsDrawer({ restoreFocus: false });
+  closeFriendsDrawer({ restoreFocus: false });
+  closeDistrictDrawer({ restoreFocus: false });
+  const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+  updateCharacterDrawerContent(profile);
+  document.body.classList.add('character-open');
+  characterDrawer.setAttribute('aria-hidden', 'false');
+  characterOverlay.classList.remove('hidden');
+  characterOverlay.setAttribute('aria-hidden', 'false');
+  characterLastTrigger = trigger || null;
+  if (currentUserTag) {
+    currentUserTag.setAttribute('aria-expanded', 'true');
+  }
+  window.setTimeout(() => {
+    if (characterContent && typeof characterContent.focus === 'function') {
+      characterContent.focus();
+    }
+  }, 0);
+}
+
+function closeCharacterDrawer({ restoreFocus = true } = {}) {
+  if (!characterDrawer || !document.body.classList.contains('character-open')) {
+    return;
+  }
+  document.body.classList.remove('character-open');
+  characterDrawer.setAttribute('aria-hidden', 'true');
+  if (characterOverlay) {
+    characterOverlay.classList.add('hidden');
+    characterOverlay.setAttribute('aria-hidden', 'true');
+  }
+  if (currentUserTag) {
+    currentUserTag.setAttribute('aria-expanded', 'false');
+  }
+  if (restoreFocus && characterLastTrigger && typeof characterLastTrigger.focus === 'function') {
+    characterLastTrigger.focus();
+  }
+  characterLastTrigger = null;
 }
 
 function updateCooldownBadge(secondsRemaining, active) {
@@ -4789,12 +5208,6 @@ function showMap(triggerGeolocation) {
   }
 }
 
-if (backButton) {
-  backButton.addEventListener('click', () => {
-    performLogout();
-  });
-}
-
 if (findMeButton) {
   findMeButton.addEventListener('click', () => {
     ensureMap(() => {
@@ -4824,7 +5237,7 @@ if (mobileCheckInButton) {
 if (currentUserTag) {
   currentUserTag.addEventListener('click', () => {
     if (currentUser) {
-      setMobileDrawerState(true);
+      openCharacterDrawer(currentUserTag);
     }
   });
   currentUserTag.addEventListener('keydown', (event) => {
@@ -4833,17 +5246,25 @@ if (currentUserTag) {
     }
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      setMobileDrawerState(true);
+      openCharacterDrawer(currentUserTag);
     }
   });
 }
 
-
-if (floatingCheckInButton) {
-  floatingCheckInButton.addEventListener('click', () => {
-    handleCheckIn();
+if (friendsButton) {
+  friendsButton.setAttribute('aria-expanded', 'false');
+  friendsButton.addEventListener('click', () => {
+    openFriendsDrawer(friendsButton);
   });
 }
+
+if (districtButton) {
+  districtButton.setAttribute('aria-expanded', 'false');
+  districtButton.addEventListener('click', () => {
+    openDistrictDrawer(districtButton);
+  });
+}
+
 
 if (drawerCheckinButton) {
   drawerCheckinButton.addEventListener('click', () => {
@@ -5062,23 +5483,6 @@ recentTagElements.forEach((tag) => {
   });
 });
 
-const recentTagsContainer = document.querySelector('.recent-tags');
-if (recentTagsContainer) {
-  recentTagsContainer.addEventListener('click', (event) => {
-    const target = event.target.closest('.recent-tag');
-    if (!target || target.classList.contains('empty')) {
-      return;
-    }
-    if (target.classList.contains('user-tag')) {
-      if (currentUser) {
-        setMobileDrawerState(true);
-      }
-      return;
-    }
-    openRecentCheckinsDrawer(target);
-  });
-}
-
 if (recentCheckinsOverlay) {
   recentCheckinsOverlay.addEventListener('click', () => {
     closeRecentCheckinsDrawer();
@@ -5098,10 +5502,68 @@ if (recentCheckinsToggleButton) {
 }
 
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && document.body.classList.contains('recent-checkins-open')) {
+  if (event.key !== 'Escape') {
+    return;
+  }
+  if (document.body.classList.contains('recent-checkins-open')) {
     closeRecentCheckinsDrawer();
   }
+  if (document.body.classList.contains('friends-open')) {
+    closeFriendsDrawer();
+  }
+  if (document.body.classList.contains('district-open')) {
+    closeDistrictDrawer();
+  }
+  if (document.body.classList.contains('character-open')) {
+    closeCharacterDrawer();
+  }
 });
+
+if (friendsOverlay) {
+  friendsOverlay.addEventListener('click', () => {
+    closeFriendsDrawer();
+  });
+}
+
+if (friendsCloseButton) {
+  friendsCloseButton.addEventListener('click', () => {
+    closeFriendsDrawer();
+  });
+}
+
+if (districtOverlay) {
+  districtOverlay.addEventListener('click', () => {
+    closeDistrictDrawer();
+  });
+}
+
+if (districtCloseButton) {
+  districtCloseButton.addEventListener('click', () => {
+    closeDistrictDrawer();
+  });
+}
+
+if (characterOverlay) {
+  characterOverlay.addEventListener('click', () => {
+    closeCharacterDrawer();
+  });
+}
+
+if (characterCloseButton) {
+  characterCloseButton.addEventListener('click', () => {
+    closeCharacterDrawer();
+  });
+}
+
+if (friendsInviteButton) {
+  friendsInviteButton.addEventListener('click', () => {
+    if (!currentUser) {
+      updateStatus('Sign in to invite friends.');
+      return;
+    }
+    updateStatus('Friend invites are coming soon.');
+  });
+}
 
 
 if (devChangeUserButton) {

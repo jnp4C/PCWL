@@ -52,13 +52,16 @@
     <section id="game-screen" class="panel hidden">
       <header class="top-bar">
         <div class="nav-group">
-          <button id="back-button" class="secondary">Switch Player</button>
           <button id="find-me-button" class="primary">Find Me</button>
         </div>
-        <div class="top-actions mobile-only" aria-label="Quick actions">
+        <div class="top-actions" aria-label="Quick actions">
           <div class="recent-tags" aria-live="polite">
             <span class="recent-tag" id="recent-checkin-1">No check-ins yet</span>
-            <button type="button" class="recent-tag user-tag" id="current-user-tag">@Guest</button>
+            <div class="user-shortcuts" role="group" aria-label="Player shortcuts">
+              <button type="button" class="user-shortcut user-shortcut-primary" id="current-user-tag" aria-expanded="false">Guest</button>
+              <button type="button" class="user-shortcut" id="friends-button">Friends</button>
+              <button type="button" class="user-shortcut" id="district-button">District</button>
+            </div>
           </div>
           <span class="cooldown-tag hidden" id="cooldown-badge" role="status" aria-live="polite">Cooldown: 00:00</span>
         </div>
@@ -108,7 +111,6 @@
           </div>
         </div>
       </header>
-      <button id="floating-checkin-button" class="floating-checkin" type="button">Check In</button>
       <div class="layout">
         <div id="map"></div>
         <aside class="sidebar" id="mobile-drawer" aria-hidden="true">
@@ -122,7 +124,7 @@
             <h2 class="drawer-heading">Character</h2>
             <div class="drawer-quick-actions">
               <button id="drawer-checkin-button" class="primary small" type="button">Check In</button>
-              <button id="drawer-switch-button" class="secondary small" type="button">Switch Player</button>
+              <button id="drawer-logout-button" class="secondary small" type="button">Log Out</button>
             </div>
           </section>
           <section class="drawer-block drawer-summary">
@@ -217,6 +219,128 @@
         <p id="recent-checkins-empty" class="recent-checkins-empty" hidden>No check-ins recorded yet.</p>
         <ul id="recent-checkins-list" class="recent-checkins-list" aria-live="polite"></ul>
         <button type="button" id="recent-checkins-toggle" class="secondary small recent-checkins-toggle hidden">Show more</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="character-overlay" class="sheet-overlay character-overlay hidden" tabindex="-1" aria-hidden="true"></div>
+  <section id="character-drawer" class="sheet-drawer character-drawer" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="character-drawer-title">
+    <div id="character-content" class="sheet-content" tabindex="-1">
+      <header class="sheet-header">
+        <h2 id="character-drawer-title">Character Profile</h2>
+        <button type="button" id="character-close" class="icon-button sheet-close" aria-label="Close character drawer">
+          &times;
+        </button>
+      </header>
+      <div class="sheet-body">
+        <section class="character-summary">
+          <div class="character-avatar" aria-hidden="true">
+            <span class="character-avatar-initial" id="character-avatar-initial">G</span>
+          </div>
+          <div class="character-meta">
+            <h3 id="character-name">Guest</h3>
+            <p id="character-tagline" class="character-tagline">Sign in to personalise your character.</p>
+          </div>
+        </section>
+        <section class="character-stats">
+          <h3 class="character-section-title">Core Stats</h3>
+          <div class="character-stats-grid">
+            <div class="character-stat">
+              <span class="label">Points</span>
+              <span class="value" id="character-points">0</span>
+            </div>
+            <div class="character-stat">
+              <span class="label">Level</span>
+              <span class="value" id="character-level">1</span>
+            </div>
+            <div class="character-stat">
+              <span class="label">Check-ins</span>
+              <span class="value" id="character-checkins">0</span>
+            </div>
+            <div class="character-stat">
+              <span class="label">Attack / Defend</span>
+              <span class="value" id="character-ad">0 / 0</span>
+            </div>
+            <div class="character-stat">
+              <span class="label">Charge Multiplier</span>
+              <span class="value" id="character-charge">x1</span>
+            </div>
+            <div class="character-stat">
+              <span class="label">Cooldown</span>
+              <span class="value" id="character-cooldown">Ready</span>
+            </div>
+          </div>
+        </section>
+        <section class="character-interactions">
+          <h3 class="character-section-title">Recent Interactions</h3>
+          <p id="character-interactions-empty" class="character-empty">No interactions yet. Check in to build your story.</p>
+          <ul id="character-interactions-list" class="character-interactions-list" hidden aria-live="polite"></ul>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <div id="friends-overlay" class="sheet-overlay friends-overlay hidden" tabindex="-1" aria-hidden="true"></div>
+  <section id="friends-drawer" class="sheet-drawer friends-drawer" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="friends-drawer-title">
+    <div id="friends-content" class="sheet-content" tabindex="-1">
+      <header class="sheet-header">
+        <h2 id="friends-drawer-title">Friends</h2>
+        <button type="button" id="friends-close" class="icon-button sheet-close" aria-label="Close friends drawer">
+          &times;
+        </button>
+      </header>
+      <div class="sheet-body">
+        <p id="friends-empty" class="sheet-empty">Add friends to squad up and keep track of their progress.</p>
+        <div id="friends-list" class="friends-list" hidden></div>
+        <button type="button" id="friends-invite-button" class="secondary small sheet-action">Invite Friend</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="district-overlay" class="sheet-overlay district-overlay hidden" tabindex="-1" aria-hidden="true"></div>
+  <section id="district-drawer" class="sheet-drawer district-drawer" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="district-drawer-title">
+    <div id="district-content" class="sheet-content" tabindex="-1">
+      <header class="sheet-header">
+        <h2 id="district-drawer-title">District Hub</h2>
+        <button type="button" id="district-close" class="icon-button sheet-close" aria-label="Close district drawer">
+          &times;
+        </button>
+      </header>
+      <div class="sheet-body">
+        <div class="district-summary">
+          <div class="district-summary-item">
+            <span class="label">Home District</span>
+            <span class="value" id="district-home-name">Not set</span>
+          </div>
+          <div class="district-summary-item">
+            <span class="label">Contribution</span>
+            <span class="value" id="district-contribution">0 pts</span>
+          </div>
+          <div class="district-summary-item">
+            <span class="label">Recent Activity</span>
+            <span class="value" id="district-recent-activity">No check-ins yet</span>
+          </div>
+        </div>
+        <div class="district-detail">
+          <h3>Performance Snapshot</h3>
+          <p id="district-performance-blurb">
+            Sign in and set a home district to see how your team is doing.
+          </p>
+          <ul class="district-metrics">
+            <li>
+              <span class="metric-label">Check-ins recorded</span>
+              <span class="metric-value" id="district-checkins-count">0</span>
+            </li>
+            <li>
+              <span class="metric-label">Last contested</span>
+              <span class="metric-value" id="district-last-contested">—</span>
+            </li>
+            <li>
+              <span class="metric-label">Control status</span>
+              <span class="metric-value" id="district-control-status">Unknown</span>
+            </li>
+          </ul>
+        </div>
       </div>
     </div>
   </section>
