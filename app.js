@@ -127,6 +127,12 @@ const districtPerformanceBlurb = document.getElementById('district-performance-b
 const districtCheckinsCountValue = document.getElementById('district-checkins-count');
 const districtLastContestedValue = document.getElementById('district-last-contested');
 const districtControlStatusValue = document.getElementById('district-control-status');
+const districtLeaderboardContainer = document.getElementById('district-leaderboard');
+const districtLeaderboardEmpty = document.getElementById('district-leaderboard-empty');
+const districtLeaderboardAggressive = document.getElementById('district-leaderboard-aggressive');
+const districtLeaderboardSupport = document.getElementById('district-leaderboard-support');
+const districtTargetValue = document.getElementById('district-target-value');
+const districtThreatValue = document.getElementById('district-threat-value');
 if (currentUserTag) {
   updateCurrentUserTag(null);
 }
@@ -4062,56 +4068,53 @@ function setMarkerColorFeedback(message, type = 'info') {
 }
 
 async function saveMarkerColor(profile, color) {
-  if (!profile || !profile.backendId) {
+  if (!profile) {
     setMarkerColorFeedback('Sign in to customize your map marker.', 'error');
     return;
   }
-  if (!isSessionAuthenticated) {
-    setMarkerColorFeedback('Your session expired. Please sign in again.', 'error');
+  const resolvedColor = normaliseMarkerColor(color);
+  const canSyncWithServer = Boolean(profile.backendId && isSessionAuthenticated);
+  const finishLocalUpdate = (nextColor, statusMessage) => {
+    profile.mapMarkerColor = nextColor;
+    applyMarkerColorTheme(nextColor);
+    savePlayers();
+    setMarkerColorFeedback(statusMessage, 'success');
+    updateFriendLocationsLayer();
+  };
+
+  if (!canSyncWithServer) {
+    finishLocalUpdate(resolvedColor, 'Marker color updated locally.');
+    updateStatus('Marker color updated locally. Sign in to sync across devices.');
     return;
   }
-  const resolvedColor = normaliseMarkerColor(color);
+
   setMarkerColorFeedback('Saving...', 'info');
-  if (markerColorInput) {
-    markerColorInput.disabled = true;
-  }
-  if (markerColorResetButton) {
-    markerColorResetButton.disabled = true;
-  }
+  markerColorInput && (markerColorInput.disabled = true);
+  markerColorResetButton && (markerColorResetButton.disabled = true);
+
   try {
     const updated = await apiRequest(`players/${profile.backendId}/`, {
       method: 'PATCH',
       body: { map_marker_color: resolvedColor },
     });
     applyServerPlayerData(profile, updated);
-    savePlayers();
     const nextColor =
       updated && typeof updated.map_marker_color === 'string'
         ? normaliseMarkerColor(updated.map_marker_color)
         : resolvedColor;
-    if (markerColorInput) {
-      markerColorInput.value = nextColor;
-    }
-    profile.mapMarkerColor = nextColor;
-    applyMarkerColorTheme(nextColor);
-    setMarkerColorFeedback('Marker color saved.', 'success');
-    updateFriendLocationsLayer();
+    finishLocalUpdate(nextColor, 'Marker color saved.');
+    updateStatus('Marker color updated. Friends will see this on your next shared check-in.');
     if (isSessionAuthenticated && currentUser) {
       refreshFriends(true).catch(() => null);
     }
-    updateStatus('Marker color updated. Friends will see this on your next shared check-in.');
   } catch (error) {
     console.warn('Failed to save map marker color', error);
     const message = (error && error.message) || 'Failed to save. Please try again.';
     setMarkerColorFeedback(message, 'error');
   } finally {
     const editable = Boolean(profile && profile.backendId && isSessionAuthenticated);
-    if (markerColorInput) {
-      markerColorInput.disabled = !editable;
-    }
-    if (markerColorResetButton) {
-      markerColorResetButton.disabled = !editable;
-    }
+    markerColorInput && (markerColorInput.disabled = !editable);
+    markerColorResetButton && (markerColorResetButton.disabled = !editable);
   }
 }
 
@@ -4120,7 +4123,9 @@ function initialiseMarkerColorControl(profile) {
     return;
   }
 
-  const canEdit = Boolean(profile && profile.backendId && isSessionAuthenticated);
+  const canSyncWithServer = Boolean(profile && profile.backendId && isSessionAuthenticated);
+  const canEditLocally = Boolean(profile && currentUser);
+  const canEdit = canSyncWithServer || canEditLocally;
   const activeColor = profile ? normaliseMarkerColor(profile.mapMarkerColor) : DEFAULT_MARKER_COLOR;
   markerColorInput.value = activeColor;
   markerColorInput.disabled = !canEdit;
@@ -6122,6 +6127,344 @@ function closeFriendsDrawer({ restoreFocus = true } = {}) {
   closeFriendsManagePanel();
 }
 
+function computeCheckinPoints(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return 0;
+  }
+  if (Number.isFinite(entry.points)) {
+    return Number(entry.points);
+  }
+  const base = entry.ranged ? 10 : POINTS_PER_CHECKIN;
+  const multiplier = Number(entry.multiplier);
+  const resolvedMultiplier = Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
+  return base * resolvedMultiplier;
+}
+
+function normaliseLeaderboardPlayer(username, sourceProfile) {
+  if (!username || !sourceProfile) {
+    return null;
+  }
+  const attackRaw = sourceProfile.attackPoints ?? sourceProfile.attack_points ?? 0;
+  const defendRaw = sourceProfile.defendPoints ?? sourceProfile.defend_points ?? 0;
+  const attackPoints = Math.max(0, Math.round(normaliseNumber(attackRaw, 0)));
+  const defendPoints = Math.max(0, Math.round(normaliseNumber(defendRaw, 0)));
+
+  let homeDistrictId = null;
+  if (sourceProfile.homeDistrictId !== undefined && sourceProfile.homeDistrictId !== null) {
+    homeDistrictId = safeId(sourceProfile.homeDistrictId);
+  } else if (sourceProfile.home_district_code) {
+    homeDistrictId = safeId(sourceProfile.home_district_code);
+  } else if (sourceProfile.home_district_id) {
+    homeDistrictId = safeId(sourceProfile.home_district_id);
+  }
+
+  const homeDistrictName =
+    (typeof sourceProfile.homeDistrictName === 'string' && sourceProfile.homeDistrictName.trim()) ||
+    (typeof sourceProfile.home_district_name === 'string' && sourceProfile.home_district_name.trim()) ||
+    (typeof sourceProfile.home_district === 'string' && sourceProfile.home_district.trim()) ||
+    (homeDistrictId ? `District ${homeDistrictId}` : null);
+
+  const checkins = Array.isArray(sourceProfile.checkins)
+    ? sourceProfile.checkins
+    : Array.isArray(sourceProfile.recent_checkins)
+    ? sourceProfile.recent_checkins
+    : [];
+
+  return {
+    username,
+    attackPoints,
+    defendPoints,
+    homeDistrictId,
+    homeDistrictName,
+    checkins,
+  };
+}
+
+function buildDistrictLeaderboard(profile) {
+  const homeId = profile && profile.homeDistrictId ? safeId(profile.homeDistrictId) : null;
+  if (!homeId) {
+    return { homeId: null, aggressive: [], supporters: [], target: null, threat: null, hasData: false };
+  }
+
+  const playersMap = new Map();
+  const addPlayerRecord = (username, sourceProfile, prefer = false) => {
+    if (!username || !sourceProfile) {
+      return;
+    }
+    const key = String(username).toLowerCase();
+    const normalised = normaliseLeaderboardPlayer(username, sourceProfile);
+    if (!normalised) {
+      return;
+    }
+    if (!playersMap.has(key) || prefer) {
+      playersMap.set(key, normalised);
+      return;
+    }
+    const existing = playersMap.get(key);
+    playersMap.set(key, {
+      username: existing.username,
+      attackPoints: Math.max(existing.attackPoints, normalised.attackPoints),
+      defendPoints: Math.max(existing.defendPoints, normalised.defendPoints),
+      homeDistrictId: normalised.homeDistrictId || existing.homeDistrictId,
+      homeDistrictName: normalised.homeDistrictName || existing.homeDistrictName,
+      checkins:
+        (normalised.checkins && normalised.checkins.length > existing.checkins.length)
+          ? normalised.checkins
+          : existing.checkins,
+    });
+  };
+
+  if (currentUser && profile) {
+    addPlayerRecord(currentUser, profile, true);
+  }
+
+  Object.entries(players).forEach(([username, storedProfile]) => {
+    if (!isValidUsername(username)) {
+      return;
+    }
+    addPlayerRecord(username, storedProfile, username === currentUser);
+  });
+
+  if (Array.isArray(friendsState.items)) {
+    friendsState.items.forEach((friend) => {
+      if (friend && typeof friend.username === 'string') {
+        addPlayerRecord(friend.username, friend, true);
+      }
+    });
+  }
+
+  const allPlayers = Array.from(playersMap.values());
+  const homePlayers = allPlayers.filter(
+    (player) => player.homeDistrictId && safeId(player.homeDistrictId) === homeId
+  );
+
+  const aggressive = homePlayers
+    .map((player) => {
+      const attack = player.attackPoints;
+      const defend = player.defendPoints;
+      const ratio = attack > 0 ? attack / Math.max(defend, 1) : 0;
+      return { username: player.username, ratio, attack, defend };
+    })
+    .filter((item) => item.attack > 0 || item.defend > 0)
+    .sort((a, b) => {
+      if (b.ratio !== a.ratio) {
+        return b.ratio - a.ratio;
+      }
+      if (b.attack !== a.attack) {
+        return b.attack - a.attack;
+      }
+      return a.username.localeCompare(b.username, undefined, { sensitivity: 'base' });
+    })
+    .slice(0, 3);
+
+  const supporters = homePlayers
+    .map((player) => ({ username: player.username, defend: player.defendPoints, attack: player.attackPoints }))
+    .filter((item) => item.defend > 0 || item.attack > 0)
+    .sort((a, b) => {
+      if (b.defend !== a.defend) {
+        return b.defend - a.defend;
+      }
+      if (b.attack !== a.attack) {
+        return b.attack - a.attack;
+      }
+      return a.username.localeCompare(b.username, undefined, { sensitivity: 'base' });
+    })
+    .slice(0, 3);
+
+  const targetMap = new Map();
+  homePlayers.forEach((player) => {
+    const checkins = Array.isArray(player.checkins) ? player.checkins : [];
+    checkins.forEach((entry) => {
+      const type = entry && typeof entry.type === 'string' ? entry.type.toLowerCase() : '';
+      if (type !== 'attack') {
+        return;
+      }
+      const districtId = entry.districtId ? safeId(entry.districtId) : null;
+      if (!districtId || districtId === homeId) {
+        return;
+      }
+      const points = computeCheckinPoints(entry);
+      if (points <= 0) {
+        return;
+      }
+      const existing = targetMap.get(districtId) || {
+        id: districtId,
+        name: (entry.districtName && entry.districtName.trim()) || `District ${districtId}`,
+        points: 0,
+      };
+      existing.points += points;
+      targetMap.set(districtId, existing);
+    });
+  });
+
+  let topTarget = null;
+  targetMap.forEach((value) => {
+    if (!topTarget || value.points > topTarget.points) {
+      topTarget = value;
+    }
+  });
+
+  const threatMap = new Map();
+  allPlayers.forEach((player) => {
+    if (player.homeDistrictId && safeId(player.homeDistrictId) === homeId) {
+      return;
+    }
+    const checkins = Array.isArray(player.checkins) ? player.checkins : [];
+    checkins.forEach((entry) => {
+      const type = entry && typeof entry.type === 'string' ? entry.type.toLowerCase() : '';
+      if (type !== 'attack') {
+        return;
+      }
+      const districtId = entry.districtId ? safeId(entry.districtId) : null;
+      if (!districtId || districtId !== homeId) {
+        return;
+      }
+      const points = computeCheckinPoints(entry);
+      if (points <= 0) {
+        return;
+      }
+      const threatId = player.homeDistrictId ? safeId(player.homeDistrictId) : 'unknown';
+      const displayName =
+        player.homeDistrictName || (player.homeDistrictId ? `District ${player.homeDistrictId}` : 'Unknown');
+      const existing = threatMap.get(threatId) || { id: threatId, name: displayName, points: 0 };
+      existing.points += points;
+      threatMap.set(threatId, existing);
+    });
+  });
+
+  let topThreat = null;
+  threatMap.forEach((value) => {
+    if (!topThreat || value.points > topThreat.points) {
+      topThreat = value;
+    }
+  });
+
+  const hasData =
+    aggressive.length > 0 || supporters.length > 0 || Boolean(topTarget) || Boolean(topThreat);
+
+  return {
+    homeId,
+    aggressive,
+    supporters,
+    target: topTarget,
+    threat: topThreat,
+    hasData,
+  };
+}
+
+function renderDistrictLeaderboard(data) {
+  if (!districtLeaderboardContainer) {
+    return;
+  }
+
+  if (!data || !data.homeId) {
+    if (districtLeaderboardContainer) {
+      districtLeaderboardContainer.style.display = 'none';
+    }
+    if (districtLeaderboardEmpty) {
+      districtLeaderboardEmpty.textContent = 'Set a home district to see player rankings.';
+      districtLeaderboardEmpty.style.display = 'block';
+    }
+    return;
+  }
+
+  districtLeaderboardContainer.style.display = 'flex';
+
+  const showHomeData = Boolean(data && data.homeId);
+  const hasLeaderboardData = Boolean(data && data.hasData);
+
+  if (districtLeaderboardEmpty) {
+    if (!showHomeData) {
+      districtLeaderboardEmpty.style.display = 'block';
+      districtLeaderboardEmpty.textContent = 'Set a home district to see player rankings.';
+    } else if (!hasLeaderboardData) {
+      districtLeaderboardEmpty.style.display = 'block';
+      districtLeaderboardEmpty.textContent = 'No leaderboard data yet. Start checking in to populate rankings.';
+    } else {
+      districtLeaderboardEmpty.style.display = 'none';
+    }
+  }
+
+  const resetList = (element) => {
+    if (element) {
+      element.innerHTML = '';
+    }
+  };
+
+  resetList(districtLeaderboardAggressive);
+  resetList(districtLeaderboardSupport);
+
+  if (districtTargetValue) {
+    districtTargetValue.textContent = '—';
+  }
+  if (districtThreatValue) {
+    districtThreatValue.textContent = '—';
+  }
+
+  if (!showHomeData) {
+    return;
+  }
+
+  const formatPointsValue = (value) => `${Math.round(value).toLocaleString()} pts`;
+
+  if (districtLeaderboardAggressive) {
+    if (!data.aggressive.length) {
+      const li = document.createElement('li');
+      li.className = 'leaderboard-empty';
+      li.textContent = 'No attack activity yet.';
+      districtLeaderboardAggressive.appendChild(li);
+    } else {
+      data.aggressive.forEach((item) => {
+        const li = document.createElement('li');
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'leaderboard-name';
+        nameSpan.textContent = `@${item.username}`;
+        const metricSpan = document.createElement('span');
+        metricSpan.className = 'leaderboard-metric';
+        const ratio = item.ratio > 0 ? item.ratio.toFixed(2) : '0.00';
+        metricSpan.textContent = `${ratio} A/D • ${item.attack.toLocaleString()} atk / ${item.defend.toLocaleString()} def`;
+        li.appendChild(nameSpan);
+        li.appendChild(metricSpan);
+        districtLeaderboardAggressive.appendChild(li);
+      });
+    }
+  }
+
+  if (districtLeaderboardSupport) {
+    if (!data.supporters.length) {
+      const li = document.createElement('li');
+      li.className = 'leaderboard-empty';
+      li.textContent = 'No defensive activity yet.';
+      districtLeaderboardSupport.appendChild(li);
+    } else {
+      data.supporters.forEach((item) => {
+        const li = document.createElement('li');
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'leaderboard-name';
+        nameSpan.textContent = `@${item.username}`;
+        const metricSpan = document.createElement('span');
+        metricSpan.className = 'leaderboard-metric';
+        metricSpan.textContent = `${item.defend.toLocaleString()} defend pts`;
+        li.appendChild(nameSpan);
+        li.appendChild(metricSpan);
+        districtLeaderboardSupport.appendChild(li);
+      });
+    }
+  }
+
+  if (districtTargetValue) {
+    districtTargetValue.textContent = data.target
+      ? `${data.target.name} • ${formatPointsValue(data.target.points)}`
+      : 'No offensive activity yet.';
+  }
+
+  if (districtThreatValue) {
+    districtThreatValue.textContent = data.threat
+      ? `${data.threat.name} • ${formatPointsValue(data.threat.points)}`
+      : 'No threats detected yet.';
+  }
+}
+
 function updateDistrictDrawerContent(profile = null) {
   if (
     !districtHomeNameValue ||
@@ -6135,6 +6478,8 @@ function updateDistrictDrawerContent(profile = null) {
     return;
   }
   const resolvedProfile = profile || (currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null);
+  const leaderboardData = buildDistrictLeaderboard(resolvedProfile);
+  renderDistrictLeaderboard(leaderboardData);
   if (!resolvedProfile) {
     districtHomeNameValue.textContent = 'Not set';
     districtContributionValue.textContent = '0 pts';
