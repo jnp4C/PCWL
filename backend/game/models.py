@@ -8,6 +8,7 @@ class Player(models.Model):
 
     username = models.CharField(max_length=50, unique=True)
     display_name = models.CharField(max_length=100, blank=True)
+    profile_image_url = models.URLField(blank=True, default="")
     score = models.PositiveIntegerField(default=0)
     checkins = models.PositiveIntegerField(default=0)
     home_district = models.CharField(max_length=120, blank=True)

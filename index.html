@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PCWL</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='48' fill='%234c1d95'/%3E%3Ctext x='50' y='58' font-size='48' text-anchor='middle' fill='white' font-family='Segoe UI, Tahoma, sans-serif'%3EP%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="assets/maplibre/maplibre-gl.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -177,6 +178,23 @@
             <h2 class="drawer-heading">Appearance</h2>
             <button id="drawer-theme-toggle" class="secondary small" type="button">Toggle Theme</button>
             <a id="drawer-leaderboard" class="secondary small button-link" href="leaderboard.html">Leaderboard</a>
+          </section>
+          <section class="drawer-block">
+            <h2 class="drawer-heading">Profile photo</h2>
+            <div class="profile-photo-row">
+              <img id="profile-image-preview" alt="Profile preview" class="avatar-preview" src="" />
+              <div class="profile-photo-controls">
+                <label class="control text">
+                  <span>Image URL</span>
+                  <input type="url" id="profile-image-url-input" placeholder="https://example.com/avatar.png" />
+                </label>
+                <div class="button-row">
+                  <button id="profile-image-save" class="primary small" type="button" disabled>Save</button>
+                  <button id="profile-image-clear" class="secondary small" type="button">Clear</button>
+                </div>
+                <div id="profile-image-feedback" class="help-text"></div>
+              </div>
+            </div>
           </section>
           <section class="drawer-block">
             <h2 class="drawer-heading">Home District</h2>

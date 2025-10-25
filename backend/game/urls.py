@@ -12,6 +12,7 @@ from .views import (
     SessionCurrentView,
     SessionLoginView,
     SessionLogoutView,
+    migration_status,
     health,
 )
 
@@ -20,6 +21,7 @@ router.register("players", PlayerViewSet, basename="player")
 
 urlpatterns = [
     path("health/", health, name="api-health"),
+    path("migrations/status/", migration_status, name="migration-status"),
     path("auth/token/", obtain_auth_token, name="api-token"),
     path("session/login/", SessionLoginView.as_view(), name="session-login"),
     path("session/logout/", SessionLogoutView.as_view(), name="session-logout"),

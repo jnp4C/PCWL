@@ -15,7 +15,8 @@ body[data-theme='dark'] {
   --color-panel-bg: #fdfbff;
   --color-panel-shadow: 0 22px 45px rgba(71, 40, 115, 0.12);
   --color-surface-subtle: rgba(94, 53, 177, 0.08);
-  --color-surface-strong: rgba(94, 53, 177, 0.14);
+  --colo
+  r-surface-strong: rgba(94, 53, 177, 0.14);
   --color-border-soft: rgba(71, 40, 115, 0.18);
   --color-button-primary: #4c1d95;
   --color-button-primary-hover: #5b21b6;

@@ -64,6 +64,11 @@ const drawerCheckinButton = document.getElementById('drawer-checkin-button');
 const drawerLogoutButton = document.getElementById('drawer-logout-button');
 const drawerThemeToggleButton = document.getElementById('drawer-theme-toggle');
 const drawerLeaderboardLink = document.getElementById('drawer-leaderboard');
+const profileImageUrlInput = document.getElementById('profile-image-url-input');
+const profileImagePreview = document.getElementById('profile-image-preview');
+const profileImageSaveButton = document.getElementById('profile-image-save');
+const profileImageClearButton = document.getElementById('profile-image-clear');
+const profileImageFeedback = document.getElementById('profile-image-feedback');
 const recentCheckinTagPrimary = document.getElementById('recent-checkin-1');
 const currentUserTag = document.getElementById('current-user-tag');
 const settingsButton = document.getElementById('settings-button');
@@ -693,6 +698,7 @@ function tickCooldowns() {
   }
 
   renderCooldownStrip(now);
+  updateRecentCheckinCooldownBadges(now, profile);
 
   if (removedAny) {
     if (profile) {
@@ -701,6 +707,13 @@ function tickCooldowns() {
         updateStatus(`Charge complete! Next check-in pays x${profile.nextCheckinMultiplier} points.`);
       }
       scheduleProfileStatsSync(profile);
+    }
+    if (
+      typeof document !== 'undefined' &&
+      document.body &&
+      document.body.classList.contains('recent-checkins-open')
+    ) {
+      updateRecentCheckinsDrawerContent(profile);
     }
     renderPlayerState();
   }
@@ -797,12 +810,34 @@ function resolveCheckInAction(profile, options = {}) {
   };
 }
 
+function resolveEntryCooldownKey(entry) {
+  if (!entry) {
+    return null;
+  }
+  const rawType =
+    typeof entry.cooldownType === 'string' ? entry.cooldownType.trim().toLowerCase() : null;
+  if (rawType && VALID_COOLDOWN_ACTIONS.has(rawType)) {
+    return rawType;
+  }
+  const fallbackType = typeof entry.type === 'string' ? entry.type.trim().toLowerCase() : '';
+  if (fallbackType === 'attack') {
+    return COOLDOWN_KEYS.ATTACK;
+  }
+  if (fallbackType === 'defend') {
+    return COOLDOWN_KEYS.DEFEND;
+  }
+  return null;
+}
+
 function getEntryCooldownInfo(profile, entry, now = Date.now()) {
-  if (!profile || !entry || typeof entry.cooldownType !== 'string') {
+  if (!profile || !entry) {
     return null;
   }
   ensureProfileCooldownState(profile);
-  const actionKey = entry.cooldownType;
+  const actionKey = resolveEntryCooldownKey(entry);
+  if (!actionKey) {
+    return null;
+  }
   const deadline =
     profile.cooldowns && typeof profile.cooldowns[actionKey] === 'number'
       ? profile.cooldowns[actionKey]
@@ -810,19 +845,32 @@ function getEntryCooldownInfo(profile, entry, now = Date.now()) {
   if (!deadline || deadline <= now) {
     return null;
   }
-  const entryMode = typeof entry.cooldownMode === 'string' ? entry.cooldownMode : null;
+  const entryTimestampRaw = Number(entry.timestamp);
+  const entryTimestamp = Number.isFinite(entryTimestampRaw) ? entryTimestampRaw : null;
+  const entryModeRaw =
+    typeof entry.cooldownMode === 'string' ? entry.cooldownMode.trim().toLowerCase() : null;
   const details = profile.cooldownDetails ? profile.cooldownDetails[actionKey] : null;
+  const startedAtRaw = details && details.startedAt !== undefined ? Number(details.startedAt) : null;
+  const startedAt = Number.isFinite(startedAtRaw) ? startedAtRaw : null;
+  if (startedAt && entryTimestamp) {
+    const drift = Math.abs(entryTimestamp - startedAt);
+    if (drift > 5000) {
+      return null;
+    }
+  }
   const mode =
-    entryMode === 'remote' || entryMode === 'local'
-      ? entryMode
+    entryModeRaw === 'remote' || entryModeRaw === 'local'
+      ? entryModeRaw
       : details && typeof details.mode === 'string'
       ? details.mode
       : null;
+  const startedReference = startedAt || entryTimestamp || null;
   return {
     key: actionKey,
     mode,
     remaining: deadline - now,
     label: formatCooldownLabel(actionKey, mode === 'remote' ? 'remote' : null),
+    startedAt: startedReference,
   };
 }
 
@@ -1075,6 +1123,9 @@ function applyServerPlayerData(profile, apiPlayer) {
   if (typeof apiPlayer.display_name === 'string') {
     profile.displayName = apiPlayer.display_name;
   }
+  if (typeof apiPlayer.profile_image_url === 'string') {
+    profile.profileImageUrl = apiPlayer.profile_image_url;
+  }
 
   profile.points = Math.max(0, normaliseNumber(apiPlayer.score, profile.points || 0));
   profile.attackPoints = Math.max(0, normaliseNumber(apiPlayer.attack_points, profile.attackPoints || 0));
@@ -1244,17 +1295,30 @@ function handleMobileContextMenuTouchStart(event) {
       ? { x: projected.x, y: projected.y }
       : { x: mobileContextMenuStartPoint.x, y: mobileContextMenuStartPoint.y };
 
-    showActionContextMenu(
-      mobileContextMenuStartLngLat.lng,
-      mobileContextMenuStartLngLat.lat,
-      anchorPoint,
-      { isTouch: true }
-    );
-
-    if (originalEvent && typeof originalEvent.preventDefault === 'function') {
-      originalEvent.preventDefault();
-    }
-    cancelMobileContextMenuLongPress();
+    (async () => {
+      let handled = false;
+      try {
+        handled = await attemptLocalMeleeAttackAt(mobileContextMenuStartLngLat.lng, mobileContextMenuStartLngLat.lat, {
+          point: anchorPoint,
+        });
+      } catch (error) {
+        console.warn('Failed to process long-press melee attempt', error);
+      }
+      if (handled) {
+        suppressNextBuildingTap();
+      } else {
+        showActionContextMenu(
+          mobileContextMenuStartLngLat.lng,
+          mobileContextMenuStartLngLat.lat,
+          anchorPoint,
+          { isTouch: true }
+        );
+      }
+      if (originalEvent && typeof originalEvent.preventDefault === 'function') {
+        originalEvent.preventDefault();
+      }
+      cancelMobileContextMenuLongPress();
+    })();
   }, MOBILE_CONTEXT_MENU_LONG_PRESS_MS);
 }
 
@@ -1303,32 +1367,101 @@ function enableMobileContextMenuLongPress() {
   map.on('rotatestart', cancelMobileContextMenuLongPress);
 }
 
+async function attemptLocalMeleeAttackAt(lng, lat, options = {}) {
+  if (!currentUser) {
+    return false;
+  }
+  const numericLng = Number(lng);
+  const numericLat = Number(lat);
+  if (!Number.isFinite(numericLng) || !Number.isFinite(numericLat)) {
+    return false;
+  }
+  const profile = ensurePlayerProfile(currentUser);
+  const locationInfo = getCurrentLocationDistrictInfo({ profile, allowHomeFallback: false });
+  if (!locationInfo || !locationInfo.id) {
+    return false;
+  }
+  const locationSource = locationInfo.source || null;
+  const isPreciseLocal = locationSource === 'map' || locationSource === 'geolocated';
+  if (!isPreciseLocal) {
+    return false;
+  }
+  const localId = safeId(locationInfo.id);
+  const homeId = profile.homeDistrictId ? safeId(profile.homeDistrictId) : null;
+  let feature = options && options.feature ? options.feature : null;
+  if (!feature) {
+    try {
+      feature = await resolveDistrictAtLngLat(numericLng, numericLat);
+    } catch (error) {
+      console.warn('Failed to resolve district for melee attack', error);
+      feature = null;
+    }
+  }
+  if (!feature) {
+    return false;
+  }
+  const targetIdRaw = getDistrictId(feature);
+  if (!targetIdRaw) {
+    return false;
+  }
+  const targetId = safeId(targetIdRaw);
+  if (targetId !== localId) {
+    return false;
+  }
+  if (homeId && homeId === targetId) {
+    return false;
+  }
+  const targetName = getDistrictName(feature) || `District ${targetId}`;
+  const projectedPoint =
+    options && options.point
+      ? { x: options.point.x, y: options.point.y }
+      : map && typeof map.project === 'function'
+      ? map.project([numericLng, numericLat])
+      : null;
+
+  try {
+    await handleCheckIn({
+      contextCoords: [numericLng, numericLat],
+      contextPoint: projectedPoint ? { x: projectedPoint.x, y: projectedPoint.y } : null,
+      targetDistrictId: targetId,
+      targetDistrictName: targetName,
+      contextIsLocal: true,
+    });
+    return true;
+  } catch (error) {
+    console.warn('Unable to complete melee attack check-in', error);
+    return false;
+  }
+}
+
 function getCurrentLocationDistrictInfo(options) {
   const { profile = null, allowHomeFallback = false } = options || {};
 
-  if (profile && profile.lastKnownLocation && profile.lastKnownLocation.districtId) {
-    return {
-      id: safeId(profile.lastKnownLocation.districtId),
-      name: profile.lastKnownLocation.districtName || null,
-      source: 'profile',
-      lng: typeof profile.lastKnownLocation.lng === 'number' ? profile.lastKnownLocation.lng : null,
-      lat: typeof profile.lastKnownLocation.lat === 'number' ? profile.lastKnownLocation.lat : null,
-    };
-  }
-
-  if (lastKnownLocation && Array.isArray(lastKnownLocation) && lastKnownLocation.length === 2 && districtGeoJson) {
-    const feature = findDistrictFeatureByPoint(lastKnownLocation[0], lastKnownLocation[1]);
-    if (feature) {
-      const id = getDistrictId(feature);
-      if (id) {
-        return {
-          id: safeId(id),
-          name: getDistrictName(feature) || null,
-          source: 'geolocated',
-          lng: lastKnownLocation[0],
-          lat: lastKnownLocation[1],
-        };
+  if (lastKnownLocation && Array.isArray(lastKnownLocation) && lastKnownLocation.length === 2) {
+    let preciseId = null;
+    let preciseName = null;
+    if (lastPreciseLocationInfo && lastPreciseLocationInfo.id) {
+      preciseId = safeId(lastPreciseLocationInfo.id);
+      preciseName = lastPreciseLocationInfo.name || `District ${lastPreciseLocationInfo.id}`;
+    }
+    if (!preciseId && districtGeoJson) {
+      const feature = findDistrictFeatureByPoint(lastKnownLocation[0], lastKnownLocation[1]);
+      if (feature) {
+        const derivedId = getDistrictId(feature);
+        if (derivedId) {
+          preciseId = safeId(derivedId);
+          preciseName = getDistrictName(feature) || preciseName || `District ${preciseId}`;
+        }
       }
+    }
+    if (preciseId) {
+      return {
+        id: preciseId,
+        name: preciseName,
+        source: 'geolocated',
+        lng: lastKnownLocation[0],
+        lat: lastKnownLocation[1],
+      };
     }
   }
 
@@ -1337,8 +1470,18 @@ function getCurrentLocationDistrictInfo(options) {
       id: safeId(currentDistrictId),
       name: currentDistrictName || null,
       source: 'map',
-      lng: null,
-      lat: null,
+      lng: lastKnownLocation && Array.isArray(lastKnownLocation) ? lastKnownLocation[0] : null,
+      lat: lastKnownLocation && Array.isArray(lastKnownLocation) ? lastKnownLocation[1] : null,
+    };
+  }
+
+  if (profile && profile.lastKnownLocation && profile.lastKnownLocation.districtId) {
+    return {
+      id: safeId(profile.lastKnownLocation.districtId),
+      name: profile.lastKnownLocation.districtName || null,
+      source: 'profile',
+      lng: typeof profile.lastKnownLocation.lng === 'number' ? profile.lastKnownLocation.lng : null,
+      lat: typeof profile.lastKnownLocation.lat === 'number' ? profile.lastKnownLocation.lat : null,
     };
   }
 
@@ -1866,10 +2009,11 @@ function showActionContextMenu(lng, lat, point, options = {}) {
         ? safeId(profile.lastKnownLocation.districtId)
         : null;
     const matchesLastKnown = Boolean(profile && targetId && lastKnownId && lastKnownId === targetId);
+    const matchesLocalPosition = Boolean(profile && targetId && localId && localId === targetId);
     const isPreciseLocal =
-      matchesLastKnown && (locationSource === 'map' || locationSource === 'geolocated');
+      matchesLocalPosition && (locationSource === 'map' || locationSource === 'geolocated');
     const willDefend = profile && targetId && homeId && homeId === targetId;
-    const allowCheck = profile && targetId && (willDefend || matchesLastKnown);
+    const allowCheck = profile && targetId && (willDefend || matchesLocalPosition || matchesLastKnown);
     const expectedLocalMultiplier = !profile
       ? 1
       : willDefend
@@ -1882,6 +2026,12 @@ function showActionContextMenu(lng, lat, point, options = {}) {
       willDefend && (locationSource === 'home-remote' || locationSource === 'home-fallback') ? 'remote' : 'local';
     const checkOnCooldown = profile ? isActionOnCooldown(profile, checkActionKey, nowLocal) : true;
     const attackOnCooldown = profile ? isActionOnCooldown(profile, COOLDOWN_KEYS.ATTACK, nowLocal) : true;
+    const enemyLocalAttack = Boolean(
+      profile &&
+      matchesLocalPosition &&
+      (!homeId || homeId !== localId) &&
+      (locationSource === 'map' || locationSource === 'geolocated')
+    );
 
     if (menu.chargeButton) {
       menu.chargeButton.style.display = 'block';
@@ -1934,7 +2084,7 @@ function showActionContextMenu(lng, lat, point, options = {}) {
     }
 
     if (menu.rangedButton) {
-      if (profile && !willDefend && !isPreciseLocal && menu.targetDistrictId) {
+      if (profile && !willDefend && !isPreciseLocal && !enemyLocalAttack && menu.targetDistrictId) {
         menu.rangedButton.style.display = 'block';
         menu.rangedButton.disabled = attackOnCooldown;
         const rangedLabel = chargeMultiplier > 1 ? `Ranged Attack (x${chargeMultiplier})` : 'Ranged Attack (10 pts)';
@@ -3161,6 +3311,15 @@ async function restoreSessionFromServer() {
       activePlayerBackendId = null;
       return;
     }
+    if (error && error.status === 503) {
+      // Backend DB schema is outdated; surface a non-fatal hint and continue without a session.
+      const serverDetail = error.data && typeof error.data.detail === 'string' ? error.data.detail : 'Server database is not up to date. Please apply migrations.';
+      const action = error.data && typeof error.data.action === 'string' ? error.data.action : 'run ./scripts/migrate.sh or python manage.py migrate';
+      updateStatus(`${serverDetail} — To fix locally: ./scripts/setup.sh (first time), then ${action}.`);
+      isSessionAuthenticated = false;
+      activePlayerBackendId = null;
+      return;
+    }
     console.warn('Failed to verify existing session', error);
     throw error;
   }
@@ -3240,6 +3399,24 @@ function performLogout() {
     .finally(() => {
       completeLogoutTransition();
     });
+}
+
+let migrationsStatusChecked = false;
+let migrationsPending = false;
+async function checkMigrationStatus() {
+  try {
+    const status = await apiRequest('migrations/status/');
+    if (status && status.pending) {
+      migrationsPending = true;
+      const unapplied = Array.isArray(status.unapplied) ? status.unapplied : [];
+      const details = unapplied.length ? `Unapplied: ${unapplied.join(', ')}` : 'Migrations pending.';
+      updateStatus(`${details} — To fix locally: ./scripts/setup.sh (first time), then ./scripts/migrate.sh or python manage.py migrate.`);
+    }
+  } catch (e) {
+    // Ignore; server may be older without the endpoint or temporarily unavailable
+  } finally {
+    migrationsStatusChecked = true;
+  }
 }
 
 async function initialisePlayers() {
@@ -3389,7 +3566,149 @@ function renderKnownPlayers() {
   }
 }
 
+let profileImageHandlersInitialised = false;
+
+function isValidHttpUrl(value) {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch (e) {
+    return false;
+  }
+}
+
+function setProfileImageFeedback(message, type = 'info') {
+  if (!profileImageFeedback) return;
+  profileImageFeedback.textContent = message || '';
+  profileImageFeedback.dataset.type = type;
+}
+
+function primeProfileImagePreview(url) {
+  if (!profileImagePreview) return;
+  if (!url) {
+    profileImagePreview.src = '';
+    profileImagePreview.classList.remove('invalid');
+    return;
+  }
+  profileImagePreview.classList.remove('invalid');
+  profileImagePreview.src = url;
+}
+
+async function saveProfileImageUrl(profile, url) {
+  if (!profile || !profile.backendId) {
+    setProfileImageFeedback('Sign in to save your profile photo.', 'error');
+    return;
+  }
+  if (!isSessionAuthenticated) {
+    setProfileImageFeedback('Your session expired. Please sign in again.', 'error');
+    return;
+  }
+  const payload = { profile_image_url: typeof url === 'string' ? url.trim() : '' };
+  profileImageSaveButton.disabled = true;
+  setProfileImageFeedback('Saving...', 'info');
+  try {
+    const updated = await apiRequest(`players/${profile.backendId}/`, { method: 'PATCH', body: payload });
+    // Apply server data to profile
+    applyServerPlayerData(profile, updated);
+    savePlayers();
+    setProfileImageFeedback('Profile photo saved.', 'success');
+    profileImageSaveButton.disabled = true;
+    // Keep preview in sync in case server normalized the URL
+    if (typeof updated.profile_image_url === 'string') {
+      primeProfileImagePreview(updated.profile_image_url);
+      if (profileImageUrlInput) profileImageUrlInput.value = updated.profile_image_url;
+    }
+    // Rerender character/drawer summaries if needed
+    updateCharacterDrawerContent(profile);
+    updateDrawerSummaries(profile);
+  } catch (error) {
+    console.warn('Failed to save profile image URL', error);
+    const msg = (error && error.message) || 'Failed to save. Please try again.';
+    setProfileImageFeedback(msg, 'error');
+    profileImageSaveButton.disabled = false;
+  }
+}
+
+function initialiseProfileImageControls(profile) {
+  if (!profileImageUrlInput || !profileImagePreview || !profileImageSaveButton || !profileImageClearButton) {
+    return;
+  }
+
+  const currentUrl = profile && typeof profile.profileImageUrl === 'string' ? profile.profileImageUrl : '';
+  profileImageUrlInput.value = currentUrl;
+  primeProfileImagePreview(currentUrl);
+  setProfileImageFeedback('Paste a direct image link (http/https).', 'info');
+  profileImageSaveButton.disabled = true;
+
+  if (!profileImageHandlersInitialised) {
+    profileImageHandlersInitialised = true;
+
+    profileImageUrlInput.addEventListener('input', () => {
+      const value = profileImageUrlInput.value.trim();
+      if (!value) {
+        setProfileImageFeedback('No image URL set. You can paste a link and Save.', 'info');
+        primeProfileImagePreview('');
+        profileImageSaveButton.disabled = false; // allow saving empty to clear
+        return;
+      }
+      if (!isValidHttpUrl(value)) {
+        setProfileImageFeedback('Please enter a valid http(s) URL.', 'error');
+        profileImageSaveButton.disabled = true;
+        primeProfileImagePreview('');
+        return;
+      }
+      setProfileImageFeedback('Previewing image...', 'info');
+      profileImageSaveButton.disabled = true;
+      // Load preview and enable save only when it loads
+      const testImg = new Image();
+      testImg.onload = () => {
+        primeProfileImagePreview(value);
+        setProfileImageFeedback('Looks good. Click Save to apply.', 'success');
+        profileImageSaveButton.disabled = false;
+      };
+      testImg.onerror = () => {
+        primeProfileImagePreview('');
+        setProfileImageFeedback('Could not load this image. Check the link.', 'error');
+        profileImageSaveButton.disabled = true;
+      };
+      testImg.src = value;
+    });
+
+    profileImageSaveButton.addEventListener('click', async () => {
+      const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+      const value = profileImageUrlInput.value.trim();
+      if (!value) {
+        await saveProfileImageUrl(profile, '');
+        return;
+      }
+      if (!isValidHttpUrl(value)) {
+        setProfileImageFeedback('Please enter a valid http(s) URL.', 'error');
+        return;
+      }
+      await saveProfileImageUrl(profile, value);
+    });
+
+    profileImageClearButton.addEventListener('click', async () => {
+      const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+      profileImageUrlInput.value = '';
+      primeProfileImagePreview('');
+      setProfileImageFeedback('Cleared. Click Save to apply.', 'info');
+      profileImageSaveButton.disabled = false;
+      // Optionally persist immediately on clear:
+      // await saveProfileImageUrl(profile, '');
+    });
+  }
+}
+
 function renderPlayerState() {
+  // Ensure profile image controls reflect current state
+  if (profileImageUrlInput && profileImagePreview && profileImageSaveButton && profileImageClearButton) {
+    const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+    initialiseProfileImageControls(profile);
+  }
   if (!playerUsernameLabel || !playerPointsLabel || !playerCheckinsLabel || !checkInButton) {
     return;
   }
@@ -3827,6 +4146,7 @@ function updateRecentCheckinsDrawerContent(profile = undefined) {
 
   const itemsToShow = recentCheckinsShowAll ? history.length : Math.min(4, history.length);
   const entriesToRender = history.slice(0, itemsToShow);
+  const renderedCooldownKeys = new Set();
 
   entriesToRender.forEach((entry) => {
     const type = typeof entry.type === 'string' ? entry.type.toLowerCase() : '';
@@ -3853,7 +4173,13 @@ function updateRecentCheckinsDrawerContent(profile = undefined) {
     const multiplier = Number(entry.multiplier) > 1 ? `x${Number(entry.multiplier)}` : null;
     const mode = entry.ranged ? 'Ranged' : entry.melee ? 'Local' : null;
     const when = entry.timestamp ? formatTimeAgo(entry.timestamp) : 'Unknown time';
-    const cooldownInfo = resolvedProfile ? getEntryCooldownInfo(resolvedProfile, entry, now) : null;
+    let cooldownInfo = resolvedProfile ? getEntryCooldownInfo(resolvedProfile, entry, now) : null;
+    if (cooldownInfo && renderedCooldownKeys.has(cooldownInfo.key)) {
+      cooldownInfo = null;
+    }
+    if (cooldownInfo) {
+      renderedCooldownKeys.add(cooldownInfo.key);
+    }
 
     const metaParts = [typeLabel];
     if (mode) {
@@ -3883,6 +4209,14 @@ function updateRecentCheckinsDrawerContent(profile = undefined) {
       cooldownText.className = 'recent-checkin-cooldown-text';
       cooldownText.dataset.cooldownAction = cooldownInfo.key;
       cooldownText.dataset.cooldownLabel = cooldownInfo.label;
+      if (cooldownInfo.startedAt) {
+        cooldownText.dataset.cooldownStart = String(cooldownInfo.startedAt);
+      } else if (entry.timestamp) {
+        const ts = Number(entry.timestamp);
+        if (Number.isFinite(ts)) {
+          cooldownText.dataset.cooldownStart = String(ts);
+        }
+      }
       cooldownText.textContent = `${cooldownInfo.label} ${formatCooldownTime(cooldownInfo.remaining)}`;
       meta.appendChild(cooldownText);
     }
@@ -3895,6 +4229,14 @@ function updateRecentCheckinsDrawerContent(profile = undefined) {
       cooldownBadge.dataset.cooldownAction = cooldownInfo.key;
       if (cooldownInfo.label) {
         cooldownBadge.dataset.cooldownLabel = cooldownInfo.label;
+      }
+      if (cooldownInfo.startedAt) {
+        cooldownBadge.dataset.cooldownStart = String(cooldownInfo.startedAt);
+      } else if (entry.timestamp) {
+        const ts = Number(entry.timestamp);
+        if (Number.isFinite(ts)) {
+          cooldownBadge.dataset.cooldownStart = String(ts);
+        }
       }
       if (cooldownInfo.mode) {
         cooldownBadge.dataset.cooldownMode = cooldownInfo.mode;
@@ -3983,6 +4325,7 @@ function updateRecentCheckinCooldownBadges(now = Date.now(), profile = undefined
     return;
   }
   ensureProfileCooldownState(resolvedProfile);
+  let requiresRefresh = false;
   targets.forEach((node) => {
     const actionKey = node.dataset.cooldownAction;
     if (!actionKey) {
@@ -3992,7 +4335,13 @@ function updateRecentCheckinCooldownBadges(now = Date.now(), profile = undefined
       resolvedProfile.cooldowns && typeof resolvedProfile.cooldowns[actionKey] === 'number'
         ? resolvedProfile.cooldowns[actionKey]
         : null;
-    if (!deadline || deadline <= now) {
+    const detail = resolvedProfile.cooldownDetails ? resolvedProfile.cooldownDetails[actionKey] : null;
+    const startedAtRaw = detail && detail.startedAt !== undefined ? Number(detail.startedAt) : null;
+    const startedAt = Number.isFinite(startedAtRaw) ? startedAtRaw : null;
+    const nodeStartRaw = node.dataset.cooldownStart !== undefined ? Number(node.dataset.cooldownStart) : null;
+    const nodeStart = Number.isFinite(nodeStartRaw) ? nodeStartRaw : null;
+    if (!deadline || deadline <= now || !startedAt || nodeStart === null || Math.abs(nodeStart - startedAt) > 5000) {
+      requiresRefresh = true;
       return;
     }
     const remaining = Math.max(0, deadline - now);
@@ -4002,6 +4351,14 @@ function updateRecentCheckinCooldownBadges(now = Date.now(), profile = undefined
       node.textContent = formatCooldownTime(remaining);
     }
   });
+  if (
+    requiresRefresh &&
+    typeof document !== 'undefined' &&
+    document.body &&
+    document.body.classList.contains('recent-checkins-open')
+  ) {
+    updateRecentCheckinsDrawerContent(resolvedProfile);
+  }
 }
 
 function sortFriends(list) {
@@ -5607,6 +5964,12 @@ async function handleLogin(event) {
     if (error && typeof error === 'object') {
       if (error.status === 401) {
         message = 'Incorrect username or password.';
+      } else if (error.status === 503) {
+        // Backend reports DB schema is outdated (e.g., missing migrations). Surface clear guidance.
+        const serverDetail = error.data && typeof error.data.detail === 'string' ? error.data.detail : null;
+        const action = error.data && typeof error.data.action === 'string' ? error.data.action : 'run ./scripts/migrate.sh or python manage.py migrate';
+        message = serverDetail || 'Server database is not up to date. Please apply migrations.';
+        message += ` — To fix locally: ./scripts/setup.sh (first time), then ${action}.`;
       } else if (error.status === 400 && error.data && typeof error.data === 'object') {
         if (Array.isArray(error.data.non_field_errors) && error.data.non_field_errors.length) {
           message = error.data.non_field_errors[0];
@@ -5636,8 +5999,13 @@ function completeAuthenticatedLogin(username, profile, options = {}) {
     return;
   }
 
-  profile.cooldowns = {};
-  profile.cooldownDetails = {};
+  if (!profile.cooldowns || typeof profile.cooldowns !== 'object') {
+    profile.cooldowns = {};
+  }
+  if (!profile.cooldownDetails || typeof profile.cooldownDetails !== 'object') {
+    profile.cooldownDetails = {};
+  }
+  ensureProfileCooldownState(profile);
   currentUser = username;
   players[username] = profile;
   friendsState = {
@@ -6462,6 +6830,20 @@ function addSourcesAndLayers() {
         canvas.style.cursor = '';
       }
     }
+  });
+
+  map.on('click', 'districts-fill', (event) => {
+    if (mobileContextMenuSuppressClick) {
+      return;
+    }
+    if (!event || !event.lngLat) {
+      return;
+    }
+    const feature = event.features && event.features.length ? event.features[0] : null;
+    const point = event.point ? { x: event.point.x, y: event.point.y } : null;
+    attemptLocalMeleeAttackAt(event.lngLat.lng, event.lngLat.lat, { feature, point }).catch((error) => {
+      console.warn('Failed to trigger melee attack from map click', error);
+    });
   });
 
   map.on('contextmenu', 'buildings-3d', (event) => {

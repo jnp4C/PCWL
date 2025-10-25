@@ -1,7 +1,15 @@
 from django.contrib.auth import authenticate, login, logout
 from django.db import transaction
 from django.db.models import Q
+from django.db import DatabaseError
+from django.db.utils import OperationalError
 from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
+from django.db import connections, DEFAULT_DB_ALIAS
+from django.db.migrations.executor import MigrationExecutor
+from django.core.management import call_command
+from django.conf import settings
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import NotAuthenticated
@@ -17,6 +25,24 @@ from .serializers import (
     PlayerSearchResultSerializer,
     PlayerSerializer,
 )
+
+
+def _auto_migrate_if_allowed():
+    """Attempt to auto-apply migrations in development if enabled.
+
+    Controlled by settings:
+    - DEBUG must be True
+    - AUTO_MIGRATE_ON_RUNSERVER (default True) or AUTO_MIGRATE_ON_ERROR (default True) must be True
+    """
+    try:
+        if not getattr(settings, "DEBUG", False):
+            return False
+        if not (getattr(settings, "AUTO_MIGRATE_ON_ERROR", True) or getattr(settings, "AUTO_MIGRATE_ON_RUNSERVER", True)):
+            return False
+        call_command("migrate", interactive=False, verbosity=0)
+        return True
+    except Exception:
+        return False
 
 
 class PlayerViewSet(viewsets.ModelViewSet):
@@ -72,21 +98,27 @@ class PlayerScopedAPIView(APIView):
         user = request.user
         if not user.is_authenticated:
             raise NotAuthenticated("Authentication required.")
-        player = getattr(user, "player_profile", None)
-        if player is None:
-            player = Player.objects.filter(user=user).first()
-        if player is None:
-            player, _ = Player.objects.get_or_create(username=user.username)
-            if player.user_id != user.id:
-                player.user = user
-                player.save(update_fields=["user"])
-        return player
+        try:
+            player = getattr(user, "player_profile", None)
+            if player is None:
+                player = Player.objects.filter(user=user).first()
+            if player is None:
+                player, _ = Player.objects.get_or_create(username=user.username)
+                if player.user_id != user.id:
+                    player.user = user
+                    player.save(update_fields=["user"])
+            return player
+        except (OperationalError, DatabaseError):
+            # Surface a clear error up the stack; callers can handle and return 503.
+            raise
 
 
+@method_decorator(csrf_exempt, name="dispatch")
 class SessionLoginView(APIView):
     """Establish a session-backed login and return the authenticated player's profile."""
 
     permission_classes = [AllowAny]
+    authentication_classes = []  # Avoid DRF SessionAuthentication CSRF checks on login
 
     def post(self, request):
         username = str(request.data.get("username", "")).strip()
@@ -99,21 +131,51 @@ class SessionLoginView(APIView):
             return Response({"detail": "Invalid username or password."}, status=status.HTTP_401_UNAUTHORIZED)
 
         login(request, user)
-        player = getattr(user, "player_profile", None)
-        if player is None:
-            with transaction.atomic():
-                player, _ = Player.objects.get_or_create(username=user.username)
-                if player.user_id != user.id:
-                    player.user = user
-                    player.save(update_fields=["user"])
+        try:
+            player = getattr(user, "player_profile", None)
+            if player is None:
+                with transaction.atomic():
+                    player, _ = Player.objects.get_or_create(username=user.username)
+                    if player.user_id != user.id:
+                        player.user = user
+                        player.save(update_fields=["user"])
+        except (OperationalError, DatabaseError):
+            # Try to self-heal in development by applying migrations, then retry once.
+            if _auto_migrate_if_allowed():
+                try:
+                    player = getattr(user, "player_profile", None)
+                    if player is None:
+                        with transaction.atomic():
+                            player, _ = Player.objects.get_or_create(username=user.username)
+                            if player.user_id != user.id:
+                                player.user = user
+                                player.save(update_fields=["user"])
+                except (OperationalError, DatabaseError):
+                    return Response(
+                        {
+                            "detail": "Database is not ready. Please apply migrations.",
+                            "action": "run ./scripts/migrate.sh or python manage.py migrate",
+                        },
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    )
+            else:
+                return Response(
+                    {
+                        "detail": "Server database is not up to date. Please apply migrations.",
+                        "action": "run ./scripts/migrate.sh or python manage.py migrate",
+                    },
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
         serializer = PlayerSerializer(player, context={"request": request})
         return Response({"player": serializer.data}, status=status.HTTP_200_OK)
 
 
+@method_decorator(csrf_exempt, name="dispatch")
 class SessionLogoutView(APIView):
     """Terminate the current session."""
 
     permission_classes = [AllowAny]
+    authentication_classes = []  # Avoid SessionAuthentication CSRF checks on logout
 
     def post(self, request):
         if request.user.is_authenticated:
@@ -129,12 +191,41 @@ class SessionCurrentView(APIView):
     def get(self, request):
         if not request.user.is_authenticated:
             return Response({"authenticated": False}, status=status.HTTP_200_OK)
-        player = getattr(request.user, "player_profile", None)
-        if player is None:
-            player = Player.objects.filter(username=request.user.username).first()
-            if player and player.user_id != request.user.id:
-                player.user = request.user
-                player.save(update_fields=["user"])
+        try:
+            player = getattr(request.user, "player_profile", None)
+            if player is None:
+                player = Player.objects.filter(username=request.user.username).first()
+                if player and player.user_id != request.user.id:
+                    player.user = request.user
+                    player.save(update_fields=["user"])
+        except (OperationalError, DatabaseError):
+            # Try to auto-migrate in dev and retry once
+            if _auto_migrate_if_allowed():
+                try:
+                    player = getattr(request.user, "player_profile", None)
+                    if player is None:
+                        player = Player.objects.filter(username=request.user.username).first()
+                        if player and player.user_id != request.user.id:
+                            player.user = request.user
+                            player.save(update_fields=["user"])
+                except (OperationalError, DatabaseError):
+                    return Response(
+                        {
+                            "authenticated": False,
+                            "detail": "Database is not ready. Please apply migrations.",
+                            "action": "run ./scripts/migrate.sh or python manage.py migrate",
+                        },
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    )
+            else:
+                return Response(
+                    {
+                        "authenticated": False,
+                        "detail": "Server database is not up to date. Please apply migrations.",
+                        "action": "run ./scripts/migrate.sh or python manage.py migrate",
+                    },
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
         data = PlayerSerializer(player, context={"request": request}).data if player else None
         return Response({"authenticated": True, "player": data}, status=status.HTTP_200_OK)
 
@@ -346,7 +437,58 @@ class FriendRequestDetailView(PlayerScopedAPIView):
         return Response({"friend_request": request_data}, status=status.HTTP_200_OK)
 
 
+def _get_pending_migrations(db_alias=DEFAULT_DB_ALIAS):
+    try:
+        connection = connections[db_alias]
+        connection.prepare_database()
+        executor = MigrationExecutor(connection)
+        targets = executor.loader.graph.leaf_nodes()
+        plan = executor.migration_plan(targets)
+        # plan is a list of tuples (Migration, backwards)
+        pending = []
+        for migration, backwards in plan:
+            if not backwards:
+                pending.append(f"{migration.app_label}.{migration.name}")
+        return pending
+    except Exception as exc:
+        # Propagate for callers that want to turn this into 503
+        raise exc
+
+
+@api_view(["GET"])
+def migration_status(request):
+    """Return migration application status to help local setup/ops.
+
+    Response:
+    - 200 { pending: false, unapplied: [] } when all migrations are applied
+    - 200 { pending: true, unapplied: [..] } when unapplied migrations exist
+    - 503 with detail/action when DB cannot be inspected
+    """
+    try:
+        unapplied = _get_pending_migrations()
+    except (OperationalError, DatabaseError):
+        return Response(
+            {
+                "detail": "Database unavailable or not initialized. Please apply migrations.",
+                "action": "run ./scripts/setup.sh (first time), then ./scripts/migrate.sh or python manage.py migrate",
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    return Response({"pending": bool(unapplied), "unapplied": unapplied}, status=status.HTTP_200_OK)
+
+
 @api_view(["GET"])
 def health(request):
     """Lightweight readiness probe for monitoring."""
-    return Response({"status": "ok"}, status=200)
+    # Keep backward-compatible minimal payload
+    payload = {"status": "ok"}
+    # In debug, include a hint about migrations
+    try:
+        unapplied = _get_pending_migrations()
+        if unapplied:
+            payload["db"] = "pending"
+        else:
+            payload["db"] = "ok"
+    except Exception:
+        payload["db"] = "unknown"
+    return Response(payload, status=200)

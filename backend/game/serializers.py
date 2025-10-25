@@ -21,6 +21,7 @@ class PlayerSerializer(serializers.ModelSerializer):
             "id",
             "username",
             "display_name",
+            "profile_image_url",
             "score",
             "checkins",
             "home_district",
@@ -49,6 +50,7 @@ class PlayerSerializer(serializers.ModelSerializer):
             "checkin_history": {"required": False},
             "cooldowns": {"required": False},
             "cooldown_details": {"required": False},
+            "profile_image_url": {"required": False, "allow_blank": True},
         }
 
     def create(self, validated_data):
