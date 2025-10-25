@@ -64,10 +64,17 @@ WSGI_APPLICATION = "pcwl_backend.wsgi.application"
 ASGI_APPLICATION = "pcwl_backend.asgi.application"
 
 # Database
+DEFAULT_SQLITE_PATH = Path(os.environ.get("PCWL_DB_PATH", BASE_DIR / "db.sqlite3")).expanduser()
+try:
+    DEFAULT_SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
+except OSError:
+    # Directory may be read-only (e.g., during collectstatic); migrations will surface a clearer error later.
+    pass
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+        "NAME": str(DEFAULT_SQLITE_PATH),
     }
 }
 
