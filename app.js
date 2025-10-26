@@ -64,6 +64,9 @@ const drawerCheckinButton = document.getElementById('drawer-checkin-button');
 const drawerLogoutButton = document.getElementById('drawer-logout-button');
 const drawerThemeToggleButton = document.getElementById('drawer-theme-toggle');
 const musicToggle = document.getElementById('music-toggle');
+const musicTrackName = document.getElementById('music-track-name');
+const musicVolumeSlider = document.getElementById('music-volume');
+const musicSkipButton = document.getElementById('music-skip-button');
 const drawerLeaderboardLink = document.getElementById('drawer-leaderboard');
 const profileImageUrlInput = document.getElementById('profile-image-url-input');
 const profileImagePreview = document.getElementById('profile-image-preview');
@@ -237,15 +240,15 @@ const DISTRICT_SCORES_STORAGE_KEY = 'pragueExplorerDistrictScores';
 const POINTS_PER_CHECKIN = 10;
 const MAX_HISTORY_ITEMS = 15;
 const BACKGROUND_TRACKS = [
-  'assets/audio/kostej-mlha-01-moje-slunce.m4a',
-  'assets/audio/kostej-mlha-02-jeste-jednou-se-vratime.m4a',
-  'assets/audio/kostej-mlha-03-posledni-exemplar.m4a',
-  'assets/audio/kostej-mlha-04-mlha.m4a',
-  'assets/audio/kostej-mlha-05-ven.m4a',
-  'assets/audio/kostej-mlha-06-termoclanek.m4a',
-  'assets/audio/kostej-mlha-07-alkoholova-kumpanie.m4a',
-  'assets/audio/kostej-mlha-08-ssri.m4a',
-  'assets/audio/kostej-mlha-09-heppy.m4a',
+  { id: 'mlha-01', path: 'assets/audio/kostej-mlha-01-moje-slunce.m4a', title: 'Moje Slunce' },
+  { id: 'mlha-02', path: 'assets/audio/kostej-mlha-02-jeste-jednou-se-vratime.m4a', title: 'Jeste Jednou Se Vratime' },
+  { id: 'mlha-03', path: 'assets/audio/kostej-mlha-03-posledni-exemplar.m4a', title: 'Posledni Exemplar' },
+  { id: 'mlha-04', path: 'assets/audio/kostej-mlha-04-mlha.m4a', title: 'Mlha' },
+  { id: 'mlha-05', path: 'assets/audio/kostej-mlha-05-ven.m4a', title: 'Ven' },
+  { id: 'mlha-06', path: 'assets/audio/kostej-mlha-06-termoclanek.m4a', title: 'Termoclanek' },
+  { id: 'mlha-07', path: 'assets/audio/kostej-mlha-07-alkoholova-kumpanie.m4a', title: 'Alkoholova Kumpanie' },
+  { id: 'mlha-08', path: 'assets/audio/kostej-mlha-08-ssri.m4a', title: 'SSRI' },
+  { id: 'mlha-09', path: 'assets/audio/kostej-mlha-09-heppy.m4a', title: 'Heppy' },
 ];
 const MUSIC_STORAGE_KEY = 'pcwlMusicPrefs';
 const MUSIC_DEFAULT_VOLUME = 0.45;
@@ -2909,7 +2912,7 @@ let lastHoverDistrictId = null;
 let isPointerOverDistrict = false;
 let districtScores = {};
 let musicAudio = null;
-let musicState = { muted: false, currentTrack: null };
+let musicState = { muted: false, currentTrackId: null, volume: MUSIC_DEFAULT_VOLUME };
 let musicInitialised = false;
 let musicAwaitingUnlock = false;
 activePartyState = loadPartyStateFromStorage();
@@ -3794,21 +3797,24 @@ function setActivePartyState(nextState) {
 
 function loadMusicPreferences() {
   if (typeof window === 'undefined') {
-    return { muted: false, currentTrack: null };
+    return { muted: false, volume: MUSIC_DEFAULT_VOLUME };
   }
   try {
     const stored = window.localStorage.getItem(MUSIC_STORAGE_KEY);
     if (!stored) {
-      return { muted: false, currentTrack: null };
+      return { muted: false, volume: MUSIC_DEFAULT_VOLUME };
     }
     const parsed = JSON.parse(stored);
     return {
       muted: Boolean(parsed && parsed.muted),
-      currentTrack: null,
+      volume:
+        typeof parsed.volume === 'number'
+          ? clampVolume(parsed.volume)
+          : MUSIC_DEFAULT_VOLUME,
     };
   } catch (error) {
     console.warn('Failed to load music preferences', error);
-    return { muted: false, currentTrack: null };
+    return { muted: false, volume: MUSIC_DEFAULT_VOLUME };
   }
 }
 
@@ -3819,21 +3825,38 @@ function saveMusicPreferences() {
   try {
     window.localStorage.setItem(
       MUSIC_STORAGE_KEY,
-      JSON.stringify({ muted: Boolean(musicState.muted) }),
+      JSON.stringify({
+        muted: Boolean(musicState.muted),
+        volume: clampVolume(musicState.volume),
+      }),
     );
   } catch (error) {
     console.warn('Failed to save music preferences', error);
   }
 }
 
-function pickRandomTrack(exclude) {
+function clampVolume(value) {
+  if (!Number.isFinite(value)) {
+    return MUSIC_DEFAULT_VOLUME;
+  }
+  return Math.min(1, Math.max(0, value));
+}
+
+function pickRandomTrack(excludeId) {
   if (!BACKGROUND_TRACKS.length) {
     return null;
   }
-  const pool = BACKGROUND_TRACKS.filter((track) => track !== exclude);
+  const pool = BACKGROUND_TRACKS.filter((track) => track.id !== excludeId);
   const source = pool.length ? pool : BACKGROUND_TRACKS;
   const index = Math.floor(Math.random() * source.length);
-  return source[index];
+  return source[index] || null;
+}
+
+function getTrackMetadata(trackId) {
+  if (!trackId) {
+    return null;
+  }
+  return BACKGROUND_TRACKS.find((track) => track.id === trackId) || null;
 }
 
 function ensureMusicAudio() {
@@ -3846,12 +3869,11 @@ function ensureMusicAudio() {
 }
 
 function handleMusicEnded() {
-  if (!BACKGROUND_TRACKS.length) {
-    return;
-  }
-  const nextTrack = pickRandomTrack(musicState.currentTrack);
+  const nextTrack = pickRandomTrack(musicState.currentTrackId);
   if (nextTrack) {
     playMusicTrack(nextTrack);
+  } else {
+    updateMusicUi();
   }
 }
 
@@ -3891,37 +3913,57 @@ function playMusicTrack(track) {
     return;
   }
   const audio = ensureMusicAudio();
-  musicState.currentTrack = track;
-  audio.src = resolveAssetUrl(track);
+  musicState.currentTrackId = track.id;
+  audio.src = resolveAssetUrl(track.path);
   audio.loop = false;
   if (musicState.muted) {
     audio.pause();
+    updateMusicUi();
     return;
   }
   attemptMusicPlayback();
+  updateMusicUi();
 }
 
-function updateMusicToggleUi() {
+function updateMusicUi() {
   if (musicToggle) {
     musicToggle.checked = !musicState.muted;
     musicToggle.disabled = !BACKGROUND_TRACKS.length;
+  }
+  if (musicTrackName) {
+    const metadata = getTrackMetadata(musicState.currentTrackId);
+    musicTrackName.textContent = metadata ? metadata.title : '—';
+  }
+  if (musicVolumeSlider) {
+    const sliderValue = Math.round(clampVolume(musicState.volume) * 100);
+    musicVolumeSlider.value = String(sliderValue);
+    musicVolumeSlider.disabled = !BACKGROUND_TRACKS.length;
+  }
+  if (musicSkipButton) {
+    musicSkipButton.disabled = BACKGROUND_TRACKS.length <= 1;
   }
 }
 
 function initialiseBackgroundMusic() {
   if (musicInitialised || !BACKGROUND_TRACKS.length) {
-    updateMusicToggleUi();
+    updateMusicUi();
     return;
   }
   musicInitialised = true;
-  musicState = loadMusicPreferences();
-  musicState.currentTrack = pickRandomTrack(null);
+  const preferences = loadMusicPreferences();
+  musicState = {
+    muted: preferences.muted,
+    volume: preferences.volume,
+    currentTrackId: null,
+  };
   const audio = ensureMusicAudio();
-  audio.volume = MUSIC_DEFAULT_VOLUME;
+  audio.volume = musicState.volume;
   audio.muted = Boolean(musicState.muted);
-  updateMusicToggleUi();
-  if (musicState.currentTrack) {
-    playMusicTrack(musicState.currentTrack);
+  const initialTrack = pickRandomTrack(null);
+  if (initialTrack) {
+    playMusicTrack(initialTrack);
+  } else {
+    updateMusicUi();
   }
 }
 
@@ -3935,16 +3977,36 @@ function setMusicMuted(muted) {
   if (muted) {
     audio.pause();
   } else {
-    if (!musicState.currentTrack) {
-      musicState.currentTrack = pickRandomTrack(null);
-      if (musicState.currentTrack) {
-        audio.src = resolveDataUrl(musicState.currentTrack);
+    if (!musicState.currentTrackId) {
+      const track = pickRandomTrack(null);
+      if (track) {
+        playMusicTrack(track);
       }
+    } else {
+      attemptMusicPlayback();
     }
-    attemptMusicPlayback();
   }
   saveMusicPreferences();
-  updateMusicToggleUi();
+  updateMusicUi();
+}
+
+function setMusicVolume(volume) {
+  const clamped = clampVolume(volume);
+  if (musicState.volume === clamped) {
+    return;
+  }
+  musicState.volume = clamped;
+  const audio = ensureMusicAudio();
+  audio.volume = clamped;
+  saveMusicPreferences();
+  updateMusicUi();
+}
+
+function skipToNextTrack() {
+  const next = pickRandomTrack(musicState.currentTrackId);
+  if (next) {
+    playMusicTrack(next);
+  }
 }
 
 function setLastSignedInUser(username) {
@@ -9274,6 +9336,20 @@ if (musicToggle) {
   musicToggle.addEventListener('change', () => {
     const enabled = musicToggle.checked;
     setMusicMuted(!enabled);
+  });
+}
+
+if (musicVolumeSlider) {
+  musicVolumeSlider.addEventListener('input', () => {
+    const rawValue = Number(musicVolumeSlider.value);
+    const ratio = Number.isFinite(rawValue) ? rawValue / 100 : MUSIC_DEFAULT_VOLUME;
+    setMusicVolume(ratio);
+  });
+}
+
+if (musicSkipButton) {
+  musicSkipButton.addEventListener('click', () => {
+    skipToNextTrack();
   });
 }
 

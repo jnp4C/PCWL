@@ -1061,6 +1061,12 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   color: var(--color-text-muted);
 }
 
+.music-track-label {
+  margin: 0.4rem 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
 .friends-list {
   display: flex;
   flex-direction: column;

@@ -186,6 +186,14 @@
               <input type="checkbox" id="music-toggle" checked />
               <span>Background music</span>
             </label>
+            <p class="music-track-label">Now playing: <span id="music-track-name">—</span></p>
+            <label class="control slider">
+              <span>Volume</span>
+              <input type="range" id="music-volume" min="0" max="100" step="1" value="45" />
+            </label>
+            <div class="button-row">
+              <button id="music-skip-button" class="secondary small" type="button">Skip Track</button>
+            </div>
           </section>
           <section class="drawer-block">
             <h2 class="drawer-heading">Profile photo</h2>
