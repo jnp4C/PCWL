@@ -116,6 +116,9 @@ const friendRequestsIncomingList = document.getElementById('friend-requests-inco
 const friendRequestsOutgoingList = document.getElementById('friend-requests-outgoing');
 const friendRequestsIncomingEmpty = document.getElementById('friend-requests-incoming-empty');
 const friendRequestsOutgoingEmpty = document.getElementById('friend-requests-outgoing-empty');
+const friendsLeaderboardSection = document.getElementById('friends-leaderboard');
+const friendsLeaderboardList = document.getElementById('friends-leaderboard-list');
+const friendsLeaderboardHint = document.getElementById('friends-leaderboard-hint');
 const districtDrawer = document.getElementById('district-drawer');
 const districtOverlay = document.getElementById('district-overlay');
 const districtCloseButton = document.getElementById('district-close');
@@ -1456,6 +1459,22 @@ function supportsTouchInput() {
     return true;
   }
   if (nav && typeof nav.msMaxTouchPoints === 'number' && nav.msMaxTouchPoints > 0) {
+    return true;
+  }
+  return false;
+}
+
+function isTouchLikeEvent(originalEvent) {
+  if (!originalEvent) {
+    return false;
+  }
+  if (originalEvent.type && originalEvent.type.startsWith('touch')) {
+    return true;
+  }
+  if (typeof originalEvent.pointerType === 'string' && originalEvent.pointerType.toLowerCase() === 'touch') {
+    return true;
+  }
+  if (typeof originalEvent.changedTouches !== 'undefined') {
     return true;
   }
   return false;
@@ -5234,6 +5253,166 @@ function resolveFriendHomeMeta(friend) {
   };
 }
 
+function selectTopFriend(friends, scoreFn) {
+  if (!Array.isArray(friends) || !friends.length) {
+    return null;
+  }
+  let best = null;
+  friends.forEach((friend) => {
+    if (!friend || typeof friend.username !== 'string') {
+      return;
+    }
+    const score = scoreFn(friend);
+    if (score === null || score === undefined) {
+      return;
+    }
+    if (!best || score > best.score) {
+      best = { friend, score };
+    }
+  });
+  return best;
+}
+
+function computeFriendHighlights(profile, friends) {
+  if (!profile || !Array.isArray(friends) || !friends.length) {
+    return [];
+  }
+  const highlights = [];
+
+  const aggressive = selectTopFriend(friends, (friend) => {
+    const attackPoints = Math.max(0, Math.round(normaliseNumber(friend.attack_points, 0)));
+    return attackPoints > 0 ? attackPoints : null;
+  });
+  if (aggressive) {
+    highlights.push({
+      id: 'aggressive',
+      label: 'Most Aggressive',
+      display: `@${aggressive.friend.username}`,
+      detail: `${aggressive.score.toLocaleString()} atk pts`,
+      meta: 'Always ready to strike first.',
+    });
+  }
+
+  const defensive = selectTopFriend(friends, (friend) => {
+    const attackPoints = Math.max(0, normaliseNumber(friend.attack_points, 0));
+    const defendPoints = Math.max(0, normaliseNumber(friend.defend_points, 0));
+    if (defendPoints === 0) {
+      return null;
+    }
+    return defendPoints / Math.max(attackPoints, 1);
+  });
+  if (defensive) {
+    const defendPoints = Math.max(0, Math.round(normaliseNumber(defensive.friend.defend_points, 0)));
+    highlights.push({
+      id: 'defensive',
+      label: 'Strongest Defender',
+      display: `@${defensive.friend.username}`,
+      detail: `${defendPoints.toLocaleString()} def pts`,
+      meta: 'Keeps their district fortified.',
+    });
+  }
+
+  const homeId = profile.homeDistrictId ? safeId(profile.homeDistrictId) : null;
+  if (homeId) {
+    const threat = selectTopFriend(friends, (friend) => {
+      const history = Array.isArray(friend.recent_checkins) ? friend.recent_checkins : [];
+      let count = 0;
+      history.forEach((entry) => {
+        if (!entry || entry.type !== 'attack') {
+          return;
+        }
+        const target = entry.districtId ? safeId(entry.districtId) : null;
+        if (target && target === homeId) {
+          count += 1;
+        }
+      });
+      return count > 0 ? count : null;
+    });
+    if (threat) {
+      highlights.push({
+        id: 'threat',
+        label: 'Home Rival',
+        display: `@${threat.friend.username}`,
+        detail: `${threat.score.toLocaleString()} recent hits`,
+        meta: 'Loves sparring with your district.',
+      });
+    }
+  }
+
+  const bestFriend = selectTopFriend(friends, (friend) => {
+    return Math.max(
+      0,
+      Math.round(
+        normaliseNumber(
+          friend.checkins,
+          normaliseNumber(friend.server_checkin_count, 0),
+        ),
+      ),
+    );
+  });
+  if (bestFriend) {
+    highlights.push({
+      id: 'best',
+      label: 'Best Friend',
+      display: `@${bestFriend.friend.username}`,
+      detail: `${bestFriend.score.toLocaleString()} check-ins`,
+      meta: 'Perfect partner for a 3h party boost.',
+    });
+  }
+
+  return highlights;
+}
+
+function updateFriendsLeaderboardSection(friends) {
+  if (!friendsLeaderboardSection || !friendsLeaderboardList) {
+    return;
+  }
+  const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+  if (!profile || !Array.isArray(friends) || !friends.length) {
+    friendsLeaderboardSection.classList.add('hidden');
+    friendsLeaderboardList.innerHTML = '';
+    if (friendsLeaderboardHint) {
+      friendsLeaderboardHint.classList.add('hidden');
+    }
+    return;
+  }
+  const highlights = computeFriendHighlights(profile, friends);
+  if (!highlights.length) {
+    friendsLeaderboardSection.classList.add('hidden');
+    friendsLeaderboardList.innerHTML = '';
+    if (friendsLeaderboardHint) {
+      friendsLeaderboardHint.classList.add('hidden');
+    }
+    return;
+  }
+  friendsLeaderboardSection.classList.remove('hidden');
+  friendsLeaderboardList.innerHTML = '';
+  highlights.forEach((highlight) => {
+    const item = document.createElement('li');
+    item.className = 'friend-leaderboard-item';
+
+    const label = document.createElement('span');
+    label.className = 'friend-leaderboard-label';
+    label.textContent = highlight.label;
+    item.appendChild(label);
+
+    const value = document.createElement('span');
+    value.className = 'friend-leaderboard-value';
+    value.textContent = highlight.display;
+    item.appendChild(value);
+
+    const meta = document.createElement('span');
+    meta.className = 'friend-leaderboard-meta';
+    meta.textContent = `${highlight.detail} • ${highlight.meta}`;
+    item.appendChild(meta);
+
+    friendsLeaderboardList.appendChild(item);
+  });
+  if (friendsLeaderboardHint) {
+    friendsLeaderboardHint.classList.remove('hidden');
+  }
+}
+
 function renderFriendCard(friend) {
   if (!friend || typeof friend.username !== 'string') {
     return null;
@@ -5800,6 +5979,7 @@ function updateFriendsDrawerContent() {
     friendsEmptyState.textContent = 'Sign in to see your friends list.';
     friendsListContainer.hidden = true;
     friendsListContainer.innerHTML = '';
+    updateFriendsLeaderboardSection([]);
     return;
   }
 
@@ -5808,6 +5988,7 @@ function updateFriendsDrawerContent() {
     friendsEmptyState.textContent = 'Loading your friends…';
     friendsListContainer.hidden = true;
     friendsListContainer.innerHTML = '';
+    updateFriendsLeaderboardSection([]);
     return;
   }
 
@@ -5816,6 +5997,7 @@ function updateFriendsDrawerContent() {
     friendsEmptyState.textContent = friendsState.error;
     friendsListContainer.hidden = true;
     friendsListContainer.innerHTML = '';
+    updateFriendsLeaderboardSection([]);
     return;
   }
 
@@ -5825,6 +6007,7 @@ function updateFriendsDrawerContent() {
     friendsEmptyState.textContent = 'No friends linked yet. Use Manage Friends to add teammates.';
     friendsListContainer.hidden = true;
     friendsListContainer.innerHTML = '';
+    updateFriendsLeaderboardSection([]);
     return;
   }
 
@@ -5837,6 +6020,7 @@ function updateFriendsDrawerContent() {
       friendsListContainer.appendChild(card);
     }
   });
+  updateFriendsLeaderboardSection(friends);
 
   if (friendsManageOpen) {
     renderFriendManageList();
@@ -8160,6 +8344,9 @@ function addSourcesAndLayers() {
       return;
     }
     if (!event || !event.lngLat) {
+      return;
+    }
+    if (supportsTouchInput() && isTouchLikeEvent(event.originalEvent)) {
       return;
     }
     const feature = event.features && event.features.length ? event.features[0] : null;

@@ -944,6 +944,60 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   justify-content: flex-start;
 }
 
+.friends-leaderboard {
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  background: rgba(99, 102, 241, 0.08);
+  box-shadow: inset 0 0 0 1px var(--color-border-soft);
+}
+
+.friend-leaderboard-heading {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.friends-leaderboard-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.friend-leaderboard-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.friend-leaderboard-label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  flex: 0 0 120px;
+}
+
+.friend-leaderboard-value {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.friend-leaderboard-meta {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.friends-leaderboard-hint {
+  margin: 0.75rem 0 0;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
 .friends-list {
   display: flex;
   flex-direction: column;
