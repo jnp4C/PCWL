@@ -237,15 +237,15 @@ const DISTRICT_SCORES_STORAGE_KEY = 'pragueExplorerDistrictScores';
 const POINTS_PER_CHECKIN = 10;
 const MAX_HISTORY_ITEMS = 15;
 const BACKGROUND_TRACKS = [
-  'audio/kostej-mlha-01-moje-slunce.m4a',
-  'audio/kostej-mlha-02-jeste-jednou-se-vratime.m4a',
-  'audio/kostej-mlha-03-posledni-exemplar.m4a',
-  'audio/kostej-mlha-04-mlha.m4a',
-  'audio/kostej-mlha-05-ven.m4a',
-  'audio/kostej-mlha-06-termoclanek.m4a',
-  'audio/kostej-mlha-07-alkoholova-kumpanie.m4a',
-  'audio/kostej-mlha-08-ssri.m4a',
-  'audio/kostej-mlha-09-heppy.m4a',
+  'assets/audio/kostej-mlha-01-moje-slunce.m4a',
+  'assets/audio/kostej-mlha-02-jeste-jednou-se-vratime.m4a',
+  'assets/audio/kostej-mlha-03-posledni-exemplar.m4a',
+  'assets/audio/kostej-mlha-04-mlha.m4a',
+  'assets/audio/kostej-mlha-05-ven.m4a',
+  'assets/audio/kostej-mlha-06-termoclanek.m4a',
+  'assets/audio/kostej-mlha-07-alkoholova-kumpanie.m4a',
+  'assets/audio/kostej-mlha-08-ssri.m4a',
+  'assets/audio/kostej-mlha-09-heppy.m4a',
 ];
 const MUSIC_STORAGE_KEY = 'pcwlMusicPrefs';
 const MUSIC_DEFAULT_VOLUME = 0.45;
@@ -386,6 +386,10 @@ if (typeof window !== 'undefined') {
 
 function resolveDataUrl(filename) {
   return `${DATA_PREFIX}${filename}`;
+}
+
+function resolveAssetUrl(path) {
+  return `${STATIC_PREFIX}${path}`;
 }
 
 function loadStaticDataset(datasetKey) {
@@ -3888,7 +3892,7 @@ function playMusicTrack(track) {
   }
   const audio = ensureMusicAudio();
   musicState.currentTrack = track;
-  audio.src = resolveDataUrl(track);
+  audio.src = resolveAssetUrl(track);
   audio.loop = false;
   if (musicState.muted) {
     audio.pause();
