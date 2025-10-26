@@ -8397,6 +8397,18 @@ function showMap(triggerGeolocation) {
 
   renderPlayerState();
 
+  ensureMap(() => {
+    const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+    const hasLiveLocation = profile && profile.lastKnownLocation && profile.lastKnownLocation.source === 'geolocated';
+    if (!hasLiveLocation && profile && profile.lastKnownLocation) {
+      const lng = Number(profile.lastKnownLocation.lng);
+      const lat = Number(profile.lastKnownLocation.lat);
+      if (Number.isFinite(lng) && Number.isFinite(lat)) {
+        updatePlayerLocationMarker(lng, lat, { source: 'profile' });
+      }
+    }
+  });
+
   if (poiList && !poiList.children.length) {
     const li = document.createElement('li');
     li.textContent = '3D view active. Toggle districts to refine the scene.';
