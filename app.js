@@ -411,10 +411,11 @@ function loadStaticDataset(datasetKey) {
   return STATIC_DATA_CACHE[datasetKey];
 }
 
-function addStaticGeoSource(mapInstance, sourceId, datasetKey, options = {}, onData) {
+function addStaticGeoSource(mapInstance, sourceId, datasetKey, options = {}, onData, lazyOptions = null) {
   const sourceOptions = Object.assign({ type: 'geojson', data: EMPTY_GEOJSON }, options || {});
   mapInstance.addSource(sourceId, sourceOptions);
-  loadStaticDataset(datasetKey).then((geojson) => {
+
+  const setSourceData = (geojson) => {
     if (!geojson) {
       return;
     }
@@ -425,7 +426,42 @@ function addStaticGeoSource(mapInstance, sourceId, datasetKey, options = {}, onD
         onData(geojson);
       }
     }
-  });
+  };
+
+  const loadData = () => loadStaticDataset(datasetKey).then(setSourceData);
+
+  if (lazyOptions && typeof mapInstance.getZoom === 'function' && typeof mapInstance.on === 'function') {
+    const minZoom = Number(lazyOptions.minZoom) || 0;
+    const unloadBelow =
+      lazyOptions.unloadBelowMinZoom === undefined ? false : Boolean(lazyOptions.unloadBelowMinZoom);
+    let loaded = false;
+    let pending = null;
+
+    const ensureState = () => {
+      const zoom = mapInstance.getZoom();
+      if (zoom >= minZoom) {
+        if (!loaded) {
+          loaded = true;
+          if (!pending) {
+            pending = loadData().finally(() => {
+              pending = null;
+            });
+          }
+        }
+      } else if (loaded && unloadBelow) {
+        loaded = false;
+        const source = typeof mapInstance.getSource === 'function' ? mapInstance.getSource(sourceId) : null;
+        if (source && typeof source.setData === 'function') {
+          source.setData(EMPTY_GEOJSON);
+        }
+      }
+    };
+
+    mapInstance.on('zoomend', ensureState);
+    ensureState();
+  } else {
+    loadData();
+  }
 }
 
 const GEOLOCATION_SECURE_CONTEXT_MESSAGE =
@@ -7679,7 +7715,14 @@ function addSourcesAndLayers() {
     },
   });
 
-  addStaticGeoSource(map, 'prague-buildings', 'prague-building-polygons');
+  addStaticGeoSource(
+    map,
+    'prague-buildings',
+    'prague-building-polygons',
+    {},
+    null,
+    { minZoom: 13, unloadBelowMinZoom: true },
+  );
 
   map.addLayer({
     id: 'buildings-3d',
@@ -7912,7 +7955,7 @@ function addSourcesAndLayers() {
     updateStatus(`${username} last checked in ${timeLabel} at ${locationLabel}.`);
   });
 
-  addStaticGeoSource(map, 'prague-parks', 'prague-parks');
+  addStaticGeoSource(map, 'prague-parks', 'prague-parks', {}, null, { minZoom: 12, unloadBelowMinZoom: true });
 
   map.addLayer({
     id: 'parks-fill',
@@ -7975,7 +8018,7 @@ function addSourcesAndLayers() {
     }, 1200);
   });
 
-  addStaticGeoSource(map, 'prague-urban', 'urban-planning');
+  addStaticGeoSource(map, 'prague-urban', 'urban-planning', {}, null, { minZoom: 12, unloadBelowMinZoom: true });
 
   map.addLayer({
     id: 'urban-overlay',
@@ -8114,7 +8157,7 @@ function addSourcesAndLayers() {
   enableMobileContextMenuLongPress();
 
 
-  addStaticGeoSource(map, 'prague-streets', 'prague-streets');
+  addStaticGeoSource(map, 'prague-streets', 'prague-streets', {}, null, { minZoom: 11, unloadBelowMinZoom: true });
 
   map.addLayer({
     id: 'streets-overlay',
@@ -8127,7 +8170,7 @@ function addSourcesAndLayers() {
     },
   });
 
-  addStaticGeoSource(map, 'prague-cycling', 'prague-cycling-routes');
+  addStaticGeoSource(map, 'prague-cycling', 'prague-cycling-routes', {}, null, { minZoom: 12, unloadBelowMinZoom: true });
 
   map.addLayer({
     id: 'cycling-routes',
