@@ -170,6 +170,25 @@ const STATIC_PREFIX =
     ? window.__STATIC_URL__
     : '';
 const DATA_PREFIX = `${STATIC_PREFIX}data/`;
+const EMPTY_GEOJSON = { type: 'FeatureCollection', features: [] };
+const STATIC_DATASETS = {
+  'prague-boundary': { topo: 'prague-boundary.topo.json', object: 'boundary', fallback: 'prague-boundary.geojson' },
+  'prague-building-polygons': {
+    topo: 'prague-building-polygons.topo.json',
+    object: 'buildings',
+    fallback: 'prague-building-polygons.geojson',
+  },
+  'prague-districts': { topo: 'prague-districts.topo.json', object: 'districts', fallback: 'prague-districts.geojson' },
+  'prague-parks': { topo: 'prague-parks.topo.json', object: 'parks', fallback: 'prague-parks.geojson' },
+  'urban-planning': { topo: 'urban-planning.topo.json', object: 'urban', fallback: 'urban-planning.geojson' },
+  'prague-streets': { topo: 'prague-streets.topo.json', object: 'streets', fallback: 'prague-streets.geojson' },
+  'prague-cycling-routes': {
+    topo: 'prague-cycling-routes.topo.json',
+    object: 'cycling',
+    fallback: 'prague-cycling-routes.geojson',
+  },
+};
+const STATIC_DATA_CACHE = {};
 const DISTRICT_GLOW_DEFAULT_COLOR = '#8f76e6';
 const DISTRICT_GLOW_HOME_COLOR_LIGHT = '#176f3c';
 const DISTRICT_GLOW_HOME_COLOR_DARK = '#c7ff5a';
@@ -340,6 +359,73 @@ if (typeof window !== 'undefined') {
 
 function resolveDataUrl(filename) {
   return `${DATA_PREFIX}${filename}`;
+}
+
+function loadStaticDataset(datasetKey) {
+  if (STATIC_DATA_CACHE[datasetKey]) {
+    return STATIC_DATA_CACHE[datasetKey];
+  }
+
+  if (typeof fetch !== 'function') {
+    STATIC_DATA_CACHE[datasetKey] = Promise.resolve(null);
+    return STATIC_DATA_CACHE[datasetKey];
+  }
+
+  const config = STATIC_DATASETS[datasetKey] || {};
+  if (config.topo && typeof topojson !== 'undefined') {
+    STATIC_DATA_CACHE[datasetKey] = fetch(resolveDataUrl(config.topo))
+      .then((response) => (response.ok ? response.json() : null))
+      .then((topology) => {
+        if (!topology || !topology.objects) {
+          return null;
+        }
+        const topoClient = typeof topojson !== 'undefined' ? topojson : null;
+        if (!topoClient || typeof topoClient.feature !== 'function') {
+          console.error('topojson-client is required to decode topology data.');
+          return null;
+        }
+        const objectName =
+          config.object && topology.objects[config.object]
+            ? config.object
+            : Object.keys(topology.objects)[0];
+        if (!objectName) {
+          return null;
+        }
+        const geojson = topoClient.feature(topology, topology.objects[objectName]);
+        return geojson && geojson.type ? geojson : null;
+      })
+      .catch((error) => {
+        console.error(`Failed to load topo dataset "${datasetKey}"`, error);
+        return null;
+      });
+  } else {
+    const fallbackFile = config.fallback || `${datasetKey}.geojson`;
+    STATIC_DATA_CACHE[datasetKey] = fetch(resolveDataUrl(fallbackFile))
+      .then((response) => (response.ok ? response.json() : null))
+      .catch((error) => {
+        console.error(`Failed to load GeoJSON dataset "${datasetKey}"`, error);
+        return null;
+      });
+  }
+
+  return STATIC_DATA_CACHE[datasetKey];
+}
+
+function addStaticGeoSource(mapInstance, sourceId, datasetKey, options = {}, onData) {
+  const sourceOptions = Object.assign({ type: 'geojson', data: EMPTY_GEOJSON }, options || {});
+  mapInstance.addSource(sourceId, sourceOptions);
+  loadStaticDataset(datasetKey).then((geojson) => {
+    if (!geojson) {
+      return;
+    }
+    const source = typeof mapInstance.getSource === 'function' ? mapInstance.getSource(sourceId) : null;
+    if (source && typeof source.setData === 'function') {
+      source.setData(geojson);
+      if (typeof onData === 'function') {
+        onData(geojson);
+      }
+    }
+  });
 }
 
 const GEOLOCATION_SECURE_CONTEXT_MESSAGE =
@@ -942,13 +1028,13 @@ function ensureDistrictDataLoaded() {
     console.warn('Skipping district data preload on file:// origin. Start a local server (e.g., python3 -m http.server) to enable data loading.');
     return Promise.resolve(null);
   }
-  districtGeoJsonPromise = fetch(resolveDataUrl('prague-districts.geojson'))
-    .then((response) => (response.ok ? response.json() : null))
+  districtGeoJsonPromise = loadStaticDataset('prague-districts')
     .then((data) => {
       if (data && data.type === 'FeatureCollection') {
         districtGeoJson = data;
+        return districtGeoJson;
       }
-      return districtGeoJson;
+      return null;
     })
     .catch((error) => {
       console.warn('Failed to preload district polygons', error);
@@ -7581,10 +7667,7 @@ function addSourcesAndLayers() {
     return;
   }
 
-  map.addSource('prague-boundary', {
-    type: 'geojson',
-    data: resolveDataUrl('prague-boundary.geojson'),
-  });
+  addStaticGeoSource(map, 'prague-boundary', 'prague-boundary');
 
   map.addLayer({
     id: 'prague-mask-fill',
@@ -7596,10 +7679,7 @@ function addSourcesAndLayers() {
     },
   });
 
-  map.addSource('prague-buildings', {
-    type: 'geojson',
-    data: resolveDataUrl('prague-building-polygons.geojson'),
-  });
+  addStaticGeoSource(map, 'prague-buildings', 'prague-building-polygons');
 
   map.addLayer({
     id: 'buildings-3d',
@@ -7689,21 +7769,17 @@ function addSourcesAndLayers() {
     }, 1200);
   });
 
-  map.addSource('prague-districts', {
-    type: 'geojson',
-    data: resolveDataUrl('prague-districts.geojson'),
-    promoteId: 'kod_mc',
-  });
-
-  const handleDistrictSourceLoad = (event) => {
-    if (event.sourceId === 'prague-districts' && event.isSourceLoaded) {
-      map.off('sourcedata', handleDistrictSourceLoad);
+  addStaticGeoSource(
+    map,
+    'prague-districts',
+    'prague-districts',
+    { promoteId: 'kod_mc' },
+    () => {
       if (lastKnownLocation) {
         updateCurrentDistrictFromCoordinates(lastKnownLocation[0], lastKnownLocation[1]);
       }
-    }
-  };
-  map.on('sourcedata', handleDistrictSourceLoad);
+    },
+  );
 
   map.addLayer({
     id: 'districts-fill',
@@ -7836,10 +7912,7 @@ function addSourcesAndLayers() {
     updateStatus(`${username} last checked in ${timeLabel} at ${locationLabel}.`);
   });
 
-  map.addSource('prague-parks', {
-    type: 'geojson',
-    data: resolveDataUrl('prague-parks.geojson'),
-  });
+  addStaticGeoSource(map, 'prague-parks', 'prague-parks');
 
   map.addLayer({
     id: 'parks-fill',
@@ -7902,10 +7975,7 @@ function addSourcesAndLayers() {
     }, 1200);
   });
 
-  map.addSource('prague-urban', {
-    type: 'geojson',
-    data: resolveDataUrl('urban-planning.geojson'),
-  });
+  addStaticGeoSource(map, 'prague-urban', 'urban-planning');
 
   map.addLayer({
     id: 'urban-overlay',
@@ -8044,10 +8114,7 @@ function addSourcesAndLayers() {
   enableMobileContextMenuLongPress();
 
 
-  map.addSource('prague-streets', {
-    type: 'geojson',
-    data: resolveDataUrl('prague-streets.geojson'),
-  });
+  addStaticGeoSource(map, 'prague-streets', 'prague-streets');
 
   map.addLayer({
     id: 'streets-overlay',
@@ -8060,10 +8127,7 @@ function addSourcesAndLayers() {
     },
   });
 
-  map.addSource('prague-cycling', {
-    type: 'geojson',
-    data: resolveDataUrl('prague-cycling-routes.geojson'),
-  });
+  addStaticGeoSource(map, 'prague-cycling', 'prague-cycling-routes');
 
   map.addLayer({
     id: 'cycling-routes',
