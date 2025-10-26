@@ -13,7 +13,7 @@ Prerequisites:
 
 Usage examples:
   python3 scripts/convert_prague_data.py
-  python3 scripts/convert_prague_data.py --output versions/build-2
+  python3 scripts/convert_prague_data.py --output data/build-cache
 
 The script will:
   • Convert building polygons and points to GeoJSON
@@ -34,8 +34,6 @@ DATA_DIR = ROOT / "data"
 POLY_SRC = DATA_DIR / "DTMP_CUR_TMBUDOVA_B" / "TMBUDOVA_B.shp"
 POINT_SRC = DATA_DIR / "DTMP_CUR_TMBUDOVA_P" / "TMBUDOVA_P.shp"
 RASTER_SRC = DATA_DIR / "bud_abs" / "bud_abs.tif"
-
-DEFAULT_BUILD_DIR = ROOT / "versions" / "build-2"
 
 POLY_OUT = DATA_DIR / "prague-buildings.geojson"
 POINT_OUT = DATA_DIR / "prague-building-points.geojson"
@@ -117,8 +115,8 @@ def main() -> None:
     parser.add_argument(
         "--output",
         type=Path,
-        default=DEFAULT_BUILD_DIR,
-        help="Optional directory to copy results into (default: versions/build-2)",
+        default=None,
+        help="Optional directory to copy results into (defaults to skipping the copy step).",
     )
     args = parser.parse_args()
 
@@ -127,13 +125,15 @@ def main() -> None:
 
     convert_buildings()
     convert_raster()
-    copy_to_build(args.output)
+    if args.output:
+        copy_to_build(args.output)
 
     print("\nDone. Updated files:")
     print(f"  • {POLY_OUT.relative_to(ROOT)}")
     print(f"  • {POINT_OUT.relative_to(ROOT)}")
     print(f"  • {RASTER_TIF_OUT.relative_to(ROOT)} / {RASTER_PNG_OUT.relative_to(ROOT)} (+ .pgw)")
-    print(f"  • Copies in {args.output.relative_to(ROOT)}")
+    if args.output:
+        print(f"  • Copies in {args.output.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":
