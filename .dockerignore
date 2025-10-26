@@ -1,0 +1,12 @@
+.git
+.gitignore
+.idea
+.venv
+venv
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+_pcwl_staticfiles
+backend/db.sqlite3

@@ -8,14 +8,24 @@ while enabling future backend work (REST API, multiplayer features, etc.).
 import os
 from pathlib import Path
 
+
+def env_list(name, default=None):
+    """Small helper to parse comma separated environment variables."""
+    value = os.environ.get(name, "")
+    if not value:
+        return default or []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
 # Paths
 BASE_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = BASE_DIR.parent
 
 # Security
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-change-me")
-DEBUG = True
-ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
+DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() in {"1", "true", "yes", "on"}
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", ["localhost", "127.0.0.1"])
+CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # Applications
 INSTALLED_APPS = [
@@ -33,6 +43,7 @@ INSTALLED_APPS = [
 # Middleware / request pipeline
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -102,7 +113,8 @@ STATICFILES_DIRS = [
     FRONTEND_DIR / "data",
     FRONTEND_DIR,
 ]
-STATIC_ROOT = (BASE_DIR.parent.parent / "_pcwl_staticfiles").resolve()
+STATIC_ROOT = (FRONTEND_DIR / "_pcwl_staticfiles").resolve()
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 # REST framework defaults
 REST_FRAMEWORK = {

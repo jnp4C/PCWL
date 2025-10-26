@@ -1,2 +1,4 @@
 Django==3.2.25
 djangorestframework==3.14.0
+gunicorn==21.2.0
+whitenoise==6.6.0
