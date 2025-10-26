@@ -1,4 +1,4 @@
-#!/Users/jonaspalecek/Documents/GitHub/PCWL/.venv/bin/python
+#!/Users/jonaspalecek/Documents/GitHub/PCWL/.venv/bin/python3.11
 import sys
 from pip._internal.cli.main import main
 if __name__ == '__main__':
