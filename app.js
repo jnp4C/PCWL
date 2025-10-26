@@ -63,6 +63,7 @@ const mobileCheckInButton = document.getElementById('mobile-checkin-button');
 const drawerCheckinButton = document.getElementById('drawer-checkin-button');
 const drawerLogoutButton = document.getElementById('drawer-logout-button');
 const drawerThemeToggleButton = document.getElementById('drawer-theme-toggle');
+const musicToggle = document.getElementById('music-toggle');
 const drawerLeaderboardLink = document.getElementById('drawer-leaderboard');
 const profileImageUrlInput = document.getElementById('profile-image-url-input');
 const profileImagePreview = document.getElementById('profile-image-preview');
@@ -235,6 +236,19 @@ const DISTRICT_BASE_SCORE = 2000;
 const DISTRICT_SCORES_STORAGE_KEY = 'pragueExplorerDistrictScores';
 const POINTS_PER_CHECKIN = 10;
 const MAX_HISTORY_ITEMS = 15;
+const BACKGROUND_TRACKS = [
+  'audio/kostej-mlha-01-moje-slunce.m4a',
+  'audio/kostej-mlha-02-jeste-jednou-se-vratime.m4a',
+  'audio/kostej-mlha-03-posledni-exemplar.m4a',
+  'audio/kostej-mlha-04-mlha.m4a',
+  'audio/kostej-mlha-05-ven.m4a',
+  'audio/kostej-mlha-06-termoclanek.m4a',
+  'audio/kostej-mlha-07-alkoholova-kumpanie.m4a',
+  'audio/kostej-mlha-08-ssri.m4a',
+  'audio/kostej-mlha-09-heppy.m4a',
+];
+const MUSIC_STORAGE_KEY = 'pcwlMusicPrefs';
+const MUSIC_DEFAULT_VOLUME = 0.45;
 const PARTY_STORAGE_KEY = 'pcwlActiveParty';
 const PARTY_DURATION_MS = 3 * 60 * 60 * 1000;
 const PARTY_MAX_FRIENDS = 3;
@@ -2890,6 +2904,10 @@ let lastHoverLngLat = null;
 let lastHoverDistrictId = null;
 let isPointerOverDistrict = false;
 let districtScores = {};
+let musicAudio = null;
+let musicState = { muted: false, currentTrack: null };
+let musicInitialised = false;
+let musicAwaitingUnlock = false;
 activePartyState = loadPartyStateFromStorage();
 
 const STORAGE_KEY = 'pragueExplorerPlayers';
@@ -3652,6 +3670,7 @@ document.addEventListener('prague-themechange', (event) => {
 ensureWelcomeLogoTheme(activeTheme);
 renderAppVersionBadge();
 applyMarkerColorTheme(DEFAULT_MARKER_COLOR);
+initialiseBackgroundMusic();
 
 document.addEventListener('click', (event) => {
   if (!actionContextMenuVisible || !actionContextMenu) {
@@ -3767,6 +3786,161 @@ function getActivePartyState() {
 function setActivePartyState(nextState) {
   activePartyState = nextState ? { ...nextState } : null;
   savePartyStateToStorage(activePartyState);
+}
+
+function loadMusicPreferences() {
+  if (typeof window === 'undefined') {
+    return { muted: false, currentTrack: null };
+  }
+  try {
+    const stored = window.localStorage.getItem(MUSIC_STORAGE_KEY);
+    if (!stored) {
+      return { muted: false, currentTrack: null };
+    }
+    const parsed = JSON.parse(stored);
+    return {
+      muted: Boolean(parsed && parsed.muted),
+      currentTrack: null,
+    };
+  } catch (error) {
+    console.warn('Failed to load music preferences', error);
+    return { muted: false, currentTrack: null };
+  }
+}
+
+function saveMusicPreferences() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    window.localStorage.setItem(
+      MUSIC_STORAGE_KEY,
+      JSON.stringify({ muted: Boolean(musicState.muted) }),
+    );
+  } catch (error) {
+    console.warn('Failed to save music preferences', error);
+  }
+}
+
+function pickRandomTrack(exclude) {
+  if (!BACKGROUND_TRACKS.length) {
+    return null;
+  }
+  const pool = BACKGROUND_TRACKS.filter((track) => track !== exclude);
+  const source = pool.length ? pool : BACKGROUND_TRACKS;
+  const index = Math.floor(Math.random() * source.length);
+  return source[index];
+}
+
+function ensureMusicAudio() {
+  if (!musicAudio) {
+    musicAudio = new Audio();
+    musicAudio.preload = 'auto';
+    musicAudio.addEventListener('ended', handleMusicEnded);
+  }
+  return musicAudio;
+}
+
+function handleMusicEnded() {
+  if (!BACKGROUND_TRACKS.length) {
+    return;
+  }
+  const nextTrack = pickRandomTrack(musicState.currentTrack);
+  if (nextTrack) {
+    playMusicTrack(nextTrack);
+  }
+}
+
+function scheduleMusicUnlock() {
+  if (musicAwaitingUnlock) {
+    return;
+  }
+  musicAwaitingUnlock = true;
+  const handler = () => {
+    document.removeEventListener('pointerdown', handler);
+    document.removeEventListener('keydown', handler);
+    musicAwaitingUnlock = false;
+    attemptMusicPlayback();
+  };
+  document.addEventListener('pointerdown', handler);
+  document.addEventListener('keydown', handler);
+}
+
+function attemptMusicPlayback() {
+  if (musicState.muted || !musicInitialised) {
+    return;
+  }
+  const audio = ensureMusicAudio();
+  if (!audio.src) {
+    return;
+  }
+  const playPromise = audio.play();
+  if (playPromise && typeof playPromise.catch === 'function') {
+    playPromise.catch(() => {
+      scheduleMusicUnlock();
+    });
+  }
+}
+
+function playMusicTrack(track) {
+  if (!track) {
+    return;
+  }
+  const audio = ensureMusicAudio();
+  musicState.currentTrack = track;
+  audio.src = resolveDataUrl(track);
+  audio.loop = false;
+  if (musicState.muted) {
+    audio.pause();
+    return;
+  }
+  attemptMusicPlayback();
+}
+
+function updateMusicToggleUi() {
+  if (musicToggle) {
+    musicToggle.checked = !musicState.muted;
+    musicToggle.disabled = !BACKGROUND_TRACKS.length;
+  }
+}
+
+function initialiseBackgroundMusic() {
+  if (musicInitialised || !BACKGROUND_TRACKS.length) {
+    updateMusicToggleUi();
+    return;
+  }
+  musicInitialised = true;
+  musicState = loadMusicPreferences();
+  musicState.currentTrack = pickRandomTrack(null);
+  const audio = ensureMusicAudio();
+  audio.volume = MUSIC_DEFAULT_VOLUME;
+  audio.muted = Boolean(musicState.muted);
+  updateMusicToggleUi();
+  if (musicState.currentTrack) {
+    playMusicTrack(musicState.currentTrack);
+  }
+}
+
+function setMusicMuted(muted) {
+  if (musicState.muted === muted) {
+    return;
+  }
+  musicState.muted = muted;
+  const audio = ensureMusicAudio();
+  audio.muted = muted;
+  if (muted) {
+    audio.pause();
+  } else {
+    if (!musicState.currentTrack) {
+      musicState.currentTrack = pickRandomTrack(null);
+      if (musicState.currentTrack) {
+        audio.src = resolveDataUrl(musicState.currentTrack);
+      }
+    }
+    attemptMusicPlayback();
+  }
+  saveMusicPreferences();
+  updateMusicToggleUi();
 }
 
 function setLastSignedInUser(username) {
@@ -9089,6 +9263,13 @@ if (friendsButton) {
   friendsButton.setAttribute('aria-expanded', 'false');
   friendsButton.addEventListener('click', () => {
     openFriendsDrawer(friendsButton);
+  });
+}
+
+if (musicToggle) {
+  musicToggle.addEventListener('change', () => {
+    const enabled = musicToggle.checked;
+    setMusicMuted(!enabled);
   });
 }
 
