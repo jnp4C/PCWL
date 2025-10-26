@@ -325,6 +325,24 @@
           <button type="button" id="friends-manage-button" class="secondary small sheet-action">Manage Friends</button>
         </div>
         <p id="friends-empty" class="sheet-empty">Add friends to squad up and keep track of their progress.</p>
+        <section id="friends-leaderboard" class="friends-leaderboard hidden" aria-live="polite" aria-label="Friend highlights">
+          <h3 class="friend-leaderboard-heading">Squad Highlights</h3>
+          <ul id="friends-leaderboard-list" class="friends-leaderboard-list"></ul>
+          <p id="friends-leaderboard-hint" class="friends-leaderboard-hint hidden">Parties last 3 hours and boost shared check-ins.</p>
+        </section>
+        <section id="friends-party" class="friends-party hidden" aria-live="polite" aria-label="Party boost">
+          <h3 class="friend-party-heading">Party Boost</h3>
+          <p id="friends-party-status" class="friend-party-status">Sign in to start a party.</p>
+          <ul id="friends-party-members" class="friend-party-members"></ul>
+          <div class="friend-party-actions">
+            <label class="sr-only" for="friends-party-select">Choose friend to party with</label>
+            <select id="friends-party-select" class="friend-party-select"></select>
+            <button type="button" id="friends-party-start" class="primary small">Start Party</button>
+            <button type="button" id="friends-party-add" class="secondary small">Add Friend</button>
+            <button type="button" id="friends-party-disband" class="secondary small danger">Disband</button>
+          </div>
+          <p class="friend-party-hint">Parties last 3 hours and then end automatically.</p>
+        </section>
         <div id="friends-list" class="friends-list" hidden></div>
         <div id="friends-manage-panel" class="friends-manage hidden" aria-hidden="true">
           <form id="friend-search-form" class="friend-search-form">
