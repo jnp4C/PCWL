@@ -9,7 +9,16 @@ import os
 from pathlib import Path
 from urllib.parse import quote_plus
 
-import dj_database_url
+try:
+    import dj_database_url  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - fallback for local dev only
+    from backend import dj_database_url  # type: ignore
+
+try:
+    import whitenoise  # type: ignore  # noqa: F401
+    HAS_WHITENOISE = True
+except ModuleNotFoundError:  # pragma: no cover - optional in local dev
+    HAS_WHITENOISE = False
 
 
 def env_list(name, default=None):
@@ -46,7 +55,12 @@ INSTALLED_APPS = [
 # Middleware / request pipeline
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    "whitenoise.middleware.WhiteNoiseMiddleware",
+]
+
+if HAS_WHITENOISE:
+    MIDDLEWARE.append("whitenoise.middleware.WhiteNoiseMiddleware")
+
+MIDDLEWARE += [
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -140,7 +154,10 @@ STATICFILES_DIRS = [
     FRONTEND_DIR,
 ]
 STATIC_ROOT = (FRONTEND_DIR / "_pcwl_staticfiles").resolve()
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+if HAS_WHITENOISE:
+    STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+else:
+    STATICFILES_STORAGE = "django.contrib.staticfiles.storage.StaticFilesStorage"
 
 # REST framework defaults
 REST_FRAMEWORK = {

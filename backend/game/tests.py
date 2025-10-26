@@ -236,6 +236,9 @@ class FriendApiTests(TestCase):
         self.primary.ensure_auth_user(password="friendpass")
         self.friend = Player.objects.create(
             username="ally",
+            home_district_code="1100",
+            home_district_name="Prague 1",
+            home_district="Prague 1",
             map_marker_color="#ff8800",
             last_known_location={
                 "lng": 14.42076,
@@ -261,6 +264,9 @@ class FriendApiTests(TestCase):
         friend_entry = friends[0]
         self.assertEqual(friend_entry["username"], "ally")
         self.assertEqual(friend_entry["map_marker_color"], "#ff8800")
+        self.assertEqual(friend_entry["home_district_code"], "1100")
+        self.assertEqual(friend_entry["home_district_name"], "Prague 1")
+        self.assertEqual(friend_entry["home_district"], "Prague 1")
         location = friend_entry.get("last_known_location")
         self.assertIsInstance(location, dict)
         self.assertEqual(location["districtId"], "1100")

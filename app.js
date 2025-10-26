@@ -1518,30 +1518,20 @@ function handleMobileContextMenuTouchStart(event) {
       ? { x: projected.x, y: projected.y }
       : { x: mobileContextMenuStartPoint.x, y: mobileContextMenuStartPoint.y };
 
-    (async () => {
-      let handled = false;
-      try {
-        handled = await attemptLocalMeleeAttackAt(mobileContextMenuStartLngLat.lng, mobileContextMenuStartLngLat.lat, {
-          point: anchorPoint,
-        });
-      } catch (error) {
-        console.warn('Failed to process long-press melee attempt', error);
-      }
-      if (handled) {
-        suppressNextBuildingTap();
-      } else {
-        showActionContextMenu(
-          mobileContextMenuStartLngLat.lng,
-          mobileContextMenuStartLngLat.lat,
-          anchorPoint,
-          { isTouch: true }
-        );
-      }
+    try {
+      showActionContextMenu(
+        mobileContextMenuStartLngLat.lng,
+        mobileContextMenuStartLngLat.lat,
+        anchorPoint,
+        { isTouch: true }
+      );
       if (originalEvent && typeof originalEvent.preventDefault === 'function') {
         originalEvent.preventDefault();
       }
-      cancelMobileContextMenuLongPress();
-    })();
+    } catch (error) {
+      console.warn('Failed to open touch context menu', error);
+    }
+    cancelMobileContextMenuLongPress();
   }, MOBILE_CONTEXT_MENU_LONG_PRESS_MS);
 }
 
@@ -5199,6 +5189,50 @@ function formatFriendStatsSummary(friend) {
   return `${score} pts • ${checkins} check-ins`;
 }
 
+function resolveFriendHomeMeta(friend) {
+  if (!friend) {
+    return null;
+  }
+  const homeName =
+    typeof friend.home_district_name === 'string' && friend.home_district_name.trim()
+      ? friend.home_district_name.trim()
+      : typeof friend.home_district === 'string' && friend.home_district.trim()
+      ? friend.home_district.trim()
+      : '';
+  const homeId = friend.home_district_code ? safeId(friend.home_district_code) : null;
+  if (!homeId && !homeName) {
+    return null;
+  }
+  const label = homeName || (homeId ? `District ${homeId}` : null);
+  if (!label) {
+    return null;
+  }
+
+  let statusClass = 'neutral';
+  if (currentUser) {
+    const viewerProfile = ensurePlayerProfile(currentUser);
+    if (viewerProfile) {
+      const viewerId = viewerProfile.homeDistrictId ? safeId(viewerProfile.homeDistrictId) : null;
+      const viewerName =
+        viewerProfile.homeDistrictName && viewerProfile.homeDistrictName.trim()
+          ? viewerProfile.homeDistrictName.trim().toLowerCase()
+          : null;
+      const targetId = homeId;
+      const targetName = homeName ? homeName.toLowerCase() : null;
+      if (viewerId && targetId) {
+        statusClass = viewerId === targetId ? 'home' : 'enemy';
+      } else if (viewerName && targetName) {
+        statusClass = viewerName === targetName ? 'home' : 'enemy';
+      }
+    }
+  }
+
+  return {
+    label,
+    statusClass,
+  };
+}
+
 function renderFriendCard(friend) {
   if (!friend || typeof friend.username !== 'string') {
     return null;
@@ -5234,6 +5268,20 @@ function renderFriendCard(friend) {
     display.className = 'friend-display';
     display.textContent = displayName;
     header.appendChild(display);
+  }
+  const homeMeta = resolveFriendHomeMeta(friend);
+  if (homeMeta) {
+    const homeTag = document.createElement('span');
+    homeTag.className = `friend-home-tag ${homeMeta.statusClass}`;
+    homeTag.textContent = homeMeta.label;
+    if (homeMeta.statusClass === 'home') {
+      homeTag.title = 'Matches your home district.';
+    } else if (homeMeta.statusClass === 'enemy') {
+      homeTag.title = 'Different from your home district.';
+    } else {
+      homeTag.title = 'Home district not set.';
+    }
+    header.appendChild(homeTag);
   }
   main.appendChild(header);
 

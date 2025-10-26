@@ -232,6 +232,9 @@ class PlayerSerializer(serializers.ModelSerializer):
 class FriendLinkSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="friend.username", read_only=True)
     display_name = serializers.SerializerMethodField()
+    home_district = serializers.CharField(source="friend.home_district", read_only=True)
+    home_district_code = serializers.CharField(source="friend.home_district_code", read_only=True)
+    home_district_name = serializers.CharField(source="friend.home_district_name", read_only=True)
     score = serializers.IntegerField(source="friend.score", read_only=True)
     attack_points = serializers.IntegerField(source="friend.attack_points", read_only=True)
     defend_points = serializers.IntegerField(source="friend.defend_points", read_only=True)
@@ -253,6 +256,9 @@ class FriendLinkSerializer(serializers.ModelSerializer):
             "id",
             "username",
             "display_name",
+            "home_district",
+            "home_district_code",
+            "home_district_name",
             "score",
             "attack_points",
             "defend_points",
@@ -271,6 +277,9 @@ class FriendLinkSerializer(serializers.ModelSerializer):
             "id",
             "username",
             "display_name",
+            "home_district",
+            "home_district_code",
+            "home_district_name",
             "score",
             "attack_points",
             "defend_points",
