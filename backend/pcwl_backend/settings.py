@@ -102,7 +102,7 @@ STATICFILES_DIRS = [
     FRONTEND_DIR / "data",
     FRONTEND_DIR,
 ]
-STATIC_ROOT = BASE_DIR / "staticfiles"
+STATIC_ROOT = (BASE_DIR.parent.parent / "_pcwl_staticfiles").resolve()
 
 # REST framework defaults
 REST_FRAMEWORK = {
