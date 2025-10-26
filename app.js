@@ -4600,10 +4600,11 @@ function renderCheckins(history) {
   }
 }
 
-function formatRecentCheckinTag(entry) {
+function formatRecentCheckinTag(entry, options = {}) {
   if (!entry) {
     return '';
   }
+  const includeTime = options && Object.prototype.hasOwnProperty.call(options, 'includeTime') ? Boolean(options.includeTime) : true;
   const district = entry.districtName && entry.districtName.trim()
     ? entry.districtName.trim()
     : entry.districtId
@@ -4611,18 +4612,18 @@ function formatRecentCheckinTag(entry) {
     : 'Unknown district';
   const type = typeof entry.type === 'string' ? entry.type.toLowerCase() : '';
   const typeLabel = type === 'defend' ? 'Defend' : type === 'attack' ? 'Attack' : 'Check-in';
-  const when = entry.timestamp ? formatTimeAgo(entry.timestamp) : '';
+  const when = includeTime && entry.timestamp ? formatTimeAgo(entry.timestamp) : '';
   return when ? `${typeLabel} • ${district} (${when})` : `${typeLabel} • ${district}`;
 }
 
-function applyRecentCheckinTagState(element, entry, { fallbackText = '', hideWhenEmpty = false } = {}) {
+function applyRecentCheckinTagState(element, entry, { fallbackText = '', hideWhenEmpty = false, includeTime = true } = {}) {
   if (!element) {
     return;
   }
   element.classList.remove('attack', 'defend', 'neutral', 'empty');
 
   if (entry) {
-    element.textContent = formatRecentCheckinTag(entry);
+    element.textContent = formatRecentCheckinTag(entry, { includeTime });
     const type = typeof entry.type === 'string' ? entry.type.toLowerCase() : '';
     if (type === 'attack' || type === 'defend') {
       element.classList.add(type);
@@ -4682,7 +4683,7 @@ function updateRecentCheckinTags(history) {
   }
   const first = history && history.length ? history[0] : null;
 
-  applyRecentCheckinTagState(recentCheckinTagPrimary, first, { fallbackText: 'No check-ins yet' });
+  applyRecentCheckinTagState(recentCheckinTagPrimary, first, { fallbackText: 'No check-ins yet', includeTime: false });
 }
 
 function calculateCheckinPoints(entry) {
@@ -7443,13 +7444,14 @@ async function handleCheckIn(options = {}) {
   let locationLng = typeof locationInfo.lng === 'number' && Number.isFinite(locationInfo.lng) ? locationInfo.lng : null;
   let locationLat = typeof locationInfo.lat === 'number' && Number.isFinite(locationInfo.lat) ? locationInfo.lat : null;
   const homeId = profile.homeDistrictId ? safeId(profile.homeDistrictId) : null;
+  const isHomeLocation = Boolean(homeId && locationContextId && homeId === locationContextId);
   const isTargetHome = Boolean(targetDistrictId && homeId && targetDistrictId === homeId);
-
-  const isDefending = Boolean(homeId && locationContextId && homeId === locationContextId);
+  const isDefending = Boolean(homeId && (isHomeLocation || isTargetHome));
+  const defendDistrictId = isTargetHome ? targetDistrictId : isHomeLocation ? locationContextId : null;
   const checkInType = isDefending ? 'defend' : 'attack';
 
-  if (isTargetHome && isDefending && districtId !== targetDistrictId) {
-    districtId = targetDistrictId;
+  if (isDefending && defendDistrictId) {
+    districtId = defendDistrictId;
     const fallbackHomeDescription = describeHomeDistrict(profile);
     const fallbackHomeName =
       fallbackHomeDescription && fallbackHomeDescription !== 'Unset' ? fallbackHomeDescription : null;
@@ -7457,8 +7459,11 @@ async function handleCheckIn(options = {}) {
       (targetDistrictName && targetDistrictName.trim()) ||
       (profile.homeDistrictName && profile.homeDistrictName.trim()) ||
       fallbackHomeName ||
-      `District ${targetDistrictId}`;
-    if (!(contextIsLocal && (locationSource === 'map' || locationSource === 'geolocated'))) {
+      `District ${defendDistrictId}`;
+    if (
+      !isHomeLocation &&
+      !(contextIsLocal && (locationSource === 'map' || locationSource === 'geolocated'))
+    ) {
       locationSource = 'home-remote';
       locationLng = null;
       locationLat = null;
