@@ -4106,6 +4106,127 @@ if (floatingCheckInButton) {
   });
 }
 
+<<<<<<< Updated upstream
+=======
+if (settingsButton) {
+  settingsButton.addEventListener('click', () => {
+    openCharacterDrawer(settingsButton);
+  });
+}
+
+if (currentUserTag) {
+  currentUserTag.addEventListener('click', () => {
+    if (currentUser) {
+      openCharacterDrawer(currentUserTag);
+    }
+  });
+  currentUserTag.addEventListener('keydown', (event) => {
+    if (!currentUser) {
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      openCharacterDrawer(currentUserTag);
+    }
+  });
+}
+
+if (friendsButton) {
+  friendsButton.setAttribute('aria-expanded', 'false');
+  friendsButton.addEventListener('click', () => {
+    openFriendsDrawer(friendsButton);
+  });
+}
+
+if (friendsManageButton) {
+  friendsManageButton.addEventListener('click', () => {
+    if (!isSessionAuthenticated || !currentUser) {
+      updateStatus('Sign in to manage friends.');
+      return;
+    }
+    if (friendsManageOpen) {
+      closeFriendsManagePanel();
+    } else {
+      openFriendsManagePanel();
+    }
+  });
+}
+
+if (friendManageCloseButton) {
+  friendManageCloseButton.addEventListener('click', () => {
+    closeFriendsManagePanel();
+    if (friendsManageButton) {
+      friendsManageButton.focus();
+    }
+  });
+}
+
+if (friendSearchForm) {
+  friendSearchForm.addEventListener('submit', (event) => {
+    handleFriendSearchSubmit(event);
+  });
+}
+
+if (friendSearchResults) {
+  friendSearchResults.addEventListener('click', (event) => {
+    handleFriendSearchAction(event);
+  });
+}
+
+if (friendManageList) {
+  friendManageList.addEventListener('click', (event) => {
+    handleFriendManageAction(event);
+  });
+}
+
+if (friendsListContainer) {
+  friendsListContainer.addEventListener('click', (event) => {
+    const locateButton = event.target.closest('[data-friend-locate]');
+    if (!locateButton) {
+      return;
+    }
+    event.preventDefault();
+    const username = locateButton.dataset.friendLocate || '';
+    const lng = Number.parseFloat(locateButton.dataset.lng);
+    const lat = Number.parseFloat(locateButton.dataset.lat);
+    const color = locateButton.dataset.color || DEFAULT_MARKER_COLOR;
+    focusFriendLocation({ username, lng, lat, color });
+  });
+}
+
+if (friendRequestsPanel) {
+  friendRequestsPanel.addEventListener('click', (event) => {
+    handleFriendRequestAction(event);
+  });
+}
+
+if (friendSearchAddDirectButton) {
+  friendSearchAddDirectButton.addEventListener('click', () => {
+    const username = friendSearchAddDirectButton.dataset.username;
+    if (!username) {
+      return;
+    }
+    friendSearchAddDirectButton.disabled = true;
+    addFriendByUsername(username)
+      .catch((error) => {
+        console.warn('Failed to add friend via quick action', error);
+        updateStatus('Unable to send friend request. Try again.');
+      })
+      .finally(() => {
+        friendSearchAddDirectButton.disabled = false;
+      });
+  });
+}
+
+if (districtButton) {
+  districtButton.setAttribute('aria-expanded', 'false');
+  districtButton.addEventListener('click', () => {
+    openDistrictDrawer(districtButton);
+  });
+}
+
+
+>>>>>>> Stashed changes
 if (drawerCheckinButton) {
   drawerCheckinButton.addEventListener('click', () => {
     handleCheckIn();
