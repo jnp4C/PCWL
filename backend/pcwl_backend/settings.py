@@ -7,6 +7,9 @@ while enabling future backend work (REST API, multiplayer features, etc.).
 
 import os
 from pathlib import Path
+from urllib.parse import quote_plus
+
+import dj_database_url
 
 
 def env_list(name, default=None):
@@ -81,6 +84,29 @@ DATABASES = {
         "NAME": BASE_DIR / "db.sqlite3",
     }
 }
+
+db_url = os.environ.get("DATABASE_URL")
+
+if not db_url and os.environ.get("PGHOST"):
+    pg_user = os.environ.get("PGUSER", "")
+    pg_pass = os.environ.get("PGPASSWORD", "")
+    pg_host = os.environ.get("PGHOST")
+    pg_port = os.environ.get("PGPORT", "5432")
+    pg_db = os.environ.get("PGDATABASE", pg_user or "postgres")
+    auth = ""
+    if pg_user:
+        auth = quote_plus(pg_user)
+        if pg_pass:
+            auth = f"{auth}:{quote_plus(pg_pass)}"
+        auth = f"{auth}@"
+    db_url = f"postgresql://{auth}{pg_host}:{pg_port}/{pg_db}"
+
+if db_url:
+    DATABASES["default"] = dj_database_url.parse(
+        db_url,
+        conn_max_age=int(os.environ.get("DJANGO_DB_CONN_MAX_AGE", "60")),
+        ssl_require=not DEBUG,
+    )
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
