@@ -272,3 +272,56 @@ class FriendApiTests(TestCase):
         self.assertEqual(location["districtId"], "1100")
         self.assertAlmostEqual(location["lng"], 14.42076, places=5)
         self.assertAlmostEqual(location["lat"], 50.08804, places=5)
+
+
+class LeaderboardApiTests(TestCase):
+    def setUp(self):
+        self.alpha = Player.objects.create(
+            username="alpha",
+            score=500,
+            attack_points=200,
+            defend_points=150,
+            checkins=5,
+            checkin_history=[
+                {
+                    "type": "defend",
+                    "districtId": "1100",
+                    "districtName": "Prague 1",
+                    "multiplier": 2,
+                    "ranged": False,
+                },
+                {
+                    "type": "attack",
+                    "districtId": "1200",
+                    "districtName": "Prague 2",
+                    "multiplier": 1,
+                    "ranged": True,
+                },
+            ],
+        )
+        self.beta = Player.objects.create(
+            username="beta",
+            score=300,
+            attack_points=120,
+            defend_points=60,
+            checkins=3,
+            checkin_history=[
+                {
+                    "type": "defend",
+                    "districtId": "1200",
+                    "districtName": "Prague 2",
+                    "multiplier": 1,
+                }
+            ],
+        )
+
+    def test_leaderboard_endpoint_returns_data(self):
+        response = self.client.get(reverse("leaderboard-api"))
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        players = body.get("players", [])
+        districts = body.get("districts", [])
+        self.assertTrue(any(entry["username"] == "alpha" for entry in players))
+        self.assertTrue(any(entry["username"] == "beta" for entry in players))
+        self.assertTrue(any(entry["id"] == "1100" for entry in districts))
+        self.assertTrue(any(entry["id"] == "1200" for entry in districts))

@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from django.contrib.auth import authenticate, login, logout
 from django.db import transaction
 from django.db.models import Q
@@ -25,6 +27,10 @@ from .serializers import (
     PlayerSearchResultSerializer,
     PlayerSerializer,
 )
+
+
+POINTS_PER_CHECKIN = 10
+DISTRICT_BASE_SCORE = 2000
 
 
 def _auto_migrate_if_allowed():
@@ -434,6 +440,99 @@ class FriendRequestDetailView(PlayerScopedAPIView):
         friend_request.save(update_fields=["status", "responded_at", "updated_at"])
         request_data = FriendRequestSerializer(friend_request, context=serializer_context).data
         return Response({"friend_request": request_data}, status=status.HTTP_200_OK)
+
+
+def _compute_checkin_points(entry):
+    if not isinstance(entry, dict):
+        return 0
+    points = entry.get("points")
+    if isinstance(points, (int, float)):
+        return max(int(points), 0)
+    base = 10 if entry.get("ranged") else POINTS_PER_CHECKIN
+    multiplier = entry.get("multiplier")
+    try:
+        multiplier = float(multiplier)
+    except (TypeError, ValueError):
+        multiplier = 1
+    if multiplier <= 0:
+        multiplier = 1
+    return int(base * multiplier)
+
+
+def _build_player_leaderboard(limit=50):
+    players = (
+        Player.objects.filter(is_active=True)
+        .order_by("-score", "-defend_points", "username")[:limit]
+    )
+    payload = []
+    for player in players:
+        payload.append(
+            {
+                "username": player.username,
+                "display_name": player.display_name or "",
+                "score": player.score,
+                "attack_points": player.attack_points,
+                "defend_points": player.defend_points,
+                "checkins": player.checkins,
+                "home_district_code": player.home_district_code,
+                "home_district_name": player.home_district_name,
+            }
+        )
+    return payload
+
+
+def _build_district_leaderboard(limit=50):
+    totals = defaultdict(lambda: {"name": None, "defended": 0, "attacked": 0})
+    players = Player.objects.filter(is_active=True)
+    for player in players:
+        history = player.checkin_history or []
+        if not isinstance(history, list):
+            continue
+        for entry in history:
+            if not isinstance(entry, dict):
+                continue
+            district_id = entry.get("districtId") or entry.get("district_id")
+            if not district_id:
+                continue
+            points = _compute_checkin_points(entry)
+            if points <= 0:
+                continue
+            bucket = totals[district_id]
+            district_name = entry.get("districtName") or entry.get("district_name")
+            if district_name:
+                bucket["name"] = district_name
+            action_type = str(entry.get("type") or "").lower()
+            if action_type == "defend":
+                bucket["defended"] += points
+            elif action_type == "attack":
+                bucket["attacked"] += points
+    districts = []
+    for district_id, data in totals.items():
+        change = data["defended"] - data["attacked"]
+        districts.append(
+            {
+                "id": district_id,
+                "name": data["name"] or f"District {district_id}",
+                "score": DISTRICT_BASE_SCORE + change,
+                "change": change,
+                "defended": data["defended"],
+                "attacked": data["attacked"],
+            }
+        )
+    districts.sort(key=lambda item: (-item["score"], -item["defended"], item["name"]))
+    return districts[:limit]
+
+
+class LeaderboardView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        data = {
+            "players": _build_player_leaderboard(),
+            "districts": _build_district_leaderboard(),
+        }
+        return Response(data, status=status.HTTP_200_OK)
 
 
 def _get_pending_migrations(db_alias=DEFAULT_DB_ALIAS):

@@ -8,6 +8,7 @@ from .views import (
     FriendRequestDetailView,
     FriendRequestListView,
     FriendSearchView,
+    LeaderboardView,
     PlayerViewSet,
     SessionCurrentView,
     SessionLoginView,
@@ -31,5 +32,6 @@ urlpatterns = [
     path("friends/<str:username>/", FriendDetailView.as_view(), name="friend-detail"),
     path("friend-requests/", FriendRequestListView.as_view(), name="friend-request-list"),
     path("friend-requests/<int:pk>/", FriendRequestDetailView.as_view(), name="friend-request-detail"),
+    path("leaderboard/", LeaderboardView.as_view(), name="leaderboard-api"),
     path("", include(router.urls)),
 ]

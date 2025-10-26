@@ -119,6 +119,13 @@ const friendRequestsOutgoingEmpty = document.getElementById('friend-requests-out
 const friendsLeaderboardSection = document.getElementById('friends-leaderboard');
 const friendsLeaderboardList = document.getElementById('friends-leaderboard-list');
 const friendsLeaderboardHint = document.getElementById('friends-leaderboard-hint');
+const friendsPartySection = document.getElementById('friends-party');
+const friendsPartyStatus = document.getElementById('friends-party-status');
+const friendsPartyMembersList = document.getElementById('friends-party-members');
+const friendsPartySelect = document.getElementById('friends-party-select');
+const friendsPartyStartButton = document.getElementById('friends-party-start');
+const friendsPartyAddButton = document.getElementById('friends-party-add');
+const friendsPartyDisbandButton = document.getElementById('friends-party-disband');
 const districtDrawer = document.getElementById('district-drawer');
 const districtOverlay = document.getElementById('district-overlay');
 const districtCloseButton = document.getElementById('district-close');
@@ -228,6 +235,9 @@ const DISTRICT_BASE_SCORE = 2000;
 const DISTRICT_SCORES_STORAGE_KEY = 'pragueExplorerDistrictScores';
 const POINTS_PER_CHECKIN = 10;
 const MAX_HISTORY_ITEMS = 15;
+const PARTY_STORAGE_KEY = 'pcwlActiveParty';
+const PARTY_DURATION_MS = 3 * 60 * 60 * 1000;
+const PARTY_MAX_FRIENDS = 3;
 
 const TREE_GIF_URL = resolveDataUrl('tree.gif?v=2');
 const HITMARKER_GIF_URL = resolveDataUrl('attack_hitmarker.gif?v=1');
@@ -2864,6 +2874,7 @@ let friendsState = {
   error: null,
   items: [],
 };
+let activePartyState = null;
 let friendRequestsState = {
   loading: false,
   loaded: false,
@@ -2879,6 +2890,7 @@ let lastHoverLngLat = null;
 let lastHoverDistrictId = null;
 let isPointerOverDistrict = false;
 let districtScores = {};
+activePartyState = loadPartyStateFromStorage();
 
 const STORAGE_KEY = 'pragueExplorerPlayers';
 const COOLDOWN_KEYS = {
@@ -3675,6 +3687,86 @@ function savePlayers() {
   } catch (error) {
     console.warn('Failed to save players to storage', error);
   }
+}
+
+function sanitizePartyState(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const expiresAt = Number(raw.expiresAt);
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    return null;
+  }
+  const createdAt = Number(raw.createdAt);
+  const leader = typeof raw.leader === 'string' && raw.leader.trim() ? raw.leader.trim() : null;
+  const members = Array.isArray(raw.members)
+    ? Array.from(
+        new Set(
+          raw.members
+            .map((name) => (typeof name === 'string' && name.trim() ? name.trim() : null))
+            .filter(Boolean),
+        ),
+      )
+    : [];
+  return {
+    leader,
+    members,
+    createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
+    expiresAt,
+  };
+}
+
+function loadPartyStateFromStorage() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  try {
+    const stored = window.localStorage.getItem(PARTY_STORAGE_KEY);
+    if (!stored) {
+      return null;
+    }
+    const parsed = JSON.parse(stored);
+    return sanitizePartyState(parsed);
+  } catch (error) {
+    console.warn('Failed to load party state', error);
+    return null;
+  }
+}
+
+function savePartyStateToStorage(state) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  if (!state) {
+    window.localStorage.removeItem(PARTY_STORAGE_KEY);
+    return;
+  }
+  try {
+    window.localStorage.setItem(PARTY_STORAGE_KEY, JSON.stringify(state));
+  } catch (error) {
+    console.warn('Failed to persist party state', error);
+  }
+}
+
+function isPartyActive(state) {
+  return Boolean(state && Number.isFinite(state.expiresAt) && state.expiresAt > Date.now());
+}
+
+function getActivePartyState() {
+  if (!activePartyState) {
+    return null;
+  }
+  if (!isPartyActive(activePartyState)) {
+    activePartyState = null;
+    savePartyStateToStorage(null);
+    return null;
+  }
+  return activePartyState;
+}
+
+function setActivePartyState(nextState) {
+  activePartyState = nextState ? { ...nextState } : null;
+  savePartyStateToStorage(activePartyState);
 }
 
 function setLastSignedInUser(username) {
@@ -5253,8 +5345,123 @@ function resolveFriendHomeMeta(friend) {
   };
 }
 
-function selectTopFriend(friends, scoreFn) {
-  if (!Array.isArray(friends) || !friends.length) {
+function getFriendAttackPoints(friend) {
+  return Math.max(
+    0,
+    Math.round(
+      normaliseNumber(friend.attack_points, normaliseNumber(friend.attackPoints, 0)),
+    ),
+  );
+}
+
+function getFriendDefendPoints(friend) {
+  return Math.max(
+    0,
+    Math.round(
+      normaliseNumber(friend.defend_points, normaliseNumber(friend.defendPoints, 0)),
+    ),
+  );
+}
+
+function getFriendCheckinCount(friend) {
+  if (typeof friend.checkins === 'number') {
+    return Math.max(0, Math.round(friend.checkins));
+  }
+  const counts = friend.checkin_counts || {};
+  const attack = Math.max(0, Math.round(normaliseNumber(counts.attack, 0)));
+  const defend = Math.max(0, Math.round(normaliseNumber(counts.defend, 0)));
+  if (attack || defend) {
+    return attack + defend;
+  }
+  const history = Array.isArray(friend.recent_checkins) ? friend.recent_checkins : [];
+  return history.length;
+}
+
+function getFriendRecentCheckins(friend) {
+  if (Array.isArray(friend.recent_checkins)) {
+    return friend.recent_checkins;
+  }
+  if (Array.isArray(friend.checkins)) {
+    return friend.checkins;
+  }
+  if (Array.isArray(friend.checkin_history)) {
+    return friend.checkin_history;
+  }
+  return [];
+}
+
+function countHomeAttacksFromFriend(friend, homeId) {
+  if (!homeId) {
+    return 0;
+  }
+  const history = getFriendRecentCheckins(friend);
+  let count = 0;
+  history.forEach((entry) => {
+    if (!entry || (entry.type !== 'attack' && entry.type !== 'Attack')) {
+      return;
+    }
+    const target = entry.districtId ? safeId(entry.districtId) : entry.district_id ? safeId(entry.district_id) : null;
+    if (target && target === homeId) {
+      count += 1;
+    }
+  });
+  return count;
+}
+
+function formatPartyCountdown(expiresAt) {
+  if (!Number.isFinite(expiresAt)) {
+    return '';
+  }
+  const remainingMs = Math.max(0, expiresAt - Date.now());
+  const totalMinutes = Math.round(remainingMs / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours <= 0) {
+    return `${minutes}m`;
+  }
+  if (minutes === 0) {
+    return `${hours}h`;
+  }
+  return `${hours}h ${minutes}m`;
+}
+
+function selectAggressiveFriend(friends) {
+  let best = null;
+  friends.forEach((friend) => {
+    if (!friend || typeof friend.username !== 'string') {
+      return;
+    }
+    const attackPoints = getFriendAttackPoints(friend);
+    const defendPoints = getFriendDefendPoints(friend);
+    if (
+      !best ||
+      attackPoints > best.attackPoints ||
+      (attackPoints === best.attackPoints && defendPoints > best.defendPoints)
+    ) {
+      best = { friend, attackPoints, defendPoints };
+    }
+  });
+  return best;
+}
+
+function selectDefensiveFriend(friends) {
+  let best = null;
+  friends.forEach((friend) => {
+    if (!friend || typeof friend.username !== 'string') {
+      return;
+    }
+    const defendPoints = getFriendDefendPoints(friend);
+    const attackPoints = Math.max(1, getFriendAttackPoints(friend));
+    const ratio = defendPoints / attackPoints;
+    if (!best || ratio > best.ratio || (ratio === best.ratio && defendPoints > best.defendPoints)) {
+      best = { friend, ratio, defendPoints };
+    }
+  });
+  return best;
+}
+
+function selectHomeRivalFriend(friends, homeId) {
+  if (!homeId) {
     return null;
   }
   let best = null;
@@ -5262,12 +5469,23 @@ function selectTopFriend(friends, scoreFn) {
     if (!friend || typeof friend.username !== 'string') {
       return;
     }
-    const score = scoreFn(friend);
-    if (score === null || score === undefined) {
+    const hits = countHomeAttacksFromFriend(friend, homeId);
+    if (!best || hits > best.hits) {
+      best = { friend, hits };
+    }
+  });
+  return best && best.hits > 0 ? best : null;
+}
+
+function selectBestFriend(friends) {
+  let best = null;
+  friends.forEach((friend) => {
+    if (!friend || typeof friend.username !== 'string') {
       return;
     }
-    if (!best || score > best.score) {
-      best = { friend, score };
+    const total = getFriendCheckinCount(friend);
+    if (!best || total > best.total) {
+      best = { friend, total };
     }
   });
   return best;
@@ -5277,88 +5495,92 @@ function computeFriendHighlights(profile, friends) {
   if (!profile || !Array.isArray(friends) || !friends.length) {
     return [];
   }
+  const homeId = profile.homeDistrictId ? safeId(profile.homeDistrictId) : null;
   const highlights = [];
 
-  const aggressive = selectTopFriend(friends, (friend) => {
-    const attackPoints = Math.max(0, Math.round(normaliseNumber(friend.attack_points, 0)));
-    return attackPoints > 0 ? attackPoints : null;
-  });
-  if (aggressive) {
-    highlights.push({
-      id: 'aggressive',
-      label: 'Most Aggressive',
-      display: `@${aggressive.friend.username}`,
-      detail: `${aggressive.score.toLocaleString()} atk pts`,
-      meta: 'Always ready to strike first.',
-    });
-  }
-
-  const defensive = selectTopFriend(friends, (friend) => {
-    const attackPoints = Math.max(0, normaliseNumber(friend.attack_points, 0));
-    const defendPoints = Math.max(0, normaliseNumber(friend.defend_points, 0));
-    if (defendPoints === 0) {
-      return null;
-    }
-    return defendPoints / Math.max(attackPoints, 1);
-  });
-  if (defensive) {
-    const defendPoints = Math.max(0, Math.round(normaliseNumber(defensive.friend.defend_points, 0)));
-    highlights.push({
-      id: 'defensive',
-      label: 'Strongest Defender',
-      display: `@${defensive.friend.username}`,
-      detail: `${defendPoints.toLocaleString()} def pts`,
-      meta: 'Keeps their district fortified.',
-    });
-  }
-
-  const homeId = profile.homeDistrictId ? safeId(profile.homeDistrictId) : null;
-  if (homeId) {
-    const threat = selectTopFriend(friends, (friend) => {
-      const history = Array.isArray(friend.recent_checkins) ? friend.recent_checkins : [];
-      let count = 0;
-      history.forEach((entry) => {
-        if (!entry || entry.type !== 'attack') {
-          return;
+  const aggressive = selectAggressiveFriend(friends);
+  highlights.push(
+    aggressive
+      ? {
+          id: 'aggressive',
+          label: 'Most Aggressive',
+          display: `@${aggressive.friend.username}`,
+          detail: `${aggressive.attackPoints.toLocaleString()} atk pts`,
+          meta: 'Always first to strike.',
+          username: aggressive.friend.username,
         }
-        const target = entry.districtId ? safeId(entry.districtId) : null;
-        if (target && target === homeId) {
-          count += 1;
-        }
-      });
-      return count > 0 ? count : null;
-    });
-    if (threat) {
-      highlights.push({
-        id: 'threat',
-        label: 'Home Rival',
-        display: `@${threat.friend.username}`,
-        detail: `${threat.score.toLocaleString()} recent hits`,
-        meta: 'Loves sparring with your district.',
-      });
-    }
-  }
+      : {
+          id: 'aggressive',
+          label: 'Most Aggressive',
+          display: 'No attack data yet.',
+          detail: '',
+          meta: 'Encourage a friend to make the first move.',
+          username: null,
+        },
+  );
 
-  const bestFriend = selectTopFriend(friends, (friend) => {
-    return Math.max(
-      0,
-      Math.round(
-        normaliseNumber(
-          friend.checkins,
-          normaliseNumber(friend.server_checkin_count, 0),
-        ),
-      ),
-    );
-  });
-  if (bestFriend) {
-    highlights.push({
-      id: 'best',
-      label: 'Best Friend',
-      display: `@${bestFriend.friend.username}`,
-      detail: `${bestFriend.score.toLocaleString()} check-ins`,
-      meta: 'Perfect partner for a 3h party boost.',
-    });
-  }
+  const defensive = selectDefensiveFriend(friends);
+  highlights.push(
+    defensive
+      ? {
+          id: 'defensive',
+          label: 'Strongest Defender',
+          display: `@${defensive.friend.username}`,
+          detail: `${defensive.defendPoints.toLocaleString()} def pts`,
+          meta: `A/D ratio ${defensive.ratio.toFixed(2)}`,
+          username: defensive.friend.username,
+        }
+      : {
+          id: 'defensive',
+          label: 'Strongest Defender',
+          display: 'No defensive data yet.',
+          detail: '',
+          meta: 'Hold the line together.',
+          username: null,
+        },
+  );
+
+  const rival = selectHomeRivalFriend(friends, homeId);
+  highlights.push(
+    rival
+      ? {
+          id: 'threat',
+          label: 'Home Rival',
+          display: `@${rival.friend.username}`,
+          detail: `${rival.hits.toLocaleString()} recent hits`,
+          meta: 'Keeps challenging your district.',
+          username: rival.friend.username,
+        }
+      : {
+          id: 'threat',
+          label: 'Home Rival',
+          display: 'No rival yet.',
+          detail: '',
+          meta: 'Your district is calm… for now.',
+          username: null,
+        },
+  );
+
+  const bestFriend = selectBestFriend(friends);
+  highlights.push(
+    bestFriend
+      ? {
+          id: 'best',
+          label: 'Best Friend',
+          display: `@${bestFriend.friend.username}`,
+          detail: `${bestFriend.total.toLocaleString()} check-ins`,
+          meta: 'Invite them to a 3h party boost.',
+          username: bestFriend.friend.username,
+        }
+      : {
+          id: 'best',
+          label: 'Best Friend',
+          display: 'No party partner yet.',
+          detail: '',
+          meta: 'Add friends to unlock party boosts.',
+          username: null,
+        },
+  );
 
   return highlights;
 }
@@ -5368,7 +5590,8 @@ function updateFriendsLeaderboardSection(friends) {
     return;
   }
   const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
-  if (!profile || !Array.isArray(friends) || !friends.length) {
+  const hasFriends = Array.isArray(friends) && friends.length > 0;
+  if (!profile || !hasFriends) {
     friendsLeaderboardSection.classList.add('hidden');
     friendsLeaderboardList.innerHTML = '';
     if (friendsLeaderboardHint) {
@@ -5403,14 +5626,210 @@ function updateFriendsLeaderboardSection(friends) {
 
     const meta = document.createElement('span');
     meta.className = 'friend-leaderboard-meta';
-    meta.textContent = `${highlight.detail} • ${highlight.meta}`;
+    const detailText = highlight.detail ? `${highlight.detail} • ${highlight.meta}` : highlight.meta;
+    meta.textContent = detailText;
     item.appendChild(meta);
+
+    if (highlight.id === 'best' && highlight.username) {
+      const cta = document.createElement('button');
+      cta.type = 'button';
+      cta.className = 'secondary small friend-leaderboard-cta';
+      const activeParty = getActivePartyState();
+      if (activeParty) {
+        cta.textContent = 'Add To Party';
+        cta.addEventListener('click', () => {
+          addFriendToParty(highlight.username);
+        });
+      } else {
+        cta.textContent = 'Start Party';
+        cta.addEventListener('click', () => {
+          startPartyWithFriend(highlight.username);
+        });
+      }
+      item.appendChild(cta);
+    }
 
     friendsLeaderboardList.appendChild(item);
   });
   if (friendsLeaderboardHint) {
     friendsLeaderboardHint.classList.remove('hidden');
   }
+}
+
+function findFriendByUsername(username) {
+  if (!username || !Array.isArray(friendsState.items)) {
+    return null;
+  }
+  const target = username.toLowerCase();
+  return friendsState.items.find(
+    (friend) => friend && typeof friend.username === 'string' && friend.username.toLowerCase() === target,
+  );
+}
+
+function updatePartySelectOptions(friends, excludedSet) {
+  if (!friendsPartySelect) {
+    return;
+  }
+  friendsPartySelect.innerHTML = '';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Select friend…';
+  friendsPartySelect.appendChild(placeholder);
+  if (!Array.isArray(friends)) {
+    friendsPartySelect.disabled = true;
+    return;
+  }
+  friends.forEach((friend) => {
+    if (!friend || typeof friend.username !== 'string') {
+      return;
+    }
+    const username = friend.username.trim();
+    if (excludedSet && excludedSet.has(username.toLowerCase())) {
+      return;
+    }
+    const option = document.createElement('option');
+    option.value = username;
+    option.textContent = `@${username}`;
+    friendsPartySelect.appendChild(option);
+  });
+  friendsPartySelect.disabled = friendsPartySelect.options.length <= 1;
+}
+
+function formatPartyStatus(activeState) {
+  if (!activeState) {
+    return 'No active party. Start one to boost shared check-ins.';
+  }
+  const expiresIn = formatPartyCountdown(activeState.expiresAt);
+  const memberCount = activeState.members ? activeState.members.length + 1 : 1;
+  return `Party active • ${memberCount} player${memberCount === 1 ? '' : 's'} • ${expiresIn} left`;
+}
+
+function updatePartyUi(friends) {
+  if (!friendsPartySection || !friendsPartyStatus) {
+    return;
+  }
+  const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+  const active = getActivePartyState();
+  const hasFriends = Array.isArray(friends) && friends.length > 0;
+  if (!profile || (!hasFriends && !active)) {
+    friendsPartySection.classList.add('hidden');
+    return;
+  }
+
+  friendsPartySection.classList.remove('hidden');
+  friendsPartyStatus.textContent = formatPartyStatus(active);
+
+  if (friendsPartyMembersList) {
+    friendsPartyMembersList.innerHTML = '';
+    const hostItem = document.createElement('li');
+    hostItem.className = 'host';
+    hostItem.textContent = `@${currentUser || 'you'} (host)`;
+    friendsPartyMembersList.appendChild(hostItem);
+    if (active && Array.isArray(active.members)) {
+      active.members.forEach((member) => {
+        const li = document.createElement('li');
+        li.textContent = `@${member}`;
+        friendsPartyMembersList.appendChild(li);
+      });
+    }
+  }
+
+  const excluded = new Set();
+  if (active && Array.isArray(active.members)) {
+    active.members.forEach((member) => excluded.add(member.toLowerCase()));
+  }
+  if (hasFriends) {
+    updatePartySelectOptions(friends, excluded);
+  } else if (friendsPartySelect) {
+    friendsPartySelect.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'No friends available';
+    friendsPartySelect.appendChild(placeholder);
+    friendsPartySelect.disabled = true;
+  }
+
+  if (friendsPartyStartButton) {
+    if (active) {
+      friendsPartyStartButton.classList.add('hidden');
+    } else {
+      friendsPartyStartButton.classList.remove('hidden');
+      const disableStart = !hasFriends || friendsPartySelect.options.length <= 1;
+      friendsPartyStartButton.disabled = disableStart;
+    }
+  }
+  if (friendsPartyAddButton) {
+    if (active && hasFriends && active.members.length < PARTY_MAX_FRIENDS) {
+      friendsPartyAddButton.classList.remove('hidden');
+      friendsPartyAddButton.disabled = friendsPartySelect.options.length <= 1;
+    } else {
+      friendsPartyAddButton.classList.add('hidden');
+    }
+  }
+  if (friendsPartyDisbandButton) {
+    if (active) {
+      friendsPartyDisbandButton.classList.remove('hidden');
+    } else {
+      friendsPartyDisbandButton.classList.add('hidden');
+    }
+  }
+}
+
+function startPartyWithFriend(username) {
+  if (!currentUser) {
+    updateStatus('Sign in to start a party.');
+    return;
+  }
+  const friend = findFriendByUsername(username || (friendsPartySelect ? friendsPartySelect.value : ''));
+  if (!friend) {
+    updateStatus('Select a friend to start a party.');
+    return;
+  }
+  const now = Date.now();
+  const nextState = {
+    leader: currentUser,
+    members: [friend.username],
+    createdAt: now,
+    expiresAt: now + PARTY_DURATION_MS,
+  };
+  setActivePartyState(nextState);
+  updatePartyUi(friendsState.items);
+  updateStatus(`Party started with @${friend.username}. Boost lasts 3 hours.`);
+}
+
+function addFriendToParty(username) {
+  const active = getActivePartyState();
+  if (!active) {
+    startPartyWithFriend(username);
+    return;
+  }
+  if (active.members.length >= PARTY_MAX_FRIENDS) {
+    updateStatus('Party is full. Disband to start a new one.');
+    return;
+  }
+  const friend = findFriendByUsername(username || (friendsPartySelect ? friendsPartySelect.value : ''));
+  if (!friend) {
+    updateStatus('Select a friend to add to your party.');
+    return;
+  }
+  if (active.members.some((member) => member.toLowerCase() === friend.username.toLowerCase())) {
+    updateStatus(`@${friend.username} is already in your party.`);
+    return;
+  }
+  active.members.push(friend.username);
+  setActivePartyState(active);
+  updatePartyUi(friendsState.items);
+  updateStatus(`Added @${friend.username} to your party.`);
+}
+
+function disbandActiveParty() {
+  const active = getActivePartyState();
+  if (!active) {
+    return;
+  }
+  setActivePartyState(null);
+  updatePartyUi(friendsState.items);
+  updateStatus('Party disbanded.');
 }
 
 function renderFriendCard(friend) {
@@ -5980,6 +6399,7 @@ function updateFriendsDrawerContent() {
     friendsListContainer.hidden = true;
     friendsListContainer.innerHTML = '';
     updateFriendsLeaderboardSection([]);
+    updatePartyUi([]);
     return;
   }
 
@@ -5989,6 +6409,7 @@ function updateFriendsDrawerContent() {
     friendsListContainer.hidden = true;
     friendsListContainer.innerHTML = '';
     updateFriendsLeaderboardSection([]);
+    updatePartyUi([]);
     return;
   }
 
@@ -5998,6 +6419,7 @@ function updateFriendsDrawerContent() {
     friendsListContainer.hidden = true;
     friendsListContainer.innerHTML = '';
     updateFriendsLeaderboardSection([]);
+    updatePartyUi([]);
     return;
   }
 
@@ -6008,6 +6430,7 @@ function updateFriendsDrawerContent() {
     friendsListContainer.hidden = true;
     friendsListContainer.innerHTML = '';
     updateFriendsLeaderboardSection([]);
+    updatePartyUi([]);
     return;
   }
 
@@ -6021,6 +6444,7 @@ function updateFriendsDrawerContent() {
     }
   });
   updateFriendsLeaderboardSection(friends);
+  updatePartyUi(friends);
 
   if (friendsManageOpen) {
     renderFriendManageList();
@@ -8745,6 +9169,26 @@ if (friendSearchAddDirectButton) {
       .finally(() => {
         friendSearchAddDirectButton.disabled = false;
       });
+  });
+}
+
+if (friendsPartyStartButton) {
+  friendsPartyStartButton.addEventListener('click', () => {
+    const selection = friendsPartySelect ? friendsPartySelect.value : '';
+    startPartyWithFriend(selection);
+  });
+}
+
+if (friendsPartyAddButton) {
+  friendsPartyAddButton.addEventListener('click', () => {
+    const selection = friendsPartySelect ? friendsPartySelect.value : '';
+    addFriendToParty(selection);
+  });
+}
+
+if (friendsPartyDisbandButton) {
+  friendsPartyDisbandButton.addEventListener('click', () => {
+    disbandActiveParty();
   });
 }
 

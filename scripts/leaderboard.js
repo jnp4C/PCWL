@@ -3,6 +3,7 @@
 const PLAYER_STORAGE_KEY = 'pragueExplorerPlayers';
 const DISTRICT_STORAGE_KEY = 'pragueExplorerDistrictScores';
 const DISTRICT_BASE_SCORE = 2000;
+const LEADERBOARD_API_URL = '/api/leaderboard/';
 
 const integerFormatter = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 0,
@@ -119,7 +120,7 @@ function setEmptyState(hasRows, tableElement, emptyElement) {
   }
 }
 
-function renderPlayerLeaderboard() {
+function renderPlayerLeaderboard(players) {
   const tbody = document.getElementById('player-leaderboard-body');
   const table = tbody ? tbody.closest('table') : null;
   const empty = document.getElementById('player-leaderboard-empty');
@@ -127,10 +128,20 @@ function renderPlayerLeaderboard() {
     return;
   }
 
-  const players = loadPlayerData()
+  const ranked = (players || [])
+    .filter((entry) => entry && entry.username)
+    .map((entry) => ({
+      username: entry.username,
+      points: Number(entry.score ?? entry.points) || 0,
+      attackPoints: Number(entry.attack_points ?? entry.attackPoints) || 0,
+      defendPoints: Number(entry.defend_points ?? entry.defendPoints) || 0,
+    }))
     .sort((a, b) => {
       if (b.points !== a.points) {
         return b.points - a.points;
+      }
+      if (b.attackPoints !== a.attackPoints) {
+        return b.attackPoints - a.attackPoints;
       }
       if (b.defendPoints !== a.defendPoints) {
         return b.defendPoints - a.defendPoints;
@@ -141,7 +152,7 @@ function renderPlayerLeaderboard() {
 
   tbody.innerHTML = '';
 
-  players.forEach((player, index) => {
+  ranked.forEach((player, index) => {
     const row = document.createElement('tr');
 
     const rankCell = document.createElement('td');
@@ -175,10 +186,10 @@ function renderPlayerLeaderboard() {
     tbody.appendChild(row);
   });
 
-  setEmptyState(players.length > 0, table, empty);
+  setEmptyState(ranked.length > 0, table, empty);
 }
 
-function renderDistrictLeaderboard() {
+function renderDistrictLeaderboard(districts) {
   const tbody = document.getElementById('district-leaderboard-body');
   const table = tbody ? tbody.closest('table') : null;
   const empty = document.getElementById('district-leaderboard-empty');
@@ -186,16 +197,21 @@ function renderDistrictLeaderboard() {
     return;
   }
 
-  const districts = loadDistrictData()
-    .map((entry) => {
-      const change = Number(entry.adjustment) || 0;
+  const ranked = (districts || [])
+    .map((district) => {
+      const defended = Number(district.defended) || 0;
+      const attacked = Number(district.attacked) || 0;
+      const change = Number.isFinite(district.change)
+        ? Number(district.change)
+        : defended - attacked;
+      const score = Number.isFinite(district.score) ? Number(district.score) : DISTRICT_BASE_SCORE + change;
       return {
-        id: entry.id,
-        name: entry.name || `District ${entry.id}`,
-        score: DISTRICT_BASE_SCORE + change,
+        id: district.id,
+        name: district.name || (district.id ? `District ${district.id}` : 'Unknown district'),
+        score,
         change,
-        defended: Number(entry.defended) || 0,
-        attacked: Number(entry.attacked) || 0,
+        defended,
+        attacked,
       };
     })
     .filter((entry) => entry.defended > 0 || entry.attacked > 0 || entry.change !== 0)
@@ -212,7 +228,7 @@ function renderDistrictLeaderboard() {
 
   tbody.innerHTML = '';
 
-  districts.forEach((district, index) => {
+  ranked.forEach((district, index) => {
     const row = document.createElement('tr');
 
     const rankCell = document.createElement('td');
@@ -255,16 +271,43 @@ function renderDistrictLeaderboard() {
     tbody.appendChild(row);
   });
 
-  setEmptyState(districts.length > 0, table, empty);
+  setEmptyState(ranked.length > 0, table, empty);
 }
 
-function renderLeaderboards() {
-  renderPlayerLeaderboard();
-  renderDistrictLeaderboard();
+async function fetchLeaderboardData() {
+  const response = await fetch(LEADERBOARD_API_URL, { credentials: 'same-origin' });
+  if (!response.ok) {
+    throw new Error(`Leaderboard request failed (${response.status})`);
+  }
+  return response.json();
+}
+
+function renderFallbackLeaderboards() {
+  renderPlayerLeaderboard(loadPlayerData());
+  const fallbackDistricts = loadDistrictData().map((entry) => ({
+    id: entry.id,
+    name: entry.name || `District ${entry.id}`,
+    score: DISTRICT_BASE_SCORE + (Number(entry.adjustment) || 0),
+    change: Number(entry.adjustment) || 0,
+    defended: Number(entry.defended) || 0,
+    attacked: Number(entry.attacked) || 0,
+  }));
+  renderDistrictLeaderboard(fallbackDistricts);
+}
+
+async function initialiseLeaderboardPage() {
+  try {
+    const data = await fetchLeaderboardData();
+    renderPlayerLeaderboard(data.players || []);
+    renderDistrictLeaderboard(data.districts || []);
+  } catch (error) {
+    console.warn('Falling back to local leaderboard data', error);
+    renderFallbackLeaderboards();
+  }
 }
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', renderLeaderboards);
+  document.addEventListener('DOMContentLoaded', initialiseLeaderboardPage);
 } else {
-  renderLeaderboards();
+  initialiseLeaderboardPage();
 }
