@@ -258,6 +258,7 @@ const BACKGROUND_TRACKS = [
 ];
 const MUSIC_STORAGE_KEY = 'pcwlMusicPrefs';
 const MUSIC_DEFAULT_VOLUME = 0.45;
+const MUSIC_RESUME_MAX_AGE_MS = 15 * 60 * 1000; // 15 minutes
 const PARTY_STORAGE_KEY = 'pcwlActiveParty';
 const PARTY_DURATION_MS = 3 * 60 * 60 * 1000;
 const PARTY_MAX_FRIENDS = 3;
@@ -2920,9 +2921,17 @@ let lastHoverDistrictId = null;
 let isPointerOverDistrict = false;
 let districtScores = {};
 let musicAudio = null;
-let musicState = { muted: false, currentTrackId: null, volume: MUSIC_DEFAULT_VOLUME };
+let musicState = {
+  muted: false,
+  currentTrackId: null,
+  volume: MUSIC_DEFAULT_VOLUME,
+  resumePosition: 0,
+  resumeAutoplay: false,
+};
 let musicInitialised = false;
 let musicAwaitingUnlock = false;
+let musicPausedByVisibility = false;
+let musicLastPersistedAt = 0;
 activePartyState = loadPartyStateFromStorage();
 
 const STORAGE_KEY = 'pragueExplorerPlayers';
@@ -3805,39 +3814,93 @@ function setActivePartyState(nextState) {
 
 function loadMusicPreferences() {
   if (typeof window === 'undefined') {
-    return { muted: false, volume: MUSIC_DEFAULT_VOLUME };
+    return {
+      muted: false,
+      volume: MUSIC_DEFAULT_VOLUME,
+      currentTrackId: null,
+      resumePosition: 0,
+      resumeAutoplay: false,
+    };
   }
   try {
     const stored = window.localStorage.getItem(MUSIC_STORAGE_KEY);
     if (!stored) {
-      return { muted: false, volume: MUSIC_DEFAULT_VOLUME };
+      return {
+        muted: false,
+        volume: MUSIC_DEFAULT_VOLUME,
+        currentTrackId: null,
+        resumePosition: 0,
+        resumeAutoplay: false,
+      };
     }
     const parsed = JSON.parse(stored);
+    const muted = Boolean(parsed && parsed.muted);
+    const volume =
+      typeof parsed?.volume === 'number' ? clampVolume(parsed.volume) : MUSIC_DEFAULT_VOLUME;
+    const lastPlayedAt = Number(parsed?.lastPlayedAt);
+    const now = Date.now();
+    const resumeIsFresh =
+      Number.isFinite(lastPlayedAt) && now >= lastPlayedAt && now - lastPlayedAt <= MUSIC_RESUME_MAX_AGE_MS;
+    const currentTrackId =
+      resumeIsFresh && typeof parsed?.currentTrackId === 'string' && parsed.currentTrackId
+        ? parsed.currentTrackId
+        : null;
+    const resumePosition =
+      resumeIsFresh && Number.isFinite(parsed?.resumePosition)
+        ? clampPlaybackPosition(parsed.resumePosition)
+        : 0;
+    const resumeAutoplay = resumeIsFresh && Boolean(parsed?.resumeAutoplay);
     return {
-      muted: Boolean(parsed && parsed.muted),
-      volume:
-        typeof parsed.volume === 'number'
-          ? clampVolume(parsed.volume)
-          : MUSIC_DEFAULT_VOLUME,
+      muted,
+      volume,
+      currentTrackId,
+      resumePosition,
+      resumeAutoplay,
     };
   } catch (error) {
     console.warn('Failed to load music preferences', error);
-    return { muted: false, volume: MUSIC_DEFAULT_VOLUME };
+    return {
+      muted: false,
+      volume: MUSIC_DEFAULT_VOLUME,
+      currentTrackId: null,
+      resumePosition: 0,
+      resumeAutoplay: false,
+    };
   }
 }
 
-function saveMusicPreferences() {
+function saveMusicPreferences({ resumeAutoplayOverride = null } = {}) {
   if (typeof window === 'undefined') {
     return;
   }
   try {
-    window.localStorage.setItem(
-      MUSIC_STORAGE_KEY,
-      JSON.stringify({
-        muted: Boolean(musicState.muted),
-        volume: clampVolume(musicState.volume),
-      }),
-    );
+    const audio = musicAudio || null;
+    let resumePosition = clampPlaybackPosition(getAudioCurrentTime(audio));
+    if (
+      resumePosition === 0 &&
+      musicState &&
+      Number.isFinite(musicState.resumePosition) &&
+      musicState.resumePosition > 0
+    ) {
+      resumePosition = clampPlaybackPosition(musicState.resumePosition);
+    }
+    const resumeAutoplay =
+      resumeAutoplayOverride !== null
+        ? Boolean(resumeAutoplayOverride)
+        : audio
+        ? !audio.paused && !musicState.muted
+        : Boolean(musicState.resumeAutoplay);
+    const payload = {
+      muted: Boolean(musicState.muted),
+      volume: clampVolume(musicState.volume),
+      currentTrackId: musicState.currentTrackId || null,
+      resumePosition,
+      resumeAutoplay,
+      lastPlayedAt: Date.now(),
+    };
+    window.localStorage.setItem(MUSIC_STORAGE_KEY, JSON.stringify(payload));
+    musicState.resumePosition = resumePosition;
+    musicState.resumeAutoplay = resumeAutoplay;
   } catch (error) {
     console.warn('Failed to save music preferences', error);
   }
@@ -3848,6 +3911,47 @@ function clampVolume(value) {
     return MUSIC_DEFAULT_VOLUME;
   }
   return Math.min(1, Math.max(0, value));
+}
+
+function clampPlaybackPosition(value) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, value);
+}
+
+function getAudioCurrentTime(audio) {
+  if (!audio) {
+    return 0;
+  }
+  try {
+    const time = Number(audio.currentTime);
+    return Number.isFinite(time) && time >= 0 ? time : 0;
+  } catch (error) {
+    return 0;
+  }
+}
+
+function applyMusicResumePosition(audio, position) {
+  const resumePosition = clampPlaybackPosition(position);
+  if (!audio || resumePosition <= 0) {
+    return;
+  }
+  const seek = () => {
+    try {
+      const duration = Number(audio.duration);
+      const target =
+        Number.isFinite(duration) && duration > 0 ? Math.min(duration - 0.25, resumePosition) : resumePosition;
+      audio.currentTime = Math.max(0, target);
+    } catch (error) {
+      console.warn('Failed to resume music position', error);
+    }
+  };
+  if (audio.readyState >= 1) {
+    seek();
+  } else {
+    audio.addEventListener('loadedmetadata', seek, { once: true });
+  }
 }
 
 function pickRandomTrack(excludeId) {
@@ -3872,6 +3976,8 @@ function ensureMusicAudio() {
     musicAudio = new Audio();
     musicAudio.preload = 'auto';
     musicAudio.addEventListener('ended', handleMusicEnded);
+    musicAudio.addEventListener('timeupdate', handleMusicTimeUpdate);
+    musicAudio.addEventListener('play', handleMusicPlay);
   }
   return musicAudio;
 }
@@ -3883,6 +3989,23 @@ function handleMusicEnded() {
   } else {
     updateMusicUi();
   }
+}
+
+function handleMusicTimeUpdate() {
+  if (!musicAudio) {
+    return;
+  }
+  const now = Date.now();
+  if (now - musicLastPersistedAt < 5000) {
+    return;
+  }
+  musicLastPersistedAt = now;
+  saveMusicPreferences();
+}
+
+function handleMusicPlay() {
+  musicLastPersistedAt = Date.now();
+  saveMusicPreferences({ resumeAutoplayOverride: true });
 }
 
 function scheduleMusicUnlock() {
@@ -3916,21 +4039,44 @@ function attemptMusicPlayback() {
   }
 }
 
-function playMusicTrack(track) {
+function pauseMusicPlayback({ resumeAutoplay = false } = {}) {
+  if (!musicAudio) {
+    return;
+  }
+  try {
+    musicAudio.pause();
+  } catch (error) {
+    console.warn('Failed to pause music playback', error);
+  }
+  saveMusicPreferences({ resumeAutoplayOverride: resumeAutoplay });
+}
+
+function playMusicTrack(track, options = {}) {
   if (!track) {
     return;
   }
+  const { autoplay = true, resumePosition = null } = options;
   const audio = ensureMusicAudio();
   musicState.currentTrackId = track.id;
+  musicState.resumePosition = clampPlaybackPosition(resumePosition);
+  const wantsAutoplay = Boolean(autoplay && !musicState.muted);
+  musicState.resumeAutoplay = wantsAutoplay;
   audio.src = resolveAssetUrl(track.path);
   audio.loop = false;
+  applyMusicResumePosition(audio, musicState.resumePosition);
   if (musicState.muted) {
-    audio.pause();
+    pauseMusicPlayback({ resumeAutoplay: false });
+    updateMusicUi();
+    return;
+  }
+  if (!wantsAutoplay) {
+    pauseMusicPlayback({ resumeAutoplay: false });
     updateMusicUi();
     return;
   }
   attemptMusicPlayback();
   updateMusicUi();
+  saveMusicPreferences({ resumeAutoplayOverride: true });
 }
 
 function updateMusicUi() {
@@ -3963,15 +4109,40 @@ function initialiseBackgroundMusic() {
     muted: preferences.muted,
     volume: preferences.volume,
     currentTrackId: null,
+    resumePosition: clampPlaybackPosition(preferences.resumePosition),
+    resumeAutoplay: Boolean(preferences.resumeAutoplay),
   };
   const audio = ensureMusicAudio();
   audio.volume = musicState.volume;
   audio.muted = Boolean(musicState.muted);
-  const initialTrack = pickRandomTrack(null);
-  if (initialTrack) {
-    playMusicTrack(initialTrack);
+
+  let startingTrack = null;
+  let shouldAutoplay = false;
+  if (preferences.currentTrackId) {
+    const resumeTrack = getTrackMetadata(preferences.currentTrackId);
+    if (resumeTrack) {
+      startingTrack = resumeTrack;
+      musicState.currentTrackId = resumeTrack.id;
+      shouldAutoplay = preferences.resumeAutoplay && !musicState.muted;
+    }
+  }
+  if (!startingTrack) {
+    startingTrack = pickRandomTrack(null);
+    musicState.resumePosition = 0;
+    shouldAutoplay = !musicState.muted;
+    musicState.resumeAutoplay = shouldAutoplay;
+  } else {
+    musicState.resumeAutoplay = shouldAutoplay;
+  }
+
+  if (startingTrack) {
+    playMusicTrack(startingTrack, {
+      autoplay: shouldAutoplay,
+      resumePosition: musicState.resumePosition,
+    });
   } else {
     updateMusicUi();
+    saveMusicPreferences({ resumeAutoplayOverride: false });
   }
 }
 
@@ -3983,18 +4154,20 @@ function setMusicMuted(muted) {
   const audio = ensureMusicAudio();
   audio.muted = muted;
   if (muted) {
-    audio.pause();
+    pauseMusicPlayback({ resumeAutoplay: false });
   } else {
     if (!musicState.currentTrackId) {
       const track = pickRandomTrack(null);
       if (track) {
-        playMusicTrack(track);
+        playMusicTrack(track, { autoplay: true, resumePosition: 0 });
+      } else {
+        saveMusicPreferences({ resumeAutoplayOverride: false });
       }
     } else {
       attemptMusicPlayback();
+      saveMusicPreferences({ resumeAutoplayOverride: true });
     }
   }
-  saveMusicPreferences();
   updateMusicUi();
 }
 
@@ -4015,6 +4188,46 @@ function skipToNextTrack() {
   if (next) {
     playMusicTrack(next);
   }
+}
+
+function handleMusicVisibilityChange() {
+  if (typeof document === 'undefined') {
+    return;
+  }
+  if (!musicAudio) {
+    saveMusicPreferences();
+    return;
+  }
+  if (document.visibilityState === 'hidden') {
+    const wasPlaying = !musicAudio.paused && !musicState.muted;
+    musicPausedByVisibility = wasPlaying;
+    if (wasPlaying) {
+      pauseMusicPlayback({ resumeAutoplay: true });
+    } else {
+      saveMusicPreferences({ resumeAutoplayOverride: false });
+    }
+    return;
+  }
+  if (document.visibilityState === 'visible') {
+    const resumePlayback = musicPausedByVisibility && !musicState.muted;
+    musicPausedByVisibility = false;
+    if (resumePlayback) {
+      attemptMusicPlayback();
+      saveMusicPreferences({ resumeAutoplayOverride: true });
+    } else {
+      saveMusicPreferences();
+    }
+  }
+}
+
+function handleMusicPageHide() {
+  const wasPlaying = musicAudio && !musicAudio.paused && !musicState.muted;
+  if (wasPlaying) {
+    pauseMusicPlayback({ resumeAutoplay: true });
+  } else {
+    saveMusicPreferences({ resumeAutoplayOverride: false });
+  }
+  musicPausedByVisibility = false;
 }
 
 function setLastSignedInUser(username) {
@@ -5747,6 +5960,7 @@ function computeFriendHighlights(profile, friends) {
   const highlights = [];
 
   const aggressive = selectAggressiveFriend(friends);
+  const aggressiveColor = aggressive ? resolveFriendMarkerColor(aggressive.friend) : '';
   highlights.push(
     aggressive
       ? {
@@ -5756,6 +5970,7 @@ function computeFriendHighlights(profile, friends) {
           detail: `${aggressive.attackPoints.toLocaleString()} atk pts`,
           meta: 'Always first to strike.',
           username: aggressive.friend.username,
+          markerColor: aggressiveColor,
         }
       : {
           id: 'aggressive',
@@ -5764,10 +5979,12 @@ function computeFriendHighlights(profile, friends) {
           detail: '',
           meta: 'Encourage a friend to make the first move.',
           username: null,
+          markerColor: '',
         },
   );
 
   const defensive = selectDefensiveFriend(friends);
+  const defensiveColor = defensive ? resolveFriendMarkerColor(defensive.friend) : '';
   highlights.push(
     defensive
       ? {
@@ -5777,6 +5994,7 @@ function computeFriendHighlights(profile, friends) {
           detail: `${defensive.defendPoints.toLocaleString()} def pts`,
           meta: `A/D ratio ${defensive.ratio.toFixed(2)}`,
           username: defensive.friend.username,
+          markerColor: defensiveColor,
         }
       : {
           id: 'defensive',
@@ -5785,10 +6003,12 @@ function computeFriendHighlights(profile, friends) {
           detail: '',
           meta: 'Hold the line together.',
           username: null,
+          markerColor: '',
         },
   );
 
   const rival = selectHomeRivalFriend(friends, homeId);
+  const rivalColor = rival ? resolveFriendMarkerColor(rival.friend) : '';
   highlights.push(
     rival
       ? {
@@ -5798,6 +6018,7 @@ function computeFriendHighlights(profile, friends) {
           detail: `${rival.hits.toLocaleString()} recent hits`,
           meta: 'Keeps challenging your district.',
           username: rival.friend.username,
+          markerColor: rivalColor,
         }
       : {
           id: 'threat',
@@ -5806,10 +6027,12 @@ function computeFriendHighlights(profile, friends) {
           detail: '',
           meta: 'Your district is calm… for now.',
           username: null,
+          markerColor: '',
         },
   );
 
   const bestFriend = selectBestFriend(friends);
+  const bestColor = bestFriend ? resolveFriendMarkerColor(bestFriend.friend) : '';
   highlights.push(
     bestFriend
       ? {
@@ -5819,6 +6042,7 @@ function computeFriendHighlights(profile, friends) {
           detail: `${bestFriend.total.toLocaleString()} check-ins`,
           meta: 'Invite them to a 3h party boost.',
           username: bestFriend.friend.username,
+          markerColor: bestColor,
         }
       : {
           id: 'best',
@@ -5827,6 +6051,7 @@ function computeFriendHighlights(profile, friends) {
           detail: '',
           meta: 'Add friends to unlock party boosts.',
           username: null,
+          markerColor: '',
         },
   );
 
@@ -5867,34 +6092,31 @@ function updateFriendsLeaderboardSection(friends) {
     label.textContent = highlight.label;
     item.appendChild(label);
 
-    const value = document.createElement('span');
-    value.className = 'friend-leaderboard-value';
-    value.textContent = highlight.display;
-    item.appendChild(value);
+    const valueElement = document.createElement(highlight.username ? 'button' : 'span');
+    valueElement.className = 'friend-leaderboard-value';
+    if (highlight.username) {
+      valueElement.type = 'button';
+      valueElement.classList.add('friend-profile-trigger');
+      valueElement.dataset.friendProfile = highlight.username;
+    }
+    valueElement.textContent = highlight.display;
+    if (highlight.markerColor) {
+      valueElement.style.color = highlight.markerColor;
+    }
+    item.appendChild(valueElement);
 
-    const meta = document.createElement('span');
-    meta.className = 'friend-leaderboard-meta';
-    const detailText = highlight.detail ? `${highlight.detail} • ${highlight.meta}` : highlight.meta;
-    meta.textContent = detailText;
-    item.appendChild(meta);
-
-    if (highlight.id === 'best' && highlight.username) {
-      const cta = document.createElement('button');
-      cta.type = 'button';
-      cta.className = 'secondary small friend-leaderboard-cta';
-      const activeParty = getActivePartyState();
-      if (activeParty) {
-        cta.textContent = 'Add To Party';
-        cta.addEventListener('click', () => {
-          addFriendToParty(highlight.username);
-        });
-      } else {
-        cta.textContent = 'Start Party';
-        cta.addEventListener('click', () => {
-          startPartyWithFriend(highlight.username);
-        });
-      }
-      item.appendChild(cta);
+    const detailParts = [];
+    if (highlight.detail) {
+      detailParts.push(highlight.detail);
+    }
+    if (highlight.meta) {
+      detailParts.push(highlight.meta);
+    }
+    if (detailParts.length) {
+      const meta = document.createElement('span');
+      meta.className = 'friend-leaderboard-meta';
+      meta.textContent = detailParts.join(' • ');
+      item.appendChild(meta);
     }
 
     friendsLeaderboardList.appendChild(item);
@@ -6137,50 +6359,6 @@ function renderFriendCard(friend) {
   }
   main.appendChild(header);
 
-  const stats = document.createElement('div');
-  stats.className = 'friend-stats';
-  const scoreStat = document.createElement('span');
-  scoreStat.className = 'friend-stat friend-meta';
-  scoreStat.textContent = `${Math.max(0, Math.round(normaliseNumber(friend.score, 0))).toLocaleString()} pts`;
-  stats.appendChild(scoreStat);
-  const checkinsStat = document.createElement('span');
-  checkinsStat.className = 'friend-stat friend-meta';
-  checkinsStat.textContent = `${Math.max(0, Math.round(normaliseNumber(friend.checkins, 0))).toLocaleString()} check-ins`;
-  stats.appendChild(checkinsStat);
-  const attackPoints = Math.max(0, Math.round(normaliseNumber(friend.attack_points, 0)));
-  const defendPoints = Math.max(0, Math.round(normaliseNumber(friend.defend_points, 0)));
-  if (attackPoints || defendPoints) {
-    const attackDefendStat = document.createElement('span');
-    attackDefendStat.className = 'friend-stat friend-meta';
-    attackDefendStat.textContent = `${attackPoints.toLocaleString()} atk • ${defendPoints.toLocaleString()} def`;
-    stats.appendChild(attackDefendStat);
-  }
-  main.appendChild(stats);
-
-  const checkinCounts = friend.checkin_counts || {};
-  const attackCount = Math.max(0, Math.round(normaliseNumber(checkinCounts.attack, 0)));
-  const defendCount = Math.max(0, Math.round(normaliseNumber(checkinCounts.defend, 0)));
-  if (attackCount || defendCount) {
-    const activity = document.createElement('div');
-    activity.className = 'friend-activity';
-    const attackSpan = document.createElement('span');
-    attackSpan.className = 'friend-meta';
-    attackSpan.textContent = `Attacks: ${attackCount.toLocaleString()}`;
-    activity.appendChild(attackSpan);
-    const defendSpan = document.createElement('span');
-    defendSpan.className = 'friend-meta';
-    defendSpan.textContent = `Defends: ${defendCount.toLocaleString()}`;
-    activity.appendChild(defendSpan);
-    const latest = Array.isArray(friend.recent_checkins) ? friend.recent_checkins[0] : null;
-    if (latest) {
-      const latestSpan = document.createElement('span');
-      latestSpan.className = 'friend-meta';
-      latestSpan.textContent = `Latest: ${formatRecentCheckinTag(latest)}`;
-      activity.appendChild(latestSpan);
-    }
-    main.appendChild(activity);
-  }
-
   card.appendChild(main);
 
   const actions = document.createElement('div');
@@ -6225,6 +6403,13 @@ function renderFriendCard(friend) {
   card.appendChild(favoriteBadge);
 
   return card;
+}
+
+function resolveFriendMarkerColor(friend) {
+  if (!friend || typeof friend !== 'object') {
+    return '';
+  }
+  return normaliseMarkerColor(friend.map_marker_color, '');
 }
 
 function createFriendProfileStat(label, value) {
@@ -9706,6 +9891,20 @@ if (friendsListContainer) {
   });
 }
 
+if (friendsLeaderboardList) {
+  friendsLeaderboardList.addEventListener('click', (event) => {
+    const profileTrigger = event.target.closest('[data-friend-profile]');
+    if (!profileTrigger) {
+      return;
+    }
+    event.preventDefault();
+    const username = profileTrigger.dataset.friendProfile || '';
+    if (username) {
+      openFriendProfileDrawer(username, profileTrigger);
+    }
+  });
+}
+
 if (friendRequestsPanel) {
   friendRequestsPanel.addEventListener('click', (event) => {
     handleFriendRequestAction(event);
@@ -10036,6 +10235,15 @@ if (friendProfileCloseButton) {
   friendProfileCloseButton.addEventListener('click', () => {
     closeFriendProfileDrawer();
   });
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', handleMusicVisibilityChange);
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', handleMusicPageHide, { capture: true });
+  window.addEventListener('beforeunload', handleMusicPageHide, { capture: true });
 }
 
 if (districtOverlay) {

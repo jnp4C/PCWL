@@ -969,27 +969,32 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
 
 .friend-leaderboard-item {
   display: flex;
-  align-items: center;
-  gap: 0.6rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  padding: 0.2rem 0;
 }
 
 .friend-leaderboard-label {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--color-text-muted);
-  flex: 0 0 120px;
 }
 
 .friend-leaderboard-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.95rem;
   font-weight: 600;
   color: var(--color-text);
 }
 
 .friend-leaderboard-meta {
-  margin-left: auto;
   font-size: 0.8rem;
   color: var(--color-text-muted);
+  line-height: 1.4;
 }
 
 .friend-leaderboard-cta {
@@ -1120,7 +1125,7 @@ body.dark .friend-marker-swatch {
   color: var(--color-text);
 }
 
-.friend-card .friend-profile-trigger {
+.friend-profile-trigger {
   background: none;
   border: none;
   padding: 0;
@@ -1133,12 +1138,12 @@ body.dark .friend-marker-swatch {
   gap: 0.25rem;
 }
 
-.friend-card .friend-profile-trigger:focus-visible {
+.friend-profile-trigger:focus-visible {
   outline: 2px solid currentColor;
   outline-offset: 2px;
 }
 
-.friend-card .friend-profile-trigger:hover {
+.friend-profile-trigger:hover {
   text-decoration: underline;
 }
 
