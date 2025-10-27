@@ -3888,7 +3888,7 @@ function saveMusicPreferences({ resumeAutoplayOverride = null } = {}) {
       resumeAutoplayOverride !== null
         ? Boolean(resumeAutoplayOverride)
         : audio
-        ? !audio.paused && !musicState.muted
+        ? (!audio.paused && !musicState.muted) || Boolean(musicState.resumeAutoplay)
         : Boolean(musicState.resumeAutoplay);
     const payload = {
       muted: Boolean(musicState.muted),
@@ -4063,6 +4063,7 @@ function playMusicTrack(track, options = {}) {
   musicState.resumeAutoplay = wantsAutoplay;
   audio.src = resolveAssetUrl(track.path);
   audio.loop = false;
+  const shouldDelayAutoplay = musicState.resumePosition > 0 && audio.readyState < 1;
   applyMusicResumePosition(audio, musicState.resumePosition);
   if (musicState.muted) {
     pauseMusicPlayback({ resumeAutoplay: false });
@@ -4072,6 +4073,17 @@ function playMusicTrack(track, options = {}) {
   if (!wantsAutoplay) {
     pauseMusicPlayback({ resumeAutoplay: false });
     updateMusicUi();
+    return;
+  }
+  if (shouldDelayAutoplay) {
+    const handleLoaded = () => {
+      audio.removeEventListener('loadedmetadata', handleLoaded);
+      applyMusicResumePosition(audio, musicState.resumePosition);
+      attemptMusicPlayback();
+      updateMusicUi();
+      saveMusicPreferences({ resumeAutoplayOverride: true });
+    };
+    audio.addEventListener('loadedmetadata', handleLoaded);
     return;
   }
   attemptMusicPlayback();
@@ -4117,23 +4129,22 @@ function initialiseBackgroundMusic() {
   audio.muted = Boolean(musicState.muted);
 
   let startingTrack = null;
-  let shouldAutoplay = false;
+  let shouldAutoplay = !musicState.muted;
   if (preferences.currentTrackId) {
     const resumeTrack = getTrackMetadata(preferences.currentTrackId);
     if (resumeTrack) {
       startingTrack = resumeTrack;
       musicState.currentTrackId = resumeTrack.id;
-      shouldAutoplay = preferences.resumeAutoplay && !musicState.muted;
+      if (preferences.resumeAutoplay) {
+        shouldAutoplay = true;
+      }
     }
   }
   if (!startingTrack) {
     startingTrack = pickRandomTrack(null);
     musicState.resumePosition = 0;
-    shouldAutoplay = !musicState.muted;
-    musicState.resumeAutoplay = shouldAutoplay;
-  } else {
-    musicState.resumeAutoplay = shouldAutoplay;
   }
+  musicState.resumeAutoplay = shouldAutoplay;
 
   if (startingTrack) {
     playMusicTrack(startingTrack, {
