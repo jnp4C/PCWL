@@ -130,6 +130,12 @@ const friendsPartySelect = document.getElementById('friends-party-select');
 const friendsPartyStartButton = document.getElementById('friends-party-start');
 const friendsPartyAddButton = document.getElementById('friends-party-add');
 const friendsPartyDisbandButton = document.getElementById('friends-party-disband');
+const friendProfileOverlay = document.getElementById('friend-profile-overlay');
+const friendProfileDrawer = document.getElementById('friend-profile-drawer');
+const friendProfileContent = document.getElementById('friend-profile-content');
+const friendProfileTitle = document.getElementById('friend-profile-title');
+const friendProfileBody = document.getElementById('friend-profile-body');
+const friendProfileCloseButton = document.getElementById('friend-profile-close');
 const districtDrawer = document.getElementById('district-drawer');
 const districtOverlay = document.getElementById('district-overlay');
 const districtCloseButton = document.getElementById('district-close');
@@ -2887,6 +2893,8 @@ let mobileContextMenuHandlersBound = false;
 let recentCheckinsShowAll = false;
 let recentCheckinsLastTrigger = null;
 let friendsLastTrigger = null;
+let friendProfileLastTrigger = null;
+let friendProfileActiveUsername = null;
 let liveLocationWatchId = null;
 let lastLiveLocationUpdate = 0;
 let friendsState = {
@@ -6096,9 +6104,14 @@ function renderFriendCard(friend) {
     swatch.title = 'Map marker color';
     header.appendChild(swatch);
   }
-  const name = document.createElement('span');
-  name.className = 'friend-name';
+  const name = document.createElement('button');
+  name.type = 'button';
+  name.className = 'friend-name friend-profile-trigger';
+  name.dataset.friendProfile = friend.username;
   name.textContent = `@${friend.username}`;
+  if (markerColor) {
+    name.style.color = markerColor;
+  }
   header.appendChild(name);
   const displayName =
     typeof friend.display_name === 'string' && friend.display_name.trim() ? friend.display_name.trim() : '';
@@ -6194,7 +6207,9 @@ function renderFriendCard(friend) {
         : lastKnown.districtId
         ? `District ${lastKnown.districtId}`
         : 'map';
-    locateButton.textContent = `View on map (${locationLabel})`;
+    locateButton.textContent = 'Locate';
+    locateButton.setAttribute('aria-label', `Locate @${friend.username} on map (${locationLabel})`);
+    locateButton.title = `Locate @${friend.username} on map (${locationLabel})`;
     actions.appendChild(locateButton);
     hasActions = true;
   }
@@ -6210,6 +6225,270 @@ function renderFriendCard(friend) {
   card.appendChild(favoriteBadge);
 
   return card;
+}
+
+function createFriendProfileStat(label, value) {
+  if (!label || value === null || typeof value === 'undefined' || value === '') {
+    return null;
+  }
+  const stat = document.createElement('div');
+  stat.className = 'friend-profile-stat';
+  const labelEl = document.createElement('span');
+  labelEl.className = 'label';
+  labelEl.textContent = label;
+  const valueEl = document.createElement('span');
+  valueEl.className = 'value';
+  valueEl.textContent = value;
+  stat.appendChild(labelEl);
+  stat.appendChild(valueEl);
+  return stat;
+}
+
+function renderFriendProfileContent(friend) {
+  if (!friendProfileBody) {
+    return;
+  }
+
+  friendProfileBody.innerHTML = '';
+
+  if (!friend || typeof friend.username !== 'string') {
+    if (friendProfileTitle) {
+      friendProfileTitle.textContent = 'Player Profile';
+    }
+    const empty = document.createElement('p');
+    empty.className = 'friend-profile-empty';
+    empty.textContent = 'Unable to load this profile.';
+    friendProfileBody.appendChild(empty);
+    return;
+  }
+
+  if (friendProfileTitle) {
+    friendProfileTitle.textContent = `@${friend.username}`;
+  }
+
+  const markerColor = normaliseMarkerColor(friend.map_marker_color);
+
+  const header = document.createElement('div');
+  header.className = 'friend-profile-header';
+
+  const identity = document.createElement('div');
+  identity.className = 'friend-profile-identity';
+  if (markerColor) {
+    const marker = document.createElement('span');
+    marker.className = 'friend-profile-marker';
+    marker.style.backgroundColor = markerColor;
+    marker.title = 'Map marker color';
+    identity.appendChild(marker);
+  }
+
+  const nameBlock = document.createElement('div');
+  nameBlock.className = 'friend-profile-name-block';
+  const usernameEl = document.createElement('div');
+  usernameEl.className = 'friend-profile-username';
+  usernameEl.textContent = `@${friend.username}`;
+  if (markerColor) {
+    usernameEl.style.color = markerColor;
+  }
+  nameBlock.appendChild(usernameEl);
+
+  const displayName =
+    typeof friend.display_name === 'string' && friend.display_name.trim() ? friend.display_name.trim() : '';
+  if (displayName) {
+    const displayEl = document.createElement('div');
+    displayEl.className = 'friend-profile-display';
+    displayEl.textContent = displayName;
+    nameBlock.appendChild(displayEl);
+  }
+
+  identity.appendChild(nameBlock);
+  header.appendChild(identity);
+
+  const tags = document.createElement('div');
+  tags.className = 'friend-profile-tags';
+
+  const homeMeta = resolveFriendHomeMeta(friend);
+  if (homeMeta) {
+    const homeInfo = document.createElement('div');
+    homeInfo.className = 'friend-profile-home';
+    homeInfo.dataset.status = homeMeta.statusClass;
+    homeInfo.textContent = `Home district: ${homeMeta.label}`;
+    if (homeMeta.statusClass === 'home') {
+      homeInfo.title = 'Matches your home district.';
+    } else if (homeMeta.statusClass === 'enemy') {
+      homeInfo.title = 'Different from your home district.';
+    } else {
+      homeInfo.title = 'Home district not set.';
+    }
+    tags.appendChild(homeInfo);
+  } else {
+    const homeInfo = document.createElement('div');
+    homeInfo.className = 'friend-profile-home';
+    homeInfo.textContent = 'Home district: Not set';
+    homeInfo.title = 'Home district not set.';
+    tags.appendChild(homeInfo);
+  }
+
+  if (friend.is_favorite) {
+    const favoriteTag = document.createElement('div');
+    favoriteTag.className = 'friend-profile-favorite';
+    favoriteTag.textContent = '★ Favorite';
+    favoriteTag.title = 'You have marked this friend as a favorite.';
+    tags.appendChild(favoriteTag);
+  }
+
+  if (tags.children.length) {
+    header.appendChild(tags);
+  }
+
+  friendProfileBody.appendChild(header);
+
+  const statsGrid = document.createElement('div');
+  statsGrid.className = 'friend-profile-stats-grid';
+
+  const score = Math.max(0, Math.round(normaliseNumber(friend.score, 0)));
+  const checkins = Math.max(0, Math.round(normaliseNumber(friend.checkins, 0)));
+  const attackPoints = getFriendAttackPoints(friend);
+  const defendPoints = getFriendDefendPoints(friend);
+  const checkinCounts = friend.checkin_counts || {};
+  const attackCount = Math.max(0, Math.round(normaliseNumber(checkinCounts.attack, 0)));
+  const defendCount = Math.max(0, Math.round(normaliseNumber(checkinCounts.defend, 0)));
+  const attackRatio = normaliseNumber(friend.attack_ratio, null);
+  const defendRatio = normaliseNumber(friend.defend_ratio, null);
+
+  const stats = [
+    ['Score', `${score.toLocaleString()} pts`],
+    ['Total check-ins', `${checkins.toLocaleString()}`],
+    ['Attack points', `${attackPoints.toLocaleString()}`],
+    ['Defend points', `${defendPoints.toLocaleString()}`],
+    ['Attacks', `${attackCount.toLocaleString()}`],
+    ['Defends', `${defendCount.toLocaleString()}`],
+  ];
+
+  if (Number.isFinite(attackRatio) && attackRatio > 0) {
+    stats.push(['Attack ratio', `${Number(attackRatio).toFixed(2)}x`]);
+  }
+  if (Number.isFinite(defendRatio) && defendRatio > 0) {
+    stats.push(['Defend ratio', `${Number(defendRatio).toFixed(2)}x`]);
+  }
+
+  const createdAtRaw = friend.created_at || friend.createdAt;
+  if (createdAtRaw) {
+    const createdAt = new Date(createdAtRaw);
+    if (!Number.isNaN(createdAt.getTime())) {
+      stats.push(['Friends since', createdAt.toLocaleDateString()]);
+    }
+  }
+
+  stats.forEach(([label, value]) => {
+    const stat = createFriendProfileStat(label, value);
+    if (stat) {
+      statsGrid.appendChild(stat);
+    }
+  });
+
+  if (statsGrid.children.length) {
+    friendProfileBody.appendChild(statsGrid);
+  }
+
+  const lastKnown = friend.last_known_location;
+  if (lastKnown && typeof lastKnown === 'object') {
+    const lastSeenParts = [];
+    if (typeof lastKnown.districtName === 'string' && lastKnown.districtName.trim()) {
+      lastSeenParts.push(lastKnown.districtName.trim());
+    } else if (lastKnown.districtId) {
+      lastSeenParts.push(`District ${lastKnown.districtId}`);
+    }
+    const lastSeen = document.createElement('div');
+    lastSeen.className = 'friend-profile-last-seen';
+
+    let whenLabel = '';
+    if (Number.isFinite(Number(lastKnown.timestamp))) {
+      whenLabel = formatTimeAgo(Number(lastKnown.timestamp));
+    } else if (Number.isFinite(Number(lastKnown.updatedAt))) {
+      whenLabel = formatTimeAgo(Number(lastKnown.updatedAt));
+    }
+
+    if (lastSeenParts.length && whenLabel) {
+      lastSeen.textContent = `Last seen at ${lastSeenParts.join(' ')} (${whenLabel}).`;
+    } else if (lastSeenParts.length) {
+      lastSeen.textContent = `Last seen at ${lastSeenParts.join(' ')}.`;
+    } else if (whenLabel) {
+      lastSeen.textContent = `Last seen ${whenLabel}.`;
+    }
+
+    if (lastSeen.textContent) {
+      friendProfileBody.appendChild(lastSeen);
+    }
+  }
+
+  const recentSection = document.createElement('div');
+  recentSection.className = 'friend-profile-recent';
+  const recentHeading = document.createElement('h3');
+  recentHeading.textContent = 'Recent check-ins';
+  recentSection.appendChild(recentHeading);
+
+  const recentEntries = Array.isArray(friend.recent_checkins) ? friend.recent_checkins.slice(0, 5) : [];
+  if (recentEntries.length) {
+    const list = document.createElement('ul');
+    list.className = 'friend-profile-checkins';
+    recentEntries.forEach((entry) => {
+      const item = document.createElement('li');
+      item.className = 'friend-profile-checkin';
+      item.textContent = formatRecentCheckinTag(entry, { includeTime: true });
+      list.appendChild(item);
+    });
+    recentSection.appendChild(list);
+  } else {
+    const empty = document.createElement('p');
+    empty.className = 'friend-profile-empty';
+    empty.textContent = 'No recent check-ins yet.';
+    recentSection.appendChild(empty);
+  }
+
+  friendProfileBody.appendChild(recentSection);
+}
+
+function openFriendProfileDrawer(username, trigger = null) {
+  if (!friendProfileDrawer || !friendProfileOverlay) {
+    return;
+  }
+  const friend = findFriendByUsername(username);
+  if (!friend) {
+    updateStatus(`Unable to load @${username}'s profile.`);
+    return;
+  }
+  friendProfileActiveUsername = friend.username;
+  friendProfileLastTrigger = trigger instanceof HTMLElement ? trigger : null;
+  renderFriendProfileContent(friend);
+  document.body.classList.add('friend-profile-open');
+  friendProfileDrawer.setAttribute('aria-hidden', 'false');
+  friendProfileOverlay.classList.remove('hidden');
+  friendProfileOverlay.setAttribute('aria-hidden', 'false');
+  window.setTimeout(() => {
+    if (friendProfileContent && typeof friendProfileContent.focus === 'function') {
+      friendProfileContent.focus();
+    }
+  }, 0);
+}
+
+function closeFriendProfileDrawer({ restoreFocus = true } = {}) {
+  if (!friendProfileDrawer || !document.body.classList.contains('friend-profile-open')) {
+    return;
+  }
+  document.body.classList.remove('friend-profile-open');
+  friendProfileDrawer.setAttribute('aria-hidden', 'true');
+  if (friendProfileOverlay) {
+    friendProfileOverlay.classList.add('hidden');
+    friendProfileOverlay.setAttribute('aria-hidden', 'true');
+  }
+  if (restoreFocus && friendProfileLastTrigger && typeof friendProfileLastTrigger.focus === 'function') {
+    friendProfileLastTrigger.focus({ preventScroll: true });
+  }
+  friendProfileLastTrigger = null;
+  friendProfileActiveUsername = null;
+  if (friendProfileBody) {
+    friendProfileBody.innerHTML = '';
+  }
 }
 
 function renderFriendManageList() {
@@ -6685,6 +6964,14 @@ function updateFriendsDrawerContent() {
   });
   updateFriendsLeaderboardSection(friends);
   updatePartyUi(friends);
+  if (friendProfileActiveUsername) {
+    const activeFriend = findFriendByUsername(friendProfileActiveUsername);
+    if (activeFriend) {
+      renderFriendProfileContent(activeFriend);
+    } else {
+      closeFriendProfileDrawer({ restoreFocus: false });
+    }
+  }
 
   if (friendsManageOpen) {
     renderFriendManageList();
@@ -7139,6 +7426,7 @@ function closeFriendsDrawer({ restoreFocus = true } = {}) {
   if (friendsButton) {
     friendsButton.setAttribute('aria-expanded', 'false');
   }
+  closeFriendProfileDrawer({ restoreFocus: false });
   if (restoreFocus && friendsLastTrigger && typeof friendsLastTrigger.focus === 'function') {
     friendsLastTrigger.focus();
   }
@@ -9396,6 +9684,15 @@ if (friendManageList) {
 
 if (friendsListContainer) {
   friendsListContainer.addEventListener('click', (event) => {
+    const profileTrigger = event.target.closest('[data-friend-profile]');
+    if (profileTrigger) {
+      event.preventDefault();
+      const username = profileTrigger.dataset.friendProfile || '';
+      if (username) {
+        openFriendProfileDrawer(username, profileTrigger);
+      }
+      return;
+    }
     const locateButton = event.target.closest('[data-friend-locate]');
     if (!locateButton) {
       return;
@@ -9703,6 +10000,9 @@ document.addEventListener('keydown', (event) => {
   if (document.body.classList.contains('recent-checkins-open')) {
     closeRecentCheckinsDrawer();
   }
+  if (document.body.classList.contains('friend-profile-open')) {
+    closeFriendProfileDrawer();
+  }
   if (document.body.classList.contains('friends-open')) {
     closeFriendsDrawer();
   }
@@ -9723,6 +10023,18 @@ if (friendsOverlay) {
 if (friendsCloseButton) {
   friendsCloseButton.addEventListener('click', () => {
     closeFriendsDrawer();
+  });
+}
+
+if (friendProfileOverlay) {
+  friendProfileOverlay.addEventListener('click', () => {
+    closeFriendProfileDrawer();
+  });
+}
+
+if (friendProfileCloseButton) {
+  friendProfileCloseButton.addEventListener('click', () => {
+    closeFriendProfileDrawer();
   });
 }
 

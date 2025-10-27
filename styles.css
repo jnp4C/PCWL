@@ -1117,6 +1117,161 @@ body.dark .friend-marker-swatch {
 .friend-card .friend-name {
   font-size: 0.95rem;
   font-weight: 600;
+  color: var(--color-text);
+}
+
+.friend-card .friend-profile-trigger {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.friend-card .friend-profile-trigger:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.friend-card .friend-profile-trigger:hover {
+  text-decoration: underline;
+}
+
+.friend-profile-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.friend-profile-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.friend-profile-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.friend-profile-name-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.friend-profile-marker {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 0 0 4px rgba(76, 29, 149, 0.15);
+  flex-shrink: 0;
+}
+
+body.dark .friend-profile-marker {
+  box-shadow: 0 0 0 2px rgba(15, 6, 32, 0.85), 0 0 0 4px rgba(168, 85, 247, 0.3);
+}
+
+.friend-profile-username {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.friend-profile-display {
+  font-size: 0.95rem;
+  color: var(--color-text-muted);
+}
+
+.friend-profile-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.friend-profile-home {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.friend-profile-home[data-status='home'] {
+  color: #16a34a;
+}
+
+.friend-profile-home[data-status='enemy'] {
+  color: #dc2626;
+}
+
+.friend-profile-favorite {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #fbbf24;
+}
+
+.friend-profile-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+
+.friend-profile-stat {
+  padding: 0.75rem 0.9rem;
+  border-radius: 12px;
+  background: rgba(76, 29, 149, 0.08);
+  box-shadow: inset 0 0 0 1px var(--color-border-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.friend-profile-stat .label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.friend-profile-stat .value {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.friend-profile-last-seen {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+.friend-profile-recent h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.friend-profile-checkins {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.friend-profile-checkin {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.friend-profile-empty {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
 }
 
 .friend-card .friend-display {
@@ -1721,6 +1876,7 @@ body.dark .friend-marker-swatch {
 
 body.recent-checkins-open,
 body.friends-open,
+body.friend-profile-open,
 body.district-open,
 body.character-open {
   overflow: hidden;
@@ -1728,6 +1884,7 @@ body.character-open {
 
 body.recent-checkins-open .recent-checkins-overlay,
 body.friends-open .friends-overlay,
+body.friend-profile-open .friend-profile-overlay,
 body.district-open .district-overlay,
 body.character-open .character-overlay {
   display: block;
@@ -1737,6 +1894,7 @@ body.character-open .character-overlay {
 
 body.recent-checkins-open .recent-checkins-drawer,
 body.friends-open .friends-drawer,
+body.friend-profile-open .friend-profile-drawer,
 body.district-open .district-drawer,
 body.character-open .character-drawer {
   transform: translate(-50%, 0);

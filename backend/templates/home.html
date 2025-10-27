@@ -340,6 +340,7 @@
           <button type="button" id="friends-manage-button" class="secondary small sheet-action">Manage Friends</button>
         </div>
         <p id="friends-empty" class="sheet-empty">Add friends to squad up and keep track of their progress.</p>
+        <div id="friends-list" class="friends-list" hidden></div>
         <section id="friends-leaderboard" class="friends-leaderboard hidden" aria-live="polite" aria-label="Friend highlights">
           <h3 class="friend-leaderboard-heading">Squad Highlights</h3>
           <ul id="friends-leaderboard-list" class="friends-leaderboard-list"></ul>
@@ -358,7 +359,6 @@
           </div>
           <p class="friend-party-hint">Parties last 3 hours and then end automatically.</p>
         </section>
-        <div id="friends-list" class="friends-list" hidden></div>
         <div id="friends-manage-panel" class="friends-manage hidden" aria-hidden="true">
           <form id="friend-search-form" class="friend-search-form">
             <label class="sr-only" for="friend-search-input">Search username</label>
@@ -394,6 +394,21 @@
           <button type="button" id="friend-manage-close" class="secondary small">Done</button>
         </div>
         <button type="button" id="friends-invite-button" class="secondary small sheet-action">Invite Friend</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="friend-profile-overlay" class="sheet-overlay friend-profile-overlay hidden" tabindex="-1" aria-hidden="true"></div>
+  <section id="friend-profile-drawer" class="sheet-drawer friend-profile-drawer" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="friend-profile-title">
+    <div id="friend-profile-content" class="sheet-content" tabindex="-1">
+      <header class="sheet-header">
+        <h2 id="friend-profile-title">Player Profile</h2>
+        <button type="button" id="friend-profile-close" class="icon-button sheet-close" aria-label="Close friend profile drawer">
+          &times;
+        </button>
+      </header>
+      <div class="sheet-body">
+        <div id="friend-profile-body" class="friend-profile-body"></div>
       </div>
     </div>
   </section>

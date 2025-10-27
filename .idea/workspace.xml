@@ -5,9 +5,11 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="a5509026-cec2-41ec-8272-bef0294f008e" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/pcwl_backend/settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/pcwl_backend/settings.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app.js" beforeDir="false" afterPath="$PROJECT_DIR$/app.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/templates/home.html" beforeDir="false" afterPath="$PROJECT_DIR$/backend/templates/home.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/index.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/styles.css" beforeDir="false" afterPath="$PROJECT_DIR$/styles.css" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -37,7 +39,7 @@
     "Shell Script.PlayerProfileManagement.sh.executor": "Run",
     "Shell Script.run.sh.executor": "Run",
     "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
-    "git-widget-placeholder": "DEPLOY",
+    "git-widget-placeholder": "Deploy__UI.01",
     "junie.onboarding.icon.badge.shown": "true",
     "kotlin-language-version-configured": "true",
     "last_opened_file_path": "/Users/jonaspalecek/Documents/GitHub/PCWL",
@@ -115,6 +117,7 @@
       <workItem from="1761394383953" duration="8197000" />
       <workItem from="1761402975804" duration="2669000" />
       <workItem from="1761405743707" duration="25200000" />
+      <workItem from="1761575215969" duration="905000" />
     </task>
     <servers />
   </component>
