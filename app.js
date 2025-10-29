@@ -261,6 +261,7 @@ const MUSIC_RESUME_MAX_AGE_MS = 15 * 60 * 1000; // 15 minutes
 const PARTY_DURATION_MS = 3 * 60 * 60 * 1000;
 const PARTY_MAX_FRIENDS = 3;
 const PARTY_INVITE_DISPLAY_MS = 60 * 1000;
+const PARTY_POLL_INTERVAL_MS = 15 * 1000;
 const FRIEND_REQUEST_NOTICE_DISPLAY_MS = 60 * 1000;
 
 const TREE_GIF_URL = resolveDataUrl('tree.gif?v=2');
@@ -4547,6 +4548,7 @@ async function restoreSessionFromServer() {
   });
   applyPartyStateFromServer(partySnapshot, { silent: false });
   refreshPartyState(false, { silent: true }).catch(() => null);
+  try { startPartyPolling(); } catch (_) {}
 }
 
 async function logoutCurrentSession() {
@@ -4577,6 +4579,7 @@ function completeLogoutTransition() {
     outgoing: [],
   };
   resetPartyState();
+  stopPartyPolling();
   clearFriendLocationMarkers();
   updateFriendLocationsLayer();
   renderFriendRequestsSection();
@@ -6403,6 +6406,7 @@ async function refreshPartyState(showErrors = false, { silent = true } = {}) {
       isSessionAuthenticated = false;
       activePlayerBackendId = null;
       resetPartyState();
+      stopPartyPolling();
     } else {
       if (showErrors) {
         const detail = error?.data?.detail || error?.message || 'Unable to load party data.';
@@ -6411,6 +6415,35 @@ async function refreshPartyState(showErrors = false, { silent = true } = {}) {
       console.warn('Failed to load party state', error);
     }
   }
+}
+
+let partyPollTimerId = 0;
+let partyPollInFlight = false;
+
+function startPartyPolling() {
+  try { stopPartyPolling(); } catch (_) {}
+  if (!isSessionAuthenticated || !currentUser) {
+    return;
+  }
+  partyPollTimerId = window.setInterval(async () => {
+    if (partyPollInFlight) return;
+    if (!isSessionAuthenticated || !currentUser) return;
+    if (document.visibilityState && document.visibilityState !== 'visible') return;
+    partyPollInFlight = true;
+    try {
+      await refreshPartyState(false, { silent: true });
+    } finally {
+      partyPollInFlight = false;
+    }
+  }, PARTY_POLL_INTERVAL_MS);
+}
+
+function stopPartyPolling() {
+  if (partyPollTimerId) {
+    window.clearInterval(partyPollTimerId);
+    partyPollTimerId = 0;
+  }
+  partyPollInFlight = false;
 }
 
 async function sendPartyInvite(username, { suppressStatus = false } = {}) {
@@ -10551,6 +10584,26 @@ if (friendProfileCloseButton) {
 
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', handleMusicVisibilityChange);
+
+  // Refresh party invitations when the tab becomes visible again
+  try {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        refreshPartyState(false, { silent: true }).catch(() => null);
+        try { startPartyPolling(); } catch (_) {}
+      } else {
+        // Optionally pause polling when hidden to save resources
+        try { stopPartyPolling(); } catch (_) {}
+      }
+    });
+    // Also refresh on window focus for browsers that don't reliably fire visibilitychange
+    window.addEventListener('focus', () => {
+      if (document.visibilityState === 'visible') {
+        refreshPartyState(false, { silent: true }).catch(() => null);
+        try { startPartyPolling(); } catch (_) {}
+      }
+    });
+  } catch (_) {}
 }
 
 if (typeof window !== 'undefined') {
