@@ -261,6 +261,7 @@ const MUSIC_RESUME_MAX_AGE_MS = 15 * 60 * 1000; // 15 minutes
 const PARTY_DURATION_MS = 3 * 60 * 60 * 1000;
 const PARTY_MAX_FRIENDS = 3;
 const PARTY_INVITE_DISPLAY_MS = 60 * 1000;
+const FRIEND_REQUEST_NOTICE_DISPLAY_MS = 60 * 1000;
 
 const TREE_GIF_URL = resolveDataUrl('tree.gif?v=2');
 const HITMARKER_GIF_URL = resolveDataUrl('attack_hitmarker.gif?v=1');
@@ -6564,62 +6565,6 @@ async function handlePartyInviteResponse(invitationId, accept) {
   }
 }
 
-function startPartyWithFriend(username) {
-  if (!currentUser) {
-    updateStatus('Sign in to start a party.');
-    return;
-  }
-  const friend = findFriendByUsername(username || (friendsPartySelect ? friendsPartySelect.value : ''));
-  if (!friend) {
-    updateStatus('Select a friend to start a party.');
-    return;
-  }
-  const now = Date.now();
-  const nextState = {
-    leader: currentUser,
-    members: [friend.username],
-    createdAt: now,
-    expiresAt: now + PARTY_DURATION_MS,
-  };
-  setActivePartyState(nextState);
-  updatePartyUi(friendsState.items);
-  updateStatus(`Party started with @${friend.username}. Boost lasts 3 hours.`);
-}
-
-function addFriendToParty(username) {
-  const active = getActivePartyState();
-  if (!active) {
-    startPartyWithFriend(username);
-    return;
-  }
-  if (active.members.length >= PARTY_MAX_FRIENDS) {
-    updateStatus('Party is full. Disband to start a new one.');
-    return;
-  }
-  const friend = findFriendByUsername(username || (friendsPartySelect ? friendsPartySelect.value : ''));
-  if (!friend) {
-    updateStatus('Select a friend to add to your party.');
-    return;
-  }
-  if (active.members.some((member) => member.toLowerCase() === friend.username.toLowerCase())) {
-    updateStatus(`@${friend.username} is already in your party.`);
-    return;
-  }
-  active.members.push(friend.username);
-  setActivePartyState(active);
-  updatePartyUi(friendsState.items);
-  updateStatus(`Added @${friend.username} to your party.`);
-}
-
-function disbandActiveParty() {
-  const active = getActivePartyState();
-  if (!active) {
-    return;
-  }
-  setActivePartyState(null);
-  updatePartyUi(friendsState.items);
-  updateStatus('Party disbanded.');
-}
 
 function renderFriendCard(friend) {
   if (!friend || typeof friend.username !== 'string') {
