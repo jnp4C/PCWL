@@ -18,11 +18,9 @@ const passwordInput = document.getElementById('password-input');
 const knownPlayersSection = document.getElementById('known-players');
 const knownPlayersList = document.getElementById('known-players-list');
 const checkInButton = document.getElementById('check-in-button');
-const clearHistoryButton = document.getElementById('clear-history-button');
 const playerUsernameLabel = document.getElementById('player-username');
 const playerPointsLabel = document.getElementById('player-points');
 const playerCheckinsLabel = document.getElementById('player-checkins-count');
-const checkinList = document.getElementById('checkin-list');
 const setHomeDistrictButton = document.getElementById('set-home-district-button');
 const homeDistrictValue = document.getElementById('home-district-value');
 const homePresenceIndicator = document.getElementById('home-presence-indicator');
@@ -175,7 +173,6 @@ if (typeof document !== 'undefined' && document.body) {
 const welcomeScreen = document.getElementById('welcome-screen');
 const gameScreen = document.getElementById('game-screen');
 const statusBox = document.getElementById('status');
-const poiList = document.getElementById('poi-list');
 
 const MAP_CENTER = [14.4205, 50.0875];
 const MAP_STYLE = {
@@ -4881,12 +4878,10 @@ function renderPlayerState() {
     playerUsernameLabel.textContent = 'Guest';
     playerPointsLabel.textContent = '0';
     playerCheckinsLabel.textContent = '0';
-    renderCheckins([]);
     updateCurrentUserTag(null);
     checkInButton.disabled = true;
     checkInButton.title = 'Log in to check in';
     checkInButton.textContent = 'Check In';
-    clearHistoryButton && (clearHistoryButton.disabled = true);
     if (chargeAttackButton) {
       chargeAttackButton.disabled = true;
       chargeAttackButton.title = 'Log in to charge your next attack.';
@@ -4943,7 +4938,6 @@ function renderPlayerState() {
   updateCurrentUserTag(currentUser);
   updateDrawerSummaries(profile);
   populateDrawerHomeSelect(profile);
-  renderCheckins(profile.checkins);
   updateRecentCheckinsDrawerContent(profile);
   updateFriendsDrawerContent();
   updateDistrictDrawerContent(profile);
@@ -5045,142 +5039,8 @@ function renderPlayerState() {
     }
     checkInButton.disabled = checkCooldownActive;
   }
-  if (clearHistoryButton) {
-    clearHistoryButton.disabled = !(profile.checkins && profile.checkins.length);
-  }
-
   syncCooldownsFromProfile(profile);
   updateHomePresenceIndicator();
-}
-
-function createCheckinListItem(entry, profile = null, now = Date.now()) {
-  const li = document.createElement('li');
-  const safeEntry = entry || {};
-  const entryType = typeof safeEntry.type === 'string' ? safeEntry.type.toLowerCase() : '';
-  const typeClass = entryType === 'defend' ? 'defend' : entryType === 'attack' ? 'attack' : '';
-  const isAttackType = typeClass === 'attack';
-
-  li.className = `checkin-item${typeClass ? ` ${typeClass}` : ''}`;
-
-  if (typeClass) {
-    const typeTag = document.createElement('span');
-    typeTag.className = `checkin-type ${typeClass}`;
-    typeTag.textContent = typeClass === 'defend' ? 'Defend' : 'Attack';
-    li.appendChild(typeTag);
-    li.setAttribute('data-checkin-type', typeClass);
-  }
-
-  if (safeEntry.ranged) {
-    const rangedTag = document.createElement('span');
-    rangedTag.className = 'checkin-type ranged';
-    rangedTag.textContent = 'Ranged';
-    li.appendChild(rangedTag);
-  }
-
-  const shouldShowMelee =
-    !safeEntry?.ranged && (safeEntry?.melee || (isAttackType && (safeEntry?.ranged === false || safeEntry?.ranged === undefined)));
-  if (shouldShowMelee) {
-    const meleeTag = document.createElement('span');
-    meleeTag.className = 'checkin-type melee';
-    meleeTag.textContent = 'Melee';
-    li.appendChild(meleeTag);
-  }
-
-  const title = document.createElement('strong');
-  title.textContent = safeEntry.districtName || `District ${safeEntry.districtId || ''}`;
-  li.appendChild(title);
-
-  const meta = document.createElement('span');
-  meta.textContent = formatTimeAgo(safeEntry.timestamp);
-  li.appendChild(meta);
-
-  const cooldownInfo = profile ? getEntryCooldownInfo(profile, safeEntry, now) : null;
-  if (cooldownInfo) {
-    const cooldownTag = document.createElement('span');
-    cooldownTag.className = 'checkin-cooldown-indicator';
-    cooldownTag.textContent = `${cooldownInfo.label} ${formatCooldownTime(cooldownInfo.remaining)}`;
-    cooldownTag.dataset.cooldownAction = cooldownInfo.key;
-    if (cooldownInfo.mode) {
-      cooldownTag.dataset.cooldownMode = cooldownInfo.mode;
-    }
-    const colors = resolveCooldownColors(cooldownInfo.key, cooldownInfo.mode);
-    cooldownTag.style.background = colors.fill;
-    cooldownTag.style.color = colors.text;
-    cooldownTag.style.boxShadow = '0 6px 14px rgba(15, 6, 32, 0.24)';
-    li.appendChild(cooldownTag);
-  }
-
-  const multiplierValue = Number(safeEntry.multiplier);
-  if (Number.isFinite(multiplierValue) && multiplierValue > 1) {
-    const multiplierTag = document.createElement('span');
-    multiplierTag.className = 'checkin-multiplier';
-    multiplierTag.textContent = `x${multiplierValue}`;
-    multiplierTag.title = `Earned with x${multiplierValue} charge`;
-    li.appendChild(multiplierTag);
-  }
-
-  return li;
-}
-
-function renderCheckins(history) {
-  const safeHistory = Array.isArray(history) ? history : [];
-  updateRecentCheckinTags(safeHistory);
-
-  if (!checkinList) {
-    return;
-  }
-  checkinList.innerHTML = '';
-
-  if (!safeHistory.length) {
-    const li = document.createElement('li');
-    li.className = 'checkin-item empty';
-    li.textContent = currentUser ? 'No check-ins yet. Explore the city and log your first stop!' : 'Sign in to track your check-ins.';
-    checkinList.appendChild(li);
-    return;
-  }
-
-  const allEntries = safeHistory.slice(0, MAX_HISTORY_ITEMS);
-  const primaryEntries = allEntries.slice(0, 2);
-  const additionalEntries = allEntries.slice(2);
-  const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
-  if (profile) {
-    ensureProfileCooldownState(profile);
-  }
-  const now = Date.now();
-
-  primaryEntries.forEach((entry) => {
-    checkinList.appendChild(createCheckinListItem(entry, profile, now));
-  });
-
-  if (additionalEntries.length) {
-    const collapsedLabel = `Show ${additionalEntries.length} more`;
-    const expandedLabel = 'Hide additional check-ins';
-
-    const containerItem = document.createElement('li');
-    containerItem.className = 'checkin-more';
-
-    const details = document.createElement('details');
-    details.className = 'checkin-more-details';
-
-    const summary = document.createElement('summary');
-    summary.className = 'checkin-more-summary';
-    summary.textContent = collapsedLabel;
-    details.appendChild(summary);
-
-    const moreList = document.createElement('ul');
-    moreList.className = 'checkin-more-list';
-    additionalEntries.forEach((entry) => {
-      moreList.appendChild(createCheckinListItem(entry, profile, now));
-    });
-    details.appendChild(moreList);
-
-    details.addEventListener('toggle', () => {
-      summary.textContent = details.open ? expandedLabel : collapsedLabel;
-    });
-
-    containerItem.appendChild(details);
-    checkinList.appendChild(containerItem);
-  }
 }
 
 function formatRecentCheckinTag(entry, options = {}) {
@@ -5283,13 +5143,15 @@ function calculateCheckinPoints(entry) {
 }
 
 function updateRecentCheckinsDrawerContent(profile = undefined) {
-  if (!recentCheckinsList) {
-    return;
-  }
   const resolvedProfile =
     profile === undefined ? (currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null) : profile;
   const history =
     resolvedProfile && Array.isArray(resolvedProfile.checkins) ? resolvedProfile.checkins.slice(0, MAX_HISTORY_ITEMS) : [];
+  updateRecentCheckinTags(history);
+
+  if (!recentCheckinsList) {
+    return;
+  }
   const hasHistory = history.length > 0;
   if (resolvedProfile) {
     ensureProfileCooldownState(resolvedProfile);
@@ -8925,19 +8787,6 @@ async function handleCheckIn(options = {}) {
   refreshDistrictHover();
 }
 
-function handleClearHistory() {
-  if (!currentUser || !players[currentUser]) {
-    return;
-  }
-  const profile = ensurePlayerProfile(currentUser);
-  profile.checkins = [];
-  profile.serverCheckinCount = 0;
-  savePlayers();
-  renderPlayerState();
-  updateStatus('Check-in history cleared.');
-  scheduleProfileStatsSync(profile);
-}
-
 function handleSetHomeDistrict() {
   if (!currentUser) {
     updateStatus('Log in to choose a home district.');
@@ -9744,12 +9593,6 @@ function showMap(triggerGeolocation) {
     }
   });
 
-  if (poiList && !poiList.children.length) {
-    const li = document.createElement('li');
-    li.textContent = '3D view active. Toggle districts to refine the scene.';
-    poiList.appendChild(li);
-  }
-
   requestAnimationFrame(() => {
     if (map) {
       map.resize();
@@ -10376,10 +10219,6 @@ if (chargeAttackButton) {
 
 if (checkInButton) {
   checkInButton.addEventListener('click', handleCheckIn);
-}
-
-if (clearHistoryButton) {
-  clearHistoryButton.addEventListener('click', handleClearHistory);
 }
 
 if (homeDistrictConfirmButton) {
