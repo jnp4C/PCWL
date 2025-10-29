@@ -6431,7 +6431,7 @@ function startPartyPolling() {
     if (document.visibilityState && document.visibilityState !== 'visible') return;
     partyPollInFlight = true;
     try {
-      await refreshPartyState(false, { silent: true });
+      await refreshPartyState(false, { silent: false });
     } finally {
       partyPollInFlight = false;
     }
