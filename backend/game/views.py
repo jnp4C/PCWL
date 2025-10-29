@@ -1,9 +1,10 @@
 from django.contrib.auth import authenticate, login, logout
 from django.db import transaction
 from datetime import timedelta
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
-from django.db.models import Count, Q, Sum
+from django.db.models import Case, Count, F, Q, Sum, When
+from django.db.models.functions import Coalesce
 from django.db import DatabaseError
 from django.db.utils import OperationalError
 from django.utils import timezone
@@ -20,7 +21,18 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import CheckIn, DistrictEngagement, FriendLink, FriendRequest, Player
+from .models import (
+    CheckIn,
+    DistrictContributionStat,
+    DistrictEngagement,
+    FriendLink,
+    FriendRequest,
+    Party,
+    PartyInvitation,
+    PartyMembership,
+    Player,
+    PlayerPartyBond,
+)
 from .serializers import (
     CheckInRequestSerializer,
     CheckInSerializer,
@@ -30,7 +42,21 @@ from .serializers import (
     PlayerSearchResultSerializer,
     PlayerSerializer,
 )
-from .services import CooldownActive, apply_checkin, start_charge
+from .services import (
+    CooldownActive,
+    apply_checkin,
+    create_party,
+    get_active_party,
+    invite_player_to_party,
+    leave_party,
+    PartyError,
+    PartyInviteError,
+    PARTY_ATTACK_BONUS_PER_PLAYER,
+    PARTY_CONTRIBUTION_DISTRICT_PER_PLAYER,
+    PARTY_CONTRIBUTION_PLAYER_MULTIPLIER,
+    respond_to_party_invitation,
+    start_charge,
+)
 
 
 DISTRICT_BASE_SCORE = 2000
@@ -47,6 +73,157 @@ def _classify_district_state(defended, attacked, threshold=DISTRICT_SECURE_THRES
     if net <= -threshold:
         return "overrun"
     return "contested"
+
+
+def _clean_district_code(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _serialize_party_member(player: Player, *, is_leader: bool, is_self: bool) -> Dict[str, Any]:
+    return {
+        "username": player.username,
+        "display_name": player.display_name or "",
+        "home_district_code": player.home_district_code or "",
+        "home_district_name": player.home_district_name or player.home_district or "",
+        "is_leader": is_leader,
+        "is_self": is_self,
+    }
+
+
+def _build_party_payload(party: Party, player: Player) -> Optional[Dict[str, Any]]:
+    memberships = (
+        PartyMembership.objects.select_related("player")
+        .filter(party=party, left_at__isnull=True)
+        .order_by("joined_at")
+    )
+    if not memberships:
+        return None
+    now = timezone.now()
+    members_payload = []
+    size = 0
+    player_is_leader = False
+    for membership in memberships:
+        member = membership.player
+        size += 1
+        if member.id == player.id and membership.is_leader:
+            player_is_leader = True
+        members_payload.append(
+            _serialize_party_member(
+                member,
+                is_leader=membership.is_leader,
+                is_self=member.id == player.id,
+            )
+        )
+
+    seconds_remaining = None
+    if party.expires_at:
+        seconds_remaining = max(0, int((party.expires_at - now).total_seconds()))
+
+    party_checkins = CheckIn.objects.filter(party_code=party.code)
+    attack_agg = party_checkins.filter(action=CheckIn.Action.ATTACK).aggregate(
+        total=Coalesce(Sum(-F("district_points_delta")), 0),
+        count=Count("id"),
+    )
+    contribution_agg = party_checkins.filter(is_party_contribution=True).aggregate(
+        total=Coalesce(Sum("district_points_delta"), 0),
+        count=Count("id"),
+    )
+    attack_points = int(attack_agg.get("total") or 0)
+    contribution_points = int(contribution_agg.get("total") or 0)
+    attack_checkins = attack_agg.get("count", 0)
+    contribution_checkins = contribution_agg.get("count", 0)
+
+    focus = "balanced"
+    if attack_points > contribution_points:
+        focus = "aggressive"
+    elif contribution_points > attack_points:
+        focus = "defensive"
+
+    attack_multiplier = float(PARTY_ATTACK_BONUS_PER_PLAYER * size)
+    contribution_multiplier = float(PARTY_CONTRIBUTION_DISTRICT_PER_PLAYER * size)
+    player_contribution_multiplier = contribution_multiplier * float(PARTY_CONTRIBUTION_PLAYER_MULTIPLIER)
+
+    return {
+        "code": party.code,
+        "leader": party.leader.username,
+        "created_at": party.created_at,
+        "expires_at": party.expires_at,
+        "seconds_remaining": seconds_remaining,
+        "size": size,
+        "attack_multiplier": attack_multiplier,
+        "contribution_multiplier": contribution_multiplier,
+        "player_contribution_multiplier": player_contribution_multiplier,
+        "attack_points": attack_points,
+        "contribution_points": contribution_points,
+        "attack_checkins": attack_checkins,
+        "contribution_checkins": contribution_checkins,
+        "focus": focus,
+        "members": members_payload,
+        "is_leader": player_is_leader,
+    }
+
+
+def _build_party_insights(player: Player) -> Dict[str, Any]:
+    best_partner = None
+    bond = (
+        PlayerPartyBond.objects.select_related("partner")
+        .filter(player=player)
+        .order_by("-shared_checkins", "-shared_contribution_points", "-shared_attack_points")
+        .first()
+    )
+    if bond:
+        partner = bond.partner
+        best_partner = {
+            "username": partner.username,
+            "display_name": partner.display_name or "",
+            "shared_checkins": bond.shared_checkins,
+            "shared_attack_points": bond.shared_attack_points,
+            "shared_contribution_points": bond.shared_contribution_points,
+            "last_shared_at": bond.last_shared_at,
+        }
+
+    top_contributors = []
+    home_code = _clean_district_code(player.home_district_code)
+    if home_code:
+        contribution_stats = (
+            DistrictContributionStat.objects.select_related("supporter")
+            .filter(district_code=home_code)
+            .order_by("-contribution_points")[:5]
+        )
+        for stat in contribution_stats:
+            supporter = stat.supporter
+            if supporter.id == player.id:
+                continue
+            top_contributors.append(
+                {
+                    "username": supporter.username,
+                    "display_name": supporter.display_name or "",
+                    "points": stat.contribution_points,
+                    "checkins": stat.contribution_checkins,
+                    "last_contribution_at": stat.last_contribution_at,
+                }
+            )
+
+    return {
+        "best_partner": best_partner,
+        "top_contributors": top_contributors,
+    }
+
+
+def _serialize_party_invitation(invitation: PartyInvitation) -> Dict[str, Any]:
+    return {
+        "id": invitation.id,
+        "party_code": invitation.party.code,
+        "from_username": invitation.from_player.username,
+        "to_username": invitation.to_player.username,
+        "status": invitation.status,
+        "created_at": invitation.created_at,
+        "responded_at": invitation.responded_at,
+        "party_expires_at": invitation.party.expires_at,
+    }
 
 
 def _auto_migrate_if_allowed():
@@ -248,7 +425,43 @@ class SessionCurrentView(APIView):
                     status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
         data = PlayerSerializer(player, context={"request": request}).data if player else None
-        return Response({"authenticated": True, "player": data}, status=status.HTTP_200_OK)
+
+        party_payload = None
+        incoming_invites: List[Dict[str, Any]] = []
+        outgoing_invites: List[Dict[str, Any]] = []
+        insights = {"best_partner": None, "top_contributors": []}
+        if player:
+            party = get_active_party(player)
+            if party:
+                party_payload = _build_party_payload(party, player)
+                if party_payload and party_payload.get("is_leader"):
+                    outgoing_invites = [
+                        _serialize_party_invitation(invitation)
+                        for invitation in PartyInvitation.objects.select_related("to_player")
+                        .filter(party=party, status=PartyInvitation.Status.PENDING)
+                        .order_by("-created_at")
+                    ]
+            insights = _build_party_insights(player)
+            incoming_invites = [
+                _serialize_party_invitation(invitation)
+                for invitation in PartyInvitation.objects.select_related("from_player", "party")
+                .filter(to_player=player, status=PartyInvitation.Status.PENDING)
+                .order_by("-created_at")
+            ]
+
+        return Response(
+            {
+                "authenticated": True,
+                "player": data,
+                "party": party_payload,
+                "party_invitations": {
+                    "incoming": incoming_invites,
+                    "outgoing": outgoing_invites,
+                },
+                "party_insights": insights,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class ChargeAttackView(PlayerScopedAPIView):
@@ -274,19 +487,11 @@ class CheckInView(PlayerScopedAPIView):
         payload = serializer.validated_data.copy()
         metadata = payload.pop("metadata", {}) or {}
         source = payload.pop("source", None)
-        party_code = payload.pop("party_code", None)
+        payload.pop("party_code", None)
         if source:
             metadata["source"] = source
-        if party_code:
-            if not isinstance(metadata, dict):
-                metadata = {}
-            party_section = metadata.get("party")
-            if not isinstance(party_section, dict):
-                party_section = {}
-            party_section["code"] = party_code
-            metadata["party"] = party_section
         try:
-            result = apply_checkin(player, metadata=metadata or None, party_code=party_code, **payload)
+            result = apply_checkin(player, metadata=metadata or None, **payload)
         except CooldownActive as exc:
             raise ValidationError({"detail": str(exc)})
         except ValueError as exc:
@@ -298,6 +503,107 @@ class CheckInView(PlayerScopedAPIView):
             "checkin": checkin_data,
         }
         return Response(response, status=status.HTTP_201_CREATED)
+
+
+class PartyView(PlayerScopedAPIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        player = self.get_current_player(request)
+        party = get_active_party(player)
+        party_payload = _build_party_payload(party, player) if party else None
+        insights = _build_party_insights(player)
+        incoming = [
+            _serialize_party_invitation(invitation)
+            for invitation in PartyInvitation.objects.select_related("from_player", "party")
+            .filter(to_player=player, status=PartyInvitation.Status.PENDING)
+            .order_by("-created_at")
+        ]
+        outgoing: List[Dict[str, Any]] = []
+        if party and party_payload and party_payload.get("is_leader"):
+            outgoing = [
+                _serialize_party_invitation(invitation)
+                for invitation in PartyInvitation.objects.select_related("to_player")
+                .filter(party=party, status=PartyInvitation.Status.PENDING)
+                .order_by("-created_at")
+            ]
+        return Response(
+            {
+                "party": party_payload,
+                "incoming_invitations": incoming,
+                "outgoing_invitations": outgoing,
+                "insights": insights,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def post(self, request):
+        player = self.get_current_player(request)
+        try:
+            party = create_party(player)
+        except PartyError as exc:
+            raise ValidationError({"detail": str(exc)})
+        payload = _build_party_payload(party, player)
+        return Response({"party": payload}, status=status.HTTP_201_CREATED)
+
+    def delete(self, request):
+        player = self.get_current_player(request)
+        leave_party(player)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PartyInviteView(PlayerScopedAPIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        player = self.get_current_player(request)
+        username = str(request.data.get("username", "")).strip()
+        if not username:
+            raise ValidationError({"detail": "Username is required."})
+        target = Player.objects.filter(username__iexact=username).first()
+        if target is None:
+            return Response({"detail": "Player not found."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            invitation = invite_player_to_party(player, target)
+        except (PartyError, PartyInviteError) as exc:
+            raise ValidationError({"detail": str(exc)})
+        return Response({"invitation": _serialize_party_invitation(invitation)}, status=status.HTTP_201_CREATED)
+
+
+class PartyInvitationDetailView(PlayerScopedAPIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        player = self.get_current_player(request)
+        action = str(request.data.get("action", "")).strip().lower()
+        try:
+            invitation = PartyInvitation.objects.select_related("party", "from_player", "to_player").get(pk=pk)
+        except PartyInvitation.DoesNotExist:
+            return Response({"detail": "Invitation not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if action not in {"accept", "decline"}:
+            raise ValidationError({"detail": "Unsupported action."})
+        try:
+            invitation = respond_to_party_invitation(invitation, player, accept=action == "accept")
+        except (PartyError, PartyInviteError) as exc:
+            raise ValidationError({"detail": str(exc)})
+        return Response({"invitation": _serialize_party_invitation(invitation)}, status=status.HTTP_200_OK)
+
+    def delete(self, request, pk):
+        player = self.get_current_player(request)
+        try:
+            invitation = PartyInvitation.objects.select_related("party", "from_player").get(pk=pk)
+        except PartyInvitation.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        if invitation.status != PartyInvitation.Status.PENDING:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        party = invitation.party
+        if invitation.from_player_id != player.id and party.leader_id != player.id:
+            raise ValidationError({"detail": "You do not have permission to cancel this invitation."})
+        invitation.status = PartyInvitation.Status.CANCELLED
+        invitation.responded_at = timezone.now()
+        invitation.save(update_fields=["status", "responded_at"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class DistrictActivityView(APIView):
@@ -320,23 +626,43 @@ class DistrictActivityView(APIView):
         cutoff = timezone.now() - timedelta(hours=window_hours)
         base_qs = CheckIn.objects.filter(district_code__iexact=district_code)
         totals = base_qs.aggregate(
-            defended=Sum(
-                "points_awarded",
-                filter=Q(action=CheckIn.Action.DEFEND),
+            defended=Coalesce(
+                Sum(
+                    Case(
+                        When(action=CheckIn.Action.DEFEND, then=F("district_points_delta")),
+                        default=0,
+                    )
+                ),
+                0,
             ),
-            attacked=Sum(
-                "points_awarded",
-                filter=Q(action=CheckIn.Action.ATTACK),
+            attacked=Coalesce(
+                Sum(
+                    Case(
+                        When(action=CheckIn.Action.ATTACK, then=-F("district_points_delta")),
+                        default=0,
+                    )
+                ),
+                0,
             ),
         )
         recent_totals = base_qs.filter(occurred_at__gte=cutoff).aggregate(
-            defended=Sum(
-                "points_awarded",
-                filter=Q(action=CheckIn.Action.DEFEND),
+            defended=Coalesce(
+                Sum(
+                    Case(
+                        When(action=CheckIn.Action.DEFEND, then=F("district_points_delta")),
+                        default=0,
+                    )
+                ),
+                0,
             ),
-            attacked=Sum(
-                "points_awarded",
-                filter=Q(action=CheckIn.Action.ATTACK),
+            attacked=Coalesce(
+                Sum(
+                    Case(
+                        When(action=CheckIn.Action.ATTACK, then=-F("district_points_delta")),
+                        default=0,
+                    )
+                ),
+                0,
             ),
         )
 
@@ -354,10 +680,10 @@ class DistrictActivityView(APIView):
             )
             district_name = engagement_name or f"District {district_code}"
 
-        defended_total = totals.get("defended") or 0
-        attacked_total = totals.get("attacked") or 0
-        defended_recent = recent_totals.get("defended") or 0
-        attacked_recent = recent_totals.get("attacked") or 0
+        defended_total = int(totals.get("defended") or 0)
+        attacked_total = int(totals.get("attacked") or 0)
+        defended_recent = int(recent_totals.get("defended") or 0)
+        attacked_recent = int(recent_totals.get("attacked") or 0)
 
         top_attackers = list(
             base_qs.filter(action=CheckIn.Action.ATTACK)
@@ -404,6 +730,24 @@ class DistrictActivityView(APIView):
         recent_checkins = base_qs.order_by("-occurred_at")[:10]
         serialized_checkins = CheckInSerializer(recent_checkins, many=True).data
 
+        top_contributors = []
+        contribution_stats = (
+            DistrictContributionStat.objects.select_related("supporter")
+            .filter(district_code__iexact=district_code)
+            .order_by("-contribution_points")[:5]
+        )
+        for stat in contribution_stats:
+            supporter = stat.supporter
+            top_contributors.append(
+                {
+                    "username": supporter.username,
+                    "display_name": supporter.display_name or "",
+                    "points": stat.contribution_points,
+                    "checkins": stat.contribution_checkins,
+                    "last_contribution_at": stat.last_contribution_at,
+                }
+            )
+
         response_data = {
             "district": {
                 "code": district_code,
@@ -430,6 +774,7 @@ class DistrictActivityView(APIView):
             "top_attackers": top_attackers,
             "top_defenders": top_defenders,
             "rival_engagements": engagement_rows,
+            "top_contributors": top_contributors,
             "recent_checkins": serialized_checkins,
         }
         return Response(response_data, status=status.HTTP_200_OK)
@@ -769,13 +1114,23 @@ def _build_district_leaderboard(limit=50):
         CheckIn.objects.filter(district_code__isnull=False, occurred_at__gte=recent_cutoff)
         .values("district_code")
         .annotate(
-            defended=Sum(
-                "points_awarded",
-                filter=Q(action=CheckIn.Action.DEFEND),
+            defended=Coalesce(
+                Sum(
+                    Case(
+                        When(action=CheckIn.Action.DEFEND, then=F("district_points_delta")),
+                        default=0,
+                    )
+                ),
+                0,
             ),
-            attacked=Sum(
-                "points_awarded",
-                filter=Q(action=CheckIn.Action.ATTACK),
+            attacked=Coalesce(
+                Sum(
+                    Case(
+                        When(action=CheckIn.Action.ATTACK, then=-F("district_points_delta")),
+                        default=0,
+                    )
+                ),
+                0,
             ),
         )
     )
@@ -788,13 +1143,23 @@ def _build_district_leaderboard(limit=50):
         CheckIn.objects.filter(district_code__isnull=False)
         .values("district_code", "district_name")
         .annotate(
-            defended=Sum(
-                "points_awarded",
-                filter=Q(action=CheckIn.Action.DEFEND),
+            defended=Coalesce(
+                Sum(
+                    Case(
+                        When(action=CheckIn.Action.DEFEND, then=F("district_points_delta")),
+                        default=0,
+                    )
+                ),
+                0,
             ),
-            attacked=Sum(
-                "points_awarded",
-                filter=Q(action=CheckIn.Action.ATTACK),
+            attacked=Coalesce(
+                Sum(
+                    Case(
+                        When(action=CheckIn.Action.ATTACK, then=-F("district_points_delta")),
+                        default=0,
+                    )
+                ),
+                0,
             ),
         )
     )
@@ -803,12 +1168,12 @@ def _build_district_leaderboard(limit=50):
         district_id = (row.get("district_code") or "").strip()
         if not district_id:
             continue
-        defended = row.get("defended") or 0
-        attacked = row.get("attacked") or 0
+        defended = int(row.get("defended") or 0)
+        attacked = int(row.get("attacked") or 0)
         change = defended - attacked
         recent_row = recent_map.get(district_id, {})
-        recent_defended = recent_row.get("defended") or 0
-        recent_attacked = recent_row.get("attacked") or 0
+        recent_defended = int(recent_row.get("defended") or 0)
+        recent_attacked = int(recent_row.get("attacked") or 0)
         districts.append(
             {
                 "id": district_id,

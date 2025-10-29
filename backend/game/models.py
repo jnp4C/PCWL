@@ -2,6 +2,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import models
 from django.utils import timezone
+from django.utils.crypto import get_random_string
 
 
 class Player(models.Model):
@@ -102,9 +103,13 @@ class CheckIn(models.Model):
     multiplier = models.DecimalField(max_digits=6, decimal_places=2, default=1)
     base_points = models.PositiveIntegerField(default=10)
     points_awarded = models.IntegerField()
+    district_points_delta = models.IntegerField(default=0)
+    party_size_snapshot = models.PositiveIntegerField(default=1)
+    party_multiplier_snapshot = models.DecimalField(max_digits=8, decimal_places=2, default=1)
     home_district_code_snapshot = models.CharField(max_length=64, blank=True)
     home_district_name_snapshot = models.CharField(max_length=120, blank=True)
     party_code = models.CharField(max_length=64, blank=True)
+    is_party_contribution = models.BooleanField(default=False)
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -142,6 +147,189 @@ class DistrictEngagement(models.Model):
 
     def __str__(self):
         return f"{self.home_district_code or '?'} -> {self.target_district_code or '?'} ({self.attack_points_total} pts)"
+
+
+class Party(models.Model):
+    """Temporary squad of players coordinating attacks/defences."""
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Active"
+        ENDED = "ended", "Ended"
+
+    code = models.CharField(max_length=64, unique=True, editable=False)
+    leader = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="led_parties",
+    )
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.ACTIVE)
+    expires_at = models.DateTimeField()
+    ended_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            self.code = get_random_string(16)
+        super().save(*args, **kwargs)
+
+    def mark_ended(self, when=None):
+        when = when or timezone.now()
+        if self.status != self.Status.ENDED:
+            self.status = self.Status.ENDED
+            self.ended_at = when
+            self.save(update_fields=["status", "ended_at", "updated_at"])
+
+    def is_active(self):
+        if self.status != self.Status.ACTIVE:
+            return False
+        if self.expires_at and self.expires_at <= timezone.now():
+            return False
+        return True
+
+    def __str__(self):
+        return f"Party {self.code} (leader={self.leader.username})"
+
+
+class PartyMembership(models.Model):
+    """Link between players and their party participation history."""
+
+    party = models.ForeignKey(
+        Party,
+        on_delete=models.CASCADE,
+        related_name="memberships",
+    )
+    player = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="party_memberships",
+    )
+    is_leader = models.BooleanField(default=False)
+    joined_at = models.DateTimeField(auto_now_add=True)
+    left_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["joined_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["player"],
+                condition=models.Q(left_at__isnull=True),
+                name="unique_active_party_membership",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.player.username} in {self.party.code}"
+
+
+class PartyInvitation(models.Model):
+    """Players must accept an invitation to join a party."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        ACCEPTED = "accepted", "Accepted"
+        DECLINED = "declined", "Declined"
+        CANCELLED = "cancelled", "Cancelled"
+
+    party = models.ForeignKey(
+        Party,
+        on_delete=models.CASCADE,
+        related_name="invitations",
+    )
+    from_player = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="sent_party_invitations",
+    )
+    to_player = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="received_party_invitations",
+    )
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["party", "to_player"],
+                condition=models.Q(status="pending"),
+                name="unique_pending_party_invite",
+            )
+        ]
+
+    def __str__(self):
+        return f"Invite {self.party.code} -> {self.to_player.username} ({self.status})"
+
+
+class DistrictContributionStat(models.Model):
+    """Aggregate how much a player helped defend a particular home district."""
+
+    district_code = models.CharField(max_length=64)
+    supporter = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="district_contributions",
+    )
+    contribution_points = models.PositiveIntegerField(default=0)
+    contribution_checkins = models.PositiveIntegerField(default=0)
+    last_contribution_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["district_code", "supporter"],
+                name="unique_district_supporter_stat",
+            )
+        ]
+        ordering = ["-contribution_points"]
+
+    def __str__(self):
+        return f"{self.supporter.username} -> {self.district_code} ({self.contribution_points} pts)"
+
+
+class PlayerPartyBond(models.Model):
+    """Tracks how frequently two players squad together."""
+
+    player = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="party_bonds",
+    )
+    partner = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="partner_party_bonds",
+    )
+    shared_checkins = models.PositiveIntegerField(default=0)
+    shared_attack_points = models.PositiveIntegerField(default=0)
+    shared_contribution_points = models.PositiveIntegerField(default=0)
+    last_shared_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["player", "partner"],
+                name="unique_party_bond",
+            ),
+            models.CheckConstraint(
+                check=~models.Q(player=models.F("partner")),
+                name="prevent_self_party_bond",
+            ),
+        ]
+        ordering = ["-shared_checkins", "partner__username"]
+
+    def __str__(self):
+        return f"{self.player.username} ❤ {self.partner.username} ({self.shared_checkins} check-ins)"
 
 
 class FriendLink(models.Model):

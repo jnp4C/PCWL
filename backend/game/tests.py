@@ -3,8 +3,23 @@ from decimal import Decimal
 from django.test import TestCase
 from django.urls import reverse
 
-from .models import CheckIn, DistrictEngagement, FriendLink, Player
-from .services import apply_checkin
+from .models import (
+    CheckIn,
+    DistrictContributionStat,
+    DistrictEngagement,
+    FriendLink,
+    Party,
+    PartyInvitation,
+    PartyMembership,
+    Player,
+    PlayerPartyBond,
+)
+from .services import (
+    apply_checkin,
+    create_party,
+    invite_player_to_party,
+    respond_to_party_invitation,
+)
 
 
 class HealthEndpointTests(TestCase):
@@ -226,6 +241,105 @@ class SessionAuthTests(TestCase):
         self.player.ensure_auth_user(password=None)
         response = self.client.get(reverse("player-list"))
         self.assertIn(response.status_code, (200, 403, 405))  # Endpoint exists and protected
+
+
+class PartyApiTests(TestCase):
+    def setUp(self):
+        self.host = Player.objects.create(
+            username="party-host",
+            home_district_code="1100",
+            home_district_name="Prague 1",
+            home_district="Prague 1",
+        )
+        self.host.ensure_auth_user(password="hostpass")
+        self.friend = Player.objects.create(
+            username="party-friend",
+            home_district_code="1200",
+            home_district_name="Prague 2",
+            home_district="Prague 2",
+        )
+        self.friend.ensure_auth_user(password="friendpass")
+
+    def test_create_party_and_leave(self):
+        self.client.force_login(self.host.user)
+        response = self.client.post(reverse("party"))
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertIn("party", payload)
+        code = payload["party"]["code"]
+        party = Party.objects.get(code=code)
+        self.assertTrue(PartyMembership.objects.filter(party=party, player=self.host, left_at__isnull=True).exists())
+
+        leave_response = self.client.delete(reverse("party"))
+        self.assertEqual(leave_response.status_code, 204)
+        self.assertFalse(PartyMembership.objects.filter(player=self.host, left_at__isnull=True).exists())
+
+    def test_invite_and_accept_party(self):
+        self.client.force_login(self.host.user)
+        self.client.post(reverse("party"))
+        invite_response = self.client.post(
+            reverse("party-invite"),
+            {"username": "party-friend"},
+            content_type="application/json",
+        )
+        self.assertEqual(invite_response.status_code, 201)
+        invite_id = invite_response.json()["invitation"]["id"]
+
+        self.client.logout()
+        self.client.force_login(self.friend.user)
+        accept_response = self.client.post(
+            reverse("party-invitation-detail", args=[invite_id]),
+            {"action": "accept"},
+            content_type="application/json",
+        )
+        self.assertEqual(accept_response.status_code, 200)
+        self.assertTrue(PartyMembership.objects.filter(player=self.friend, left_at__isnull=True).exists())
+
+    def test_party_attack_multiplier(self):
+        party = create_party(self.host)
+        invite = invite_player_to_party(self.host, self.friend)
+        respond_to_party_invitation(invite, self.friend, accept=True)
+
+        result = apply_checkin(
+            self.host,
+            district_code="1300",
+            district_name="Prague 3",
+            mode=CheckIn.Mode.LOCAL,
+            precision="precise",
+        )
+        checkin = result.checkin
+        self.assertEqual(checkin.party_size_snapshot, 2)
+        self.assertEqual(checkin.district_points_delta, -80)
+        self.assertEqual(checkin.points_awarded, 80)
+        self.assertFalse(checkin.is_party_contribution)
+
+    def test_party_contribution_scoring(self):
+        self.friend.home_district_code = "1400"
+        self.friend.home_district_name = "Prague 4"
+        self.friend.home_district = "Prague 4"
+        self.friend.save(update_fields=["home_district_code", "home_district_name", "home_district"])
+
+        party = create_party(self.host)
+        invite = invite_player_to_party(self.host, self.friend)
+        respond_to_party_invitation(invite, self.friend, accept=True)
+
+        result = apply_checkin(
+            self.host,
+            district_code="1400",
+            district_name="Prague 4",
+            mode=CheckIn.Mode.LOCAL,
+            precision="precise",
+        )
+        checkin = result.checkin
+        self.assertTrue(checkin.is_party_contribution)
+        self.assertEqual(checkin.party_size_snapshot, 2)
+        self.assertEqual(checkin.district_points_delta, 100)
+        self.assertEqual(checkin.points_awarded, 500)
+        stat = DistrictContributionStat.objects.get(district_code="1400", supporter=self.host)
+        self.assertEqual(stat.contribution_points, 100)
+        bond = PlayerPartyBond.objects.get(player=self.host, partner=self.friend)
+        self.assertEqual(bond.shared_checkins, 1)
+        self.assertEqual(bond.shared_contribution_points, 100)
 
 
 class CheckInApiTests(TestCase):

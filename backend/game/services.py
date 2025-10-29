@@ -2,16 +2,27 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Any, Dict, Optional, Tuple
+from datetime import timedelta
+from typing import Any, Dict, List, Optional, Tuple
 
 from django.db import transaction
 from django.utils import timezone
 
-from .models import CheckIn, DistrictEngagement, Player
+from .models import (
+    CheckIn,
+    DistrictContributionStat,
+    DistrictEngagement,
+    Party,
+    PartyInvitation,
+    PartyMembership,
+    Player,
+    PlayerPartyBond,
+)
 
 POINTS_PER_CHECKIN = 10
 CHARGE_ATTACK_MULTIPLIER = 3
 MAX_HISTORY_ENTRIES = 50
+DEFAULT_PARTY_DURATION = timedelta(hours=3)
 
 COOLDOWN_KEYS = {
     "attack": "attack",
@@ -26,6 +37,11 @@ COOLDOWN_DURATIONS_MS = {
     "charge": 2 * 60 * 1000,
 }
 
+PARTY_ATTACK_BONUS_PER_PLAYER = Decimal("2")
+PARTY_CONTRIBUTION_DISTRICT_PER_PLAYER = Decimal("2.5")
+PARTY_CONTRIBUTION_PLAYER_MULTIPLIER = Decimal("5")
+MAX_PARTY_MEMBERS = 4
+
 
 @dataclass
 class CheckInResult:
@@ -36,6 +52,14 @@ class CheckInResult:
 
 class CooldownActive(Exception):
     """Raised when a requested action is still on cooldown."""
+
+
+class PartyError(Exception):
+    """Base error for party-management issues."""
+
+
+class PartyInviteError(PartyError):
+    """Raised when party invitations cannot be processed."""
 
 
 def _now_ms() -> int:
@@ -61,6 +85,181 @@ def _ensure_dict(value: Any) -> Dict[str, Any]:
         return value
     return {}
 
+
+def _end_party(party: Party, when: Optional[timezone.datetime] = None) -> None:
+    """Mark a party as ended and release all active memberships."""
+    when = when or timezone.now()
+    if party.status == Party.Status.ENDED:
+        return
+    PartyMembership.objects.filter(party=party, left_at__isnull=True).update(left_at=when)
+    party.status = Party.Status.ENDED
+    party.ended_at = when
+    party.save(update_fields=["status", "ended_at", "updated_at"])
+    party.invitations.filter(status=PartyInvitation.Status.PENDING).update(
+        status=PartyInvitation.Status.CANCELLED,
+        responded_at=when,
+    )
+
+
+def _get_active_party_membership(player: Player, lock: bool = False) -> Optional[PartyMembership]:
+    """Return the player's active party membership or None when none/expired."""
+    qs = PartyMembership.objects.select_related("party").filter(player=player, left_at__isnull=True)
+    if lock:
+        qs = qs.select_for_update()
+    membership = qs.first()
+    if not membership:
+        return None
+    party = membership.party
+    if not party.is_active():
+        _end_party(party)
+        return None
+    return membership
+
+
+def _ensure_no_active_party(player: Player) -> None:
+    if _get_active_party_membership(player, lock=True):
+        raise PartyError("Player is already in an active party.")
+
+
+def create_party(leader: Player, duration: timedelta = DEFAULT_PARTY_DURATION) -> Party:
+    """Start a new party for the leader."""
+    now = timezone.now()
+    expires_at = now + duration
+    with transaction.atomic():
+        _ensure_no_active_party(leader)
+        party = Party.objects.create(
+            leader=leader,
+            expires_at=expires_at,
+        )
+        PartyMembership.objects.create(party=party, player=leader, is_leader=True, joined_at=now)
+        return party
+
+
+def invite_player_to_party(leader: Player, target: Player) -> PartyInvitation:
+    """Send a party invitation to a friend."""
+    now = timezone.now()
+    with transaction.atomic():
+        membership = _get_active_party_membership(leader, lock=True)
+        if not membership or not membership.is_leader:
+            raise PartyError("Only party leaders can invite players.")
+        party = membership.party
+        if not party.is_active():
+            raise PartyError("Party is no longer active.")
+        active_count = party.memberships.filter(left_at__isnull=True).count()
+        if active_count >= MAX_PARTY_MEMBERS:
+            raise PartyError("Party is already full.")
+        if _get_active_party_membership(target, lock=True):
+            raise PartyError("Player is already in a different party.")
+        invite, created = PartyInvitation.objects.get_or_create(
+            party=party,
+            from_player=leader,
+            to_player=target,
+            defaults={"created_at": now},
+        )
+        if not created and invite.status != PartyInvitation.Status.PENDING:
+            raise PartyInviteError("Player already responded to this invitation.")
+        invite.status = PartyInvitation.Status.PENDING
+        invite.created_at = now
+        invite.responded_at = None
+        invite.save(update_fields=["status", "created_at", "responded_at"])
+        return invite
+
+
+def respond_to_party_invitation(invitation: PartyInvitation, player: Player, accept: bool) -> PartyInvitation:
+    """Accept or decline a party invitation."""
+    with transaction.atomic():
+        invitation = (
+            PartyInvitation.objects.select_for_update()
+            .select_related("party", "to_player")
+            .get(pk=invitation.pk)
+        )
+        if invitation.to_player_id != player.id:
+            raise PartyInviteError("Invitation does not belong to this player.")
+        if invitation.status != PartyInvitation.Status.PENDING:
+            raise PartyInviteError("Invitation has already been processed.")
+        if accept:
+            membership = _get_active_party_membership(player, lock=True)
+            if membership:
+                raise PartyError("Player is already in another party.")
+            party = invitation.party
+            if not party.is_active():
+                _end_party(party)
+                raise PartyInviteError("Party is no longer active.")
+            active_count = party.memberships.filter(left_at__isnull=True).count()
+            if active_count >= MAX_PARTY_MEMBERS:
+                raise PartyInviteError("Party is already full.")
+            PartyMembership.objects.create(
+                party=party,
+                player=player,
+                joined_at=timezone.now(),
+            )
+            invitation.status = PartyInvitation.Status.ACCEPTED
+        else:
+            invitation.status = PartyInvitation.Status.DECLINED
+        invitation.responded_at = timezone.now()
+        invitation.save(update_fields=["status", "responded_at"])
+        return invitation
+
+
+def leave_party(player: Player) -> None:
+    """Leave the current party; leaders disband the party."""
+    with transaction.atomic():
+        membership = _get_active_party_membership(player, lock=True)
+        if not membership:
+            return
+        party = membership.party
+        now = timezone.now()
+        membership.left_at = now
+        membership.save(update_fields=["left_at"])
+        if membership.is_leader:
+            _end_party(party, when=now)
+        else:
+            if not party.memberships.filter(left_at__isnull=True).exists():
+                _end_party(party, when=now)
+
+
+def get_active_party(player: Player) -> Optional[Party]:
+    membership = _get_active_party_membership(player)
+    return membership.party if membership else None
+
+
+def _resolve_party_context(
+    player: Player,
+    district_code: Optional[str],
+) -> Dict[str, Any]:
+    """Return details about the player's current party, if any."""
+    membership = _get_active_party_membership(player)
+    if not membership:
+        return {
+            "party": None,
+            "members": [],
+            "size": 0,
+            "has_home_member": False,
+            "code": "",
+        }
+    party = membership.party
+    active_memberships = (
+        PartyMembership.objects.select_related("player")
+        .filter(party=party, left_at__isnull=True)
+        .order_by("joined_at")
+    )
+    members = [m.player for m in active_memberships]
+    size = len(members)
+    normalized_code = _normalise_district_code(district_code)
+    home_members: List[Player] = []
+    if normalized_code:
+        for member in members:
+            home_code = _normalise_district_code(member.home_district_code)
+            if home_code and home_code == normalized_code:
+                home_members.append(member)
+    return {
+        "party": party,
+        "members": members,
+        "size": size,
+        "has_home_member": bool(home_members),
+        "home_members": home_members,
+        "code": party.code,
+    }
 
 def _is_on_cooldown(player: Player, key: str, now_ms: Optional[int] = None) -> bool:
     now = now_ms or _now_ms()
@@ -105,9 +304,15 @@ def _append_history_entry(player: Player, *, checkin: CheckIn, mode: str, precis
         "cooldownType": COOLDOWN_KEYS["defend"] if checkin.action == CheckIn.Action.DEFEND else COOLDOWN_KEYS["attack"],
         "cooldownMode": mode,
         "points": checkin.points_awarded,
+        "districtPoints": checkin.district_points_delta,
+        "partySize": checkin.party_size_snapshot,
+        "partyMultiplier": float(checkin.party_multiplier_snapshot),
+        "partyContribution": checkin.is_party_contribution,
     }
     if precision:
         entry["precision"] = precision
+    if checkin.party_code:
+        entry["partyCode"] = checkin.party_code
     player.checkin_history = [entry] + history[: MAX_HISTORY_ENTRIES - 1]
 
 
@@ -199,6 +404,77 @@ def _record_attack_engagement(
         )
 
 
+def _record_contribution_stats(
+    *,
+    district_code: Optional[str],
+    supporter: Player,
+    contribution_points: int,
+    when,
+) -> None:
+    district = _normalise_district_code(district_code)
+    if not district or contribution_points <= 0:
+        return
+    stat = (
+        DistrictContributionStat.objects.select_for_update()
+        .filter(district_code=district, supporter=supporter)
+        .first()
+    )
+    if stat is None:
+        stat = DistrictContributionStat(district_code=district, supporter=supporter)
+    stat.contribution_points += contribution_points
+    stat.contribution_checkins += 1
+    stat.last_contribution_at = when
+    if stat.pk:
+        stat.save(
+            update_fields=[
+                "contribution_points",
+                "contribution_checkins",
+                "last_contribution_at",
+                "updated_at",
+            ]
+        )
+    else:
+        stat.save()
+
+
+def _update_party_bonds(
+    actor: Player,
+    other_members: List[Player],
+    attack_points: int,
+    contribution_points: int,
+    when,
+) -> None:
+    if not other_members:
+        return
+    attack_points = max(0, attack_points)
+    contribution_points = max(0, contribution_points)
+    for partner in other_members:
+        for primary, secondary in ((actor, partner), (partner, actor)):
+            bond = (
+                PlayerPartyBond.objects.select_for_update()
+                .filter(player=primary, partner=secondary)
+                .first()
+            )
+            if bond is None:
+                bond = PlayerPartyBond(player=primary, partner=secondary)
+            bond.shared_checkins += 1
+            bond.shared_attack_points += attack_points
+            bond.shared_contribution_points += contribution_points
+            bond.last_shared_at = when
+            if bond.pk:
+                bond.save(
+                    update_fields=[
+                        "shared_checkins",
+                        "shared_attack_points",
+                        "shared_contribution_points",
+                        "last_shared_at",
+                        "updated_at",
+                    ]
+                )
+            else:
+                bond.save()
+
+
 def apply_checkin(
     player: Player,
     *,
@@ -208,7 +484,6 @@ def apply_checkin(
     precision: Optional[str] = None,
     coordinates: Optional[Dict[str, float]] = None,
     metadata: Optional[Dict[str, Any]] = None,
-    party_code: Optional[str] = None,
 ) -> CheckInResult:
     with transaction.atomic():
         locked = Player.objects.select_for_update().get(pk=player.pk)
@@ -233,19 +508,59 @@ def apply_checkin(
         if _is_on_cooldown(locked, COOLDOWN_KEYS["charge"], now_ms):
             locked.next_checkin_multiplier = max(locked.next_checkin_multiplier, 1)
 
+        party_context = _resolve_party_context(locked, code)
+        party = party_context["party"]
+        party_members: List[Player] = party_context["members"]
+        party_size = party_context["size"] if party else 0
+        party_code_value = party_context["code"] if party else ""
+        has_home_member = party_context["has_home_member"]
+        home_members: List[Player] = party_context.get("home_members", [])
+
+        if party and has_home_member:
+            action = CheckIn.Action.DEFEND
+
         if action == CheckIn.Action.ATTACK and _is_on_cooldown(locked, COOLDOWN_KEYS["attack"], now_ms):
             raise CooldownActive("Attack cooldown is still active.")
         if action == CheckIn.Action.DEFEND and _is_on_cooldown(locked, COOLDOWN_KEYS["defend"], now_ms):
             raise CooldownActive("Defend cooldown is still active.")
 
-        charge_multiplier = max(1, locked.next_checkin_multiplier or 1)
-        local_bonus = 1
-        if action == CheckIn.Action.ATTACK and mode == CheckIn.Mode.LOCAL and precision == "precise":
-            local_bonus = 2
-        effective_multiplier = Decimal(charge_multiplier * local_bonus)
+        charge_multiplier = Decimal(max(1, locked.next_checkin_multiplier or 1))
 
-        points_awarded = int(POINTS_PER_CHECKIN * effective_multiplier)
-        base_points = POINTS_PER_CHECKIN
+        party_multiplier_player = Decimal("1")
+        party_multiplier_district = Decimal("1")
+        is_party_contribution = False
+        if party and party_size > 0:
+            size_decimal = Decimal(party_size)
+            if has_home_member:
+                party_multiplier_district = PARTY_CONTRIBUTION_DISTRICT_PER_PLAYER * size_decimal
+                party_multiplier_player = party_multiplier_district * PARTY_CONTRIBUTION_PLAYER_MULTIPLIER
+                is_party_contribution = True
+                action = CheckIn.Action.DEFEND
+            else:
+                party_multiplier_district = PARTY_ATTACK_BONUS_PER_PLAYER * size_decimal
+                party_multiplier_player = party_multiplier_district
+
+        local_bonus = Decimal(1)
+        if mode == CheckIn.Mode.LOCAL and precision == "precise":
+            if action == CheckIn.Action.ATTACK or is_party_contribution:
+                local_bonus = Decimal(2)
+
+        effective_multiplier = charge_multiplier * local_bonus
+        base_points_decimal = Decimal(POINTS_PER_CHECKIN)
+        total_player_multiplier = effective_multiplier * party_multiplier_player
+        total_district_multiplier = effective_multiplier * party_multiplier_district
+
+        player_points_decimal = base_points_decimal * total_player_multiplier
+        district_points_decimal = base_points_decimal * total_district_multiplier
+
+        points_awarded = int(player_points_decimal.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        district_points_delta = int(district_points_decimal.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        if action == CheckIn.Action.ATTACK:
+            district_points_delta = -abs(district_points_delta)
+        else:
+            district_points_delta = abs(district_points_delta)
+        if points_awarded <= 0:
+            points_awarded = 1
 
         payload_meta = metadata.copy() if isinstance(metadata, dict) else {}
         payload_meta["precision"] = precision
@@ -257,9 +572,17 @@ def apply_checkin(
             except (TypeError, ValueError):
                 pass
 
-        party_value = (party_code or "").strip()
+        if party:
+            payload_meta.setdefault("party", {})["size"] = party_size
+            payload_meta.setdefault("party", {})["code"] = party_code_value
+            payload_meta["party"]["contribution"] = is_party_contribution
+
+        party_value = party_code_value
         home_snapshot_code = home_code or ""
         home_snapshot_name = locked.home_district_name or locked.home_district or ""
+        base_points_value = POINTS_PER_CHECKIN
+        total_player_multiplier = total_player_multiplier.quantize(Decimal("0.01"))
+        party_multiplier_snapshot = party_multiplier_player.quantize(Decimal("0.01"))
 
         checkin = CheckIn.objects.create(
             player=locked,
@@ -268,12 +591,16 @@ def apply_checkin(
             district_name=name or "",
             action=action,
             mode=mode,
-            multiplier=effective_multiplier,
-            base_points=base_points,
+            multiplier=total_player_multiplier,
+            base_points=base_points_value,
             points_awarded=points_awarded,
+            district_points_delta=district_points_delta,
+            party_size_snapshot=party_size if party else 1,
+            party_multiplier_snapshot=party_multiplier_snapshot,
             home_district_code_snapshot=home_snapshot_code,
             home_district_name_snapshot=home_snapshot_name,
             party_code=party_value,
+            is_party_contribution=is_party_contribution,
             metadata=payload_meta,
         )
 
@@ -322,10 +649,30 @@ def apply_checkin(
             checkin=checkin,
             mode=mode,
             precision=precision,
-            multiplier=effective_multiplier,
+            multiplier=total_player_multiplier,
             now_ms=now_ms,
         )
         _update_ratios(locked)
+
+        if is_party_contribution and party:
+            other_home_members = [member for member in home_members if member.id != locked.id]
+            if other_home_members:
+                _record_contribution_stats(
+                    district_code=code,
+                    supporter=locked,
+                    contribution_points=district_points_delta,
+                    when=now,
+                )
+
+        if party and party_size > 1:
+            other_party_members = [member for member in party_members if member.id != locked.id]
+            _update_party_bonds(
+                locked,
+                other_party_members,
+                attack_points=abs(district_points_delta) if action == CheckIn.Action.ATTACK else 0,
+                contribution_points=district_points_delta if is_party_contribution else 0,
+                when=now,
+            )
 
         if action == CheckIn.Action.ATTACK:
             _record_attack_engagement(
@@ -333,7 +680,7 @@ def apply_checkin(
                 home_name=home_snapshot_name,
                 target_code=code,
                 target_name=name,
-                points_awarded=points_awarded,
+                points_awarded=abs(district_points_delta),
                 party_code=party_value or None,
                 occurred_at=now,
             )
