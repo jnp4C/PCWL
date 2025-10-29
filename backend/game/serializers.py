@@ -413,6 +413,7 @@ class CheckInRequestSerializer(serializers.Serializer):
     source = serializers.ChoiceField(choices=SOURCE_CHOICES, required=False, allow_blank=True)
     coordinates = CoordinatesSerializer(required=False)
     metadata = serializers.DictField(required=False)
+    party_code = serializers.CharField(required=False, allow_blank=True, max_length=64)
 
     def validate(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
         mode = attrs.get("mode")
@@ -438,6 +439,9 @@ class CheckInSerializer(serializers.ModelSerializer):
             "multiplier",
             "base_points",
             "points_awarded",
+            "home_district_code_snapshot",
+            "home_district_name_snapshot",
+            "party_code",
             "precision",
             "coordinates",
         ]

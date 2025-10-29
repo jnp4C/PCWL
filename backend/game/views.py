@@ -1,6 +1,9 @@
 from django.contrib.auth import authenticate, login, logout
 from django.db import transaction
-from django.db.models import Q, Sum
+from datetime import timedelta
+from typing import Any, Dict
+
+from django.db.models import Count, Q, Sum
 from django.db import DatabaseError
 from django.db.utils import OperationalError
 from django.utils import timezone
@@ -17,7 +20,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import CheckIn, FriendLink, FriendRequest, Player
+from .models import CheckIn, DistrictEngagement, FriendLink, FriendRequest, Player
 from .serializers import (
     CheckInRequestSerializer,
     CheckInSerializer,
@@ -31,6 +34,19 @@ from .services import CooldownActive, apply_checkin, start_charge
 
 
 DISTRICT_BASE_SCORE = 2000
+DISTRICT_SECURE_THRESHOLD = 200
+DISTRICT_RECENT_THRESHOLD = 100
+
+
+def _classify_district_state(defended, attacked, threshold=DISTRICT_SECURE_THRESHOLD):
+    defended = defended or 0
+    attacked = attacked or 0
+    net = defended - attacked
+    if net >= threshold:
+        return "secure"
+    if net <= -threshold:
+        return "overrun"
+    return "contested"
 
 
 def _auto_migrate_if_allowed():
@@ -258,10 +274,19 @@ class CheckInView(PlayerScopedAPIView):
         payload = serializer.validated_data.copy()
         metadata = payload.pop("metadata", {}) or {}
         source = payload.pop("source", None)
+        party_code = payload.pop("party_code", None)
         if source:
             metadata["source"] = source
+        if party_code:
+            if not isinstance(metadata, dict):
+                metadata = {}
+            party_section = metadata.get("party")
+            if not isinstance(party_section, dict):
+                party_section = {}
+            party_section["code"] = party_code
+            metadata["party"] = party_section
         try:
-            result = apply_checkin(player, metadata=metadata or None, **payload)
+            result = apply_checkin(player, metadata=metadata or None, party_code=party_code, **payload)
         except CooldownActive as exc:
             raise ValidationError({"detail": str(exc)})
         except ValueError as exc:
@@ -273,6 +298,238 @@ class CheckInView(PlayerScopedAPIView):
             "checkin": checkin_data,
         }
         return Response(response, status=status.HTTP_201_CREATED)
+
+
+class DistrictActivityView(APIView):
+    """Expose aggregated attack/defend metrics for a specific district."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, code):
+        district_code = str(code or "").strip()
+        if not district_code:
+            return Response({"detail": "District code is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        window_param = request.query_params.get("window")
+        try:
+            window_hours = int(window_param) if window_param is not None else 24
+        except (TypeError, ValueError):
+            window_hours = 24
+        window_hours = max(1, min(window_hours, 168))
+
+        cutoff = timezone.now() - timedelta(hours=window_hours)
+        base_qs = CheckIn.objects.filter(district_code__iexact=district_code)
+        totals = base_qs.aggregate(
+            defended=Sum(
+                "points_awarded",
+                filter=Q(action=CheckIn.Action.DEFEND),
+            ),
+            attacked=Sum(
+                "points_awarded",
+                filter=Q(action=CheckIn.Action.ATTACK),
+            ),
+        )
+        recent_totals = base_qs.filter(occurred_at__gte=cutoff).aggregate(
+            defended=Sum(
+                "points_awarded",
+                filter=Q(action=CheckIn.Action.DEFEND),
+            ),
+            attacked=Sum(
+                "points_awarded",
+                filter=Q(action=CheckIn.Action.ATTACK),
+            ),
+        )
+
+        district_name = (
+            base_qs.exclude(district_name="")
+            .values_list("district_name", flat=True)
+            .first()
+        )
+        if not district_name:
+            engagement_name = (
+                DistrictEngagement.objects.filter(target_district_code__iexact=district_code)
+                .exclude(target_district_name="")
+                .values_list("target_district_name", flat=True)
+                .first()
+            )
+            district_name = engagement_name or f"District {district_code}"
+
+        defended_total = totals.get("defended") or 0
+        attacked_total = totals.get("attacked") or 0
+        defended_recent = recent_totals.get("defended") or 0
+        attacked_recent = recent_totals.get("attacked") or 0
+
+        top_attackers = list(
+            base_qs.filter(action=CheckIn.Action.ATTACK)
+            .values("home_district_code_snapshot", "home_district_name_snapshot")
+            .annotate(points=Sum("points_awarded"), checkins=Count("id"))
+            .order_by("-points", "-checkins")[:5]
+        )
+        for entry in top_attackers:
+            entry["home_district_code"] = entry.pop("home_district_code_snapshot") or ""
+            name = entry.pop("home_district_name_snapshot") or ""
+            code_value = entry["home_district_code"]
+            entry["home_district_name"] = name or (f"District {code_value}" if code_value else "")
+
+        top_defenders = list(
+            base_qs.filter(action=CheckIn.Action.DEFEND)
+            .values("home_district_code_snapshot", "home_district_name_snapshot")
+            .annotate(points=Sum("points_awarded"), checkins=Count("id"))
+            .order_by("-points", "-checkins")[:5]
+        )
+        for entry in top_defenders:
+            entry["home_district_code"] = entry.pop("home_district_code_snapshot") or ""
+            name = entry.pop("home_district_name_snapshot") or ""
+            code_value = entry["home_district_code"]
+            entry["home_district_name"] = name or (f"District {code_value}" if code_value else "")
+
+        engagement_rows = list(
+            DistrictEngagement.objects.filter(target_district_code__iexact=district_code)
+            .order_by("-attack_points_total")[:5]
+            .values(
+                "home_district_code",
+                "home_district_name",
+                "target_district_code",
+                "target_district_name",
+                "attack_points_total",
+                "attack_checkins",
+                "party_attack_checkins",
+                "last_attack_at",
+            )
+        )
+        for row in engagement_rows:
+            if not row.get("home_district_name") and row.get("home_district_code"):
+                row["home_district_name"] = f"District {row['home_district_code']}"
+
+        recent_checkins = base_qs.order_by("-occurred_at")[:10]
+        serialized_checkins = CheckInSerializer(recent_checkins, many=True).data
+
+        response_data = {
+            "district": {
+                "code": district_code,
+                "name": district_name,
+            },
+            "window_hours": window_hours,
+            "status": _classify_district_state(defended_total, attacked_total, DISTRICT_SECURE_THRESHOLD),
+            "recent_status": _classify_district_state(
+                defended_recent,
+                attacked_recent,
+                DISTRICT_RECENT_THRESHOLD,
+            ),
+            "totals": {
+                "defended": defended_total,
+                "attacked": attacked_total,
+                "net": defended_total - attacked_total,
+            },
+            "recent_totals": {
+                "defended": defended_recent,
+                "attacked": attacked_recent,
+                "net": defended_recent - attacked_recent,
+                "cutoff": cutoff,
+            },
+            "top_attackers": top_attackers,
+            "top_defenders": top_defenders,
+            "rival_engagements": engagement_rows,
+            "recent_checkins": serialized_checkins,
+        }
+        return Response(response_data, status=status.HTTP_200_OK)
+
+
+class DistrictStrategyView(APIView):
+    """Summaries of how home districts focus their attacks across the map."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        per_home_param = request.query_params.get("per_home")
+        try:
+            per_home_limit = int(per_home_param) if per_home_param is not None else 3
+        except (TypeError, ValueError):
+            per_home_limit = 3
+        per_home_limit = max(1, min(per_home_limit, 5))
+
+        home_map: Dict[str, Dict[str, Any]] = {}
+        engagements = DistrictEngagement.objects.exclude(home_district_code="").order_by(
+            "home_district_code", "-attack_points_total"
+        )
+        for engagement in engagements:
+            home_code = engagement.home_district_code or ""
+            if not home_code:
+                continue
+            home_entry = home_map.setdefault(
+                home_code,
+                {
+                    "home_district_code": home_code,
+                    "home_district_name": engagement.home_district_name or f"District {home_code}",
+                    "total_points": 0,
+                    "total_checkins": 0,
+                    "targets": [],
+                },
+            )
+            home_entry["total_points"] += engagement.attack_points_total
+            home_entry["total_checkins"] += engagement.attack_checkins
+            home_entry["targets"].append(
+                {
+                    "target_district_code": engagement.target_district_code,
+                    "target_district_name": engagement.target_district_name
+                    or f"District {engagement.target_district_code}",
+                    "attack_points_total": engagement.attack_points_total,
+                    "attack_checkins": engagement.attack_checkins,
+                    "party_attack_checkins": engagement.party_attack_checkins,
+                    "last_attack_at": engagement.last_attack_at,
+                }
+            )
+
+        homes_payload = []
+        for entry in home_map.values():
+            targets = sorted(
+                entry["targets"],
+                key=lambda item: (item["attack_points_total"], item["attack_checkins"]),
+                reverse=True,
+            )
+            top_targets = targets[:per_home_limit]
+            homes_payload.append(
+                {
+                    "home_district_code": entry["home_district_code"],
+                    "home_district_name": entry["home_district_name"],
+                    "total_points": entry["total_points"],
+                    "total_checkins": entry["total_checkins"],
+                    "primary_target": top_targets[0] if top_targets else None,
+                    "top_targets": top_targets,
+                }
+            )
+
+        global_top_targets = list(
+            DistrictEngagement.objects.exclude(target_district_code="")
+            .order_by("-attack_points_total")[:10]
+            .values(
+                "home_district_code",
+                "home_district_name",
+                "target_district_code",
+                "target_district_name",
+                "attack_points_total",
+                "attack_checkins",
+                "party_attack_checkins",
+                "last_attack_at",
+            )
+        )
+        for item in global_top_targets:
+            if not item.get("home_district_name") and item.get("home_district_code"):
+                item["home_district_name"] = f"District {item['home_district_code']}"
+            if not item.get("target_district_name") and item.get("target_district_code"):
+                item["target_district_name"] = f"District {item['target_district_code']}"
+
+        homes_payload.sort(key=lambda item: (item["total_points"], item["total_checkins"]), reverse=True)
+
+        return Response(
+            {
+                "generated_at": timezone.now(),
+                "per_home_limit": per_home_limit,
+                "homes": homes_payload,
+                "global_top_targets": global_top_targets,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class FriendListView(PlayerScopedAPIView):
@@ -505,6 +762,28 @@ def _build_player_leaderboard(limit=50):
 
 
 def _build_district_leaderboard(limit=50):
+    now = timezone.now()
+    recent_cutoff = now - timedelta(hours=24)
+    recent_map = {}
+    recent_rows = (
+        CheckIn.objects.filter(district_code__isnull=False, occurred_at__gte=recent_cutoff)
+        .values("district_code")
+        .annotate(
+            defended=Sum(
+                "points_awarded",
+                filter=Q(action=CheckIn.Action.DEFEND),
+            ),
+            attacked=Sum(
+                "points_awarded",
+                filter=Q(action=CheckIn.Action.ATTACK),
+            ),
+        )
+    )
+    for row in recent_rows:
+        key = (row.get("district_code") or "").strip()
+        if key:
+            recent_map[key] = row
+
     aggregates = (
         CheckIn.objects.filter(district_code__isnull=False)
         .values("district_code", "district_name")
@@ -527,6 +806,9 @@ def _build_district_leaderboard(limit=50):
         defended = row.get("defended") or 0
         attacked = row.get("attacked") or 0
         change = defended - attacked
+        recent_row = recent_map.get(district_id, {})
+        recent_defended = recent_row.get("defended") or 0
+        recent_attacked = recent_row.get("attacked") or 0
         districts.append(
             {
                 "id": district_id,
@@ -535,6 +817,13 @@ def _build_district_leaderboard(limit=50):
                 "change": change,
                 "defended": defended,
                 "attacked": attacked,
+                "status": _classify_district_state(defended, attacked, DISTRICT_SECURE_THRESHOLD),
+                "recent_change": recent_defended - recent_attacked,
+                "recent_status": _classify_district_state(
+                    recent_defended,
+                    recent_attacked,
+                    DISTRICT_RECENT_THRESHOLD,
+                ),
             }
         )
     districts.sort(key=lambda item: (-item["score"], -item["defended"], item["name"]))

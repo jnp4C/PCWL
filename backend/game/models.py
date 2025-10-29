@@ -102,6 +102,9 @@ class CheckIn(models.Model):
     multiplier = models.DecimalField(max_digits=6, decimal_places=2, default=1)
     base_points = models.PositiveIntegerField(default=10)
     points_awarded = models.IntegerField()
+    home_district_code_snapshot = models.CharField(max_length=64, blank=True)
+    home_district_name_snapshot = models.CharField(max_length=120, blank=True)
+    party_code = models.CharField(max_length=64, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -111,6 +114,34 @@ class CheckIn(models.Model):
 
     def __str__(self):
         return f"{self.player.username} {self.action} {self.district_code or '?'} ({self.points_awarded} pts)"
+
+
+class DistrictEngagement(models.Model):
+    """Aggregated attack focus from one home district toward another."""
+
+    home_district_code = models.CharField(max_length=64)
+    home_district_name = models.CharField(max_length=120, blank=True)
+    target_district_code = models.CharField(max_length=64)
+    target_district_name = models.CharField(max_length=120, blank=True)
+    attack_points_total = models.PositiveIntegerField(default=0)
+    attack_checkins = models.PositiveIntegerField(default=0)
+    party_attack_checkins = models.PositiveIntegerField(default=0)
+    last_attack_at = models.DateTimeField(null=True, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["home_district_code", "target_district_code"],
+                name="unique_home_target_engagement",
+            )
+        ]
+        ordering = ["home_district_code", "-attack_points_total", "target_district_code"]
+
+    def __str__(self):
+        return f"{self.home_district_code or '?'} -> {self.target_district_code or '?'} ({self.attack_points_total} pts)"
 
 
 class FriendLink(models.Model):

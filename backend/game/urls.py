@@ -5,6 +5,8 @@ from rest_framework.authtoken.views import obtain_auth_token
 from .views import (
     CheckInView,
     ChargeAttackView,
+    DistrictActivityView,
+    DistrictStrategyView,
     FriendDetailView,
     FriendListView,
     FriendRequestDetailView,
@@ -31,6 +33,8 @@ urlpatterns = [
     path("session/", SessionCurrentView.as_view(), name="session-current"),
     path("checkins/", CheckInView.as_view(), name="checkin-log"),
     path("checkins/charge/", ChargeAttackView.as_view(), name="checkin-charge"),
+    path("districts/strategy/", DistrictStrategyView.as_view(), name="district-strategy"),
+    path("districts/<str:code>/activity/", DistrictActivityView.as_view(), name="district-activity"),
     path("friends/", FriendListView.as_view(), name="friend-list"),
     path("friends/search/", FriendSearchView.as_view(), name="friend-search"),
     path("friends/<str:username>/", FriendDetailView.as_view(), name="friend-detail"),

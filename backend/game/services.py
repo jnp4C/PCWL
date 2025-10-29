@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional, Tuple
 from django.db import transaction
 from django.utils import timezone
 
-from .models import CheckIn, Player
+from .models import CheckIn, DistrictEngagement, Player
 
 POINTS_PER_CHECKIN = 10
 CHARGE_ATTACK_MULTIPLIER = 3
@@ -141,6 +141,64 @@ def start_charge(player: Player) -> Player:
         return locked
 
 
+def _record_attack_engagement(
+    *,
+    home_code: Optional[str],
+    home_name: Optional[str],
+    target_code: Optional[str],
+    target_name: Optional[str],
+    points_awarded: int,
+    party_code: Optional[str],
+    occurred_at,
+) -> None:
+    if not home_code or not target_code or points_awarded <= 0:
+        return
+    home = str(home_code).strip()
+    target = str(target_code).strip()
+    if not home or not target:
+        return
+    metadata: Dict[str, Any]
+    engagement = (
+        DistrictEngagement.objects.select_for_update()
+        .filter(home_district_code=home, target_district_code=target)
+        .first()
+    )
+    is_new = False
+    if engagement is None:
+        engagement = DistrictEngagement(
+            home_district_code=home,
+            target_district_code=target,
+        )
+        metadata = {}
+        is_new = True
+    else:
+        metadata = _ensure_dict(engagement.metadata)
+    engagement.home_district_name = home_name or engagement.home_district_name
+    engagement.target_district_name = target_name or engagement.target_district_name
+    engagement.attack_points_total += max(points_awarded, 0)
+    engagement.attack_checkins += 1
+    if party_code:
+        engagement.party_attack_checkins += 1
+        metadata["last_party_code"] = party_code
+    engagement.metadata = metadata
+    engagement.last_attack_at = occurred_at
+    if is_new:
+        engagement.save()
+    else:
+        engagement.save(
+            update_fields=[
+                "home_district_name",
+                "target_district_name",
+                "attack_points_total",
+                "attack_checkins",
+                "party_attack_checkins",
+                "metadata",
+                "last_attack_at",
+                "updated_at",
+            ]
+        )
+
+
 def apply_checkin(
     player: Player,
     *,
@@ -150,6 +208,7 @@ def apply_checkin(
     precision: Optional[str] = None,
     coordinates: Optional[Dict[str, float]] = None,
     metadata: Optional[Dict[str, Any]] = None,
+    party_code: Optional[str] = None,
 ) -> CheckInResult:
     with transaction.atomic():
         locked = Player.objects.select_for_update().get(pk=player.pk)
@@ -198,6 +257,10 @@ def apply_checkin(
             except (TypeError, ValueError):
                 pass
 
+        party_value = (party_code or "").strip()
+        home_snapshot_code = home_code or ""
+        home_snapshot_name = locked.home_district_name or locked.home_district or ""
+
         checkin = CheckIn.objects.create(
             player=locked,
             occurred_at=now,
@@ -208,6 +271,9 @@ def apply_checkin(
             multiplier=effective_multiplier,
             base_points=base_points,
             points_awarded=points_awarded,
+            home_district_code_snapshot=home_snapshot_code,
+            home_district_name_snapshot=home_snapshot_name,
+            party_code=party_value,
             metadata=payload_meta,
         )
 
@@ -260,6 +326,17 @@ def apply_checkin(
             now_ms=now_ms,
         )
         _update_ratios(locked)
+
+        if action == CheckIn.Action.ATTACK:
+            _record_attack_engagement(
+                home_code=home_snapshot_code,
+                home_name=home_snapshot_name,
+                target_code=code,
+                target_name=name,
+                points_awarded=points_awarded,
+                party_code=party_value or None,
+                occurred_at=now,
+            )
 
         locked.save(
             update_fields=[

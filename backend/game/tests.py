@@ -3,7 +3,8 @@ from decimal import Decimal
 from django.test import TestCase
 from django.urls import reverse
 
-from .models import CheckIn, FriendLink, Player
+from .models import CheckIn, DistrictEngagement, FriendLink, Player
+from .services import apply_checkin
 
 
 class HealthEndpointTests(TestCase):
@@ -262,6 +263,11 @@ class CheckInApiTests(TestCase):
         self.assertEqual(checkin.action, CheckIn.Action.ATTACK)
         self.assertEqual(checkin.mode, CheckIn.Mode.RANGED)
         self.assertEqual(checkin.points_awarded, 10)
+        self.assertEqual(checkin.home_district_code_snapshot, "1100")
+        self.assertEqual(checkin.party_code, "")
+        engagement = DistrictEngagement.objects.get(home_district_code="1100", target_district_code="1200")
+        self.assertEqual(engagement.attack_points_total, 10)
+        self.assertEqual(engagement.attack_checkins, 1)
 
     def test_charge_endpoint_sets_multiplier(self):
         response = self.client.post(reverse("checkin-charge"), content_type="application/json")
@@ -398,3 +404,64 @@ class LeaderboardApiTests(TestCase):
         self.assertTrue(any(entry["username"] == "beta" for entry in players))
         self.assertTrue(any(entry["id"] == "1100" for entry in districts))
         self.assertTrue(any(entry["id"] == "1200" for entry in districts))
+        for entry in districts:
+            self.assertIn("status", entry)
+            self.assertIn("recent_status", entry)
+
+
+class DistrictAnalyticsTests(TestCase):
+    def setUp(self):
+        self.attacker = Player.objects.create(
+            username="attacker",
+            home_district_code="1100",
+            home_district_name="Prague 1",
+            home_district="Prague 1",
+        )
+        self.defender = Player.objects.create(
+            username="defender",
+            home_district_code="1200",
+            home_district_name="Prague 2",
+            home_district="Prague 2",
+        )
+
+    def test_district_activity_endpoint(self):
+        apply_checkin(
+            self.attacker,
+            district_code="1200",
+            district_name="Prague 2",
+            mode=CheckIn.Mode.RANGED,
+            metadata={"source": "test"},
+        )
+        apply_checkin(
+            self.defender,
+            district_code="1200",
+            district_name="Prague 2",
+            mode=CheckIn.Mode.LOCAL,
+            metadata={"source": "test"},
+        )
+        response = self.client.get(reverse("district-activity", args=["1200"]))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["district"]["code"], "1200")
+        self.assertEqual(data["totals"]["attacked"], 10)
+        self.assertEqual(data["totals"]["defended"], 10)
+        self.assertEqual(data["status"], "contested")
+        self.assertTrue(any(entry["home_district_code"] == "1100" for entry in data["top_attackers"]))
+        self.assertTrue(data["recent_checkins"])
+
+    def test_district_strategy_endpoint(self):
+        apply_checkin(
+            self.attacker,
+            district_code="1200",
+            district_name="Prague 2",
+            mode=CheckIn.Mode.RANGED,
+            metadata={"source": "test"},
+        )
+        response = self.client.get(reverse("district-strategy"))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        homes = data.get("homes", [])
+        self.assertTrue(any(home["home_district_code"] == "1100" for home in homes))
+        target_entry = next(home for home in homes if home["home_district_code"] == "1100")
+        self.assertIsNotNone(target_entry["primary_target"])
+        self.assertEqual(target_entry["primary_target"]["target_district_code"], "1200")
