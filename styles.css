@@ -3433,12 +3433,6 @@ button.secondary:hover,
   border: 1px solid color-mix(in srgb, var(--player-marker-color, #6366f1) 35%, transparent) !important;
 }
 
-
-.locked-slider {
-  opacity: 0.45;
-  pointer-events: none;
-}
-
 .building-gif-marker,
 .park-gif-marker {
   pointer-events: none;

@@ -8,7 +8,6 @@ const districtsToggle = document.getElementById('districts-toggle');
 const parksToggle = document.getElementById('parks-toggle');
 const urbanToggle = document.getElementById('urban-toggle');
 const cyclingToggle = document.getElementById('cycling-toggle');
-const basemapSlider = document.getElementById('basemap-slider');
 
 const mapContainer = document.getElementById('map');
 const loginForm = document.getElementById('login-form');
@@ -9975,12 +9974,6 @@ function initialiseMap() {
       updateStatus('Map ready. Use “Find Me” to jump to your location.');
     } else {
       updateStatus('Map ready. Geolocation needs https:// or http://localhost to work.');
-    }
-
-    if (basemapSlider) {
-      basemapSlider.value = '0';
-      basemapSlider.disabled = true;
-      basemapSlider.classList.add('locked-slider');
     }
 
     if (districtsToggle && !districtsToggle.checked) {
