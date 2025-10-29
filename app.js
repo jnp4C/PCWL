@@ -1445,6 +1445,11 @@ function applyServerPlayerData(profile, apiPlayer) {
       profile.defendRatio = parsedDefendRatio;
     }
   }
+  if (apiPlayer.next_checkin_multiplier !== undefined && apiPlayer.next_checkin_multiplier !== null) {
+    const nextMultiplier = Number(apiPlayer.next_checkin_multiplier);
+    profile.nextCheckinMultiplier =
+      Number.isFinite(nextMultiplier) && nextMultiplier >= 1 ? nextMultiplier : 1;
+  }
 
   profile.isActive = apiPlayer.is_active !== undefined ? Boolean(apiPlayer.is_active) : profile.isActive;
   profile.createdAt = apiPlayer.created_at || profile.createdAt || null;
@@ -2001,68 +2006,11 @@ function startLiveLocationWatch() {
   }
 }
 
-function buildPlayerStatsPayload(profile) {
-  if (!profile) {
-    return null;
-  }
-  const history = buildCheckinHistoryPayload(profile);
-  const score = Math.max(0, Math.round(normaliseNumber(profile.points, 0)));
-  const attackPoints = Math.max(0, Math.round(normaliseNumber(profile.attackPoints, 0)));
-  const defendPoints = Math.max(0, Math.round(normaliseNumber(profile.defendPoints, 0)));
-  const homeCode = profile.homeDistrictId ? safeId(profile.homeDistrictId) : null;
-  const homeName =
-    typeof profile.homeDistrictName === 'string' && profile.homeDistrictName.trim()
-      ? profile.homeDistrictName.trim()
-      : null;
-  const cooldownState = buildCooldownStatePayload(profile);
-  const markerColor = normaliseMarkerColor(profile.mapMarkerColor);
-
-  return {
-    score,
-    attack_points: attackPoints,
-    defend_points: defendPoints,
-    checkins: history.length,
-    checkin_history: history,
-    home_district_code: homeCode,
-    home_district_name: homeName,
-    home_district: homeName || '',
-    cooldowns: cooldownState.cooldowns,
-    cooldown_details: cooldownState.details,
-    map_marker_color: markerColor,
-  };
+function buildPlayerStatsPayload() {
+  return null;
 }
 
-function scheduleProfileStatsSync(profile) {
-  if (!profile || !profile.backendId || !isSessionAuthenticated) {
-    return;
-  }
-  const payload = buildPlayerStatsPayload(profile);
-  if (!payload) {
-    return;
-  }
-
-  statsSyncQueue = statsSyncQueue
-    .catch(() => null)
-    .then(() =>
-      apiRequest(`players/${profile.backendId}/`, {
-        method: 'PATCH',
-        body: payload,
-      })
-    )
-    .then((data) => {
-      if (data && typeof data === 'object') {
-        applyServerPlayerData(profile, data);
-        savePlayers();
-      }
-    })
-    .catch((error) => {
-      if (error && (error.status === 401 || error.status === 403)) {
-        isSessionAuthenticated = false;
-        activePlayerBackendId = null;
-      }
-      console.warn('Failed to sync player stats', error);
-    });
-}
+function scheduleProfileStatsSync() {}
 
 function ensurePreciseLocationResolution(profile) {
   if (
@@ -3704,30 +3652,10 @@ document.addEventListener('click', (event) => {
 });
 
 function loadPlayers() {
-  try {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed && typeof parsed === 'object') {
-        players = parsed;
-      }
-    }
-  } catch (error) {
-    console.warn('Failed to load players from storage', error);
-    players = {};
-  }
-  Object.keys(players).forEach((name) => {
-    ensurePlayerProfile(name);
-  });
+  players = {};
 }
 
-function savePlayers() {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(players));
-  } catch (error) {
-    console.warn('Failed to save players to storage', error);
-  }
-}
+function savePlayers() {}
 
 function sanitizePartyState(raw) {
   if (!raw || typeof raw !== 'object') {
@@ -4468,50 +4396,9 @@ async function initialisePlayers() {
 
 function loadDistrictScores() {
   districtScores = {};
-  try {
-    const stored = window.localStorage.getItem(DISTRICT_SCORES_STORAGE_KEY);
-    if (!stored) {
-      return;
-    }
-    const parsed = JSON.parse(stored);
-    if (!parsed || typeof parsed !== 'object') {
-      return;
-    }
-    Object.entries(parsed).forEach(([id, value]) => {
-      if (!id) {
-        return;
-      }
-      if (typeof value === 'number') {
-        districtScores[id] = {
-          adjustment: normaliseNumber(value, 0),
-          defended: value > 0 ? normaliseNumber(value, 0) : 0,
-          attacked: value < 0 ? Math.abs(normaliseNumber(value, 0)) : 0,
-          name: null,
-        };
-        return;
-      }
-      if (value && typeof value === 'object') {
-        districtScores[id] = {
-          adjustment: normaliseNumber(value.adjustment, 0),
-          defended: normaliseNumber(value.defended, 0),
-          attacked: normaliseNumber(value.attacked, 0),
-          name: typeof value.name === 'string' && value.name.trim() ? value.name.trim() : null,
-        };
-      }
-    });
-  } catch (error) {
-    console.warn('Failed to load district scores from storage', error);
-    districtScores = {};
-  }
 }
 
-function saveDistrictScores() {
-  try {
-    window.localStorage.setItem(DISTRICT_SCORES_STORAGE_KEY, JSON.stringify(districtScores));
-  } catch (error) {
-    console.warn('Failed to save district scores to storage', error);
-  }
-}
+function saveDistrictScores() {}
 
 function ensureDistrictScoreEntry(districtId, districtName = null) {
   const id = districtId ? safeId(districtId) : null;
@@ -4549,22 +4436,7 @@ function getDistrictStrength(districtId) {
   return DISTRICT_BASE_SCORE + adjustment;
 }
 
-function applyDistrictScoreDelta(districtId, delta, districtName = null) {
-  if (!districtId || !Number.isFinite(delta) || delta === 0) {
-    return;
-  }
-  const entry = ensureDistrictScoreEntry(districtId, districtName);
-  if (!entry) {
-    return;
-  }
-  entry.adjustment = normaliseNumber(entry.adjustment, 0) + delta;
-  if (delta > 0) {
-    entry.defended = normaliseNumber(entry.defended, 0) + delta;
-  } else if (delta < 0) {
-    entry.attacked = normaliseNumber(entry.attacked, 0) + Math.abs(delta);
-  }
-  saveDistrictScores();
-}
+function applyDistrictScoreDelta() {}
 
 function renderKnownPlayers() {
   const names = Object.keys(players).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
@@ -8566,6 +8438,68 @@ function switchToWelcome() {
   prefillLastSignedInUser();
 }
 
+async function submitBackendCheckIn({
+  districtId,
+  districtName,
+  mode,
+  precision = null,
+  locationSource = null,
+  coordinates = null,
+}) {
+  if (!currentUser || !players[currentUser]) {
+    return null;
+  }
+  const profile = ensurePlayerProfile(currentUser);
+  const payload = {
+    district_code: districtId,
+    mode,
+  };
+  if (districtName) {
+    payload.district_name = districtName;
+  }
+  if (precision) {
+    payload.precision = precision;
+  }
+  if (locationSource) {
+    payload.source = locationSource;
+  }
+  if (
+    coordinates &&
+    Number.isFinite(coordinates.lng) &&
+    Number.isFinite(coordinates.lat)
+  ) {
+    payload.coordinates = { lng: coordinates.lng, lat: coordinates.lat };
+  }
+
+  const response = await apiRequest('checkins/', {
+    method: 'POST',
+    body: payload,
+  });
+
+  if (response && response.player) {
+    applyServerPlayerData(profile, response.player);
+  }
+  savePlayers();
+  renderPlayerState();
+  return response;
+}
+
+async function submitChargeAttack() {
+  if (!currentUser || !players[currentUser]) {
+    return null;
+  }
+  const profile = ensurePlayerProfile(currentUser);
+  const response = await apiRequest('checkins/charge/', {
+    method: 'POST',
+  });
+  if (response && response.player) {
+    applyServerPlayerData(profile, response.player);
+  }
+  savePlayers();
+  renderPlayerState();
+  return response;
+}
+
 async function handleCheckIn(options = {}) {
   const contextCoords = options && options.contextCoords ? [...options.contextCoords] : null;
   const contextPoint = options && options.contextPoint ? { ...options.contextPoint } : null;
@@ -8671,6 +8605,7 @@ async function handleCheckIn(options = {}) {
   updateHomePresenceIndicator();
 
   const normalizedLocationSource = normaliseLocationSource(locationSource, null);
+  const backendLocationSource = normalizedLocationSource === 'cached' ? 'profile' : normalizedLocationSource;
 
   const actionKey = isDefending ? COOLDOWN_KEYS.DEFEND : COOLDOWN_KEYS.ATTACK;
   const cooldownMode =
@@ -8680,110 +8615,69 @@ async function handleCheckIn(options = {}) {
     updateStatus(`${label} cooldown active. Wait until it finishes before checking in again.`);
     return;
   }
-  const cooldownDuration =
-    actionKey === COOLDOWN_KEYS.DEFEND
-      ? cooldownMode === 'remote'
-        ? COOLDOWN_DURATIONS.defendRemote
-        : COOLDOWN_DURATIONS.defendLocal
-      : COOLDOWN_DURATIONS.attack;
 
-  const chargeMultiplier = profile.nextCheckinMultiplier > 1 ? profile.nextCheckinMultiplier : 1;
   const isPreciseLocal =
     normalizedLocationSource &&
     (normalizedLocationSource === 'map' || normalizedLocationSource === 'geolocated') &&
     locationContextId === districtId;
   const isLocalAttack = !isDefending && (isPreciseLocal || normalizedLocationSource === 'profile');
+  const checkinMode = isDefending
+    ? cooldownMode
+    : isLocalAttack
+    ? 'local'
+    : 'ranged';
+  const precision = checkinMode === 'local' ? (isPreciseLocal ? 'precise' : 'fallback') : null;
+  const coordinatesPayload =
+    isPreciseLocal && Number.isFinite(locationLng) && Number.isFinite(locationLat)
+      ? { lng: locationLng, lat: locationLat }
+      : null;
+  const sourceForBackend =
+    backendLocationSource ||
+    (checkinMode === 'ranged' ? 'ranged' : checkinMode === 'remote' ? 'home-remote' : null);
 
-  let basePoints = POINTS_PER_CHECKIN;
-  let effectiveMultiplier = chargeMultiplier;
-  let rangedAttack = false;
-  let meleeAttack = false;
-
-  if (!isDefending) {
-    if (isLocalAttack) {
-      effectiveMultiplier = isPreciseLocal ? chargeMultiplier * 2 : chargeMultiplier;
-      meleeAttack = true;
-    } else {
-      basePoints = 10;
-      effectiveMultiplier = chargeMultiplier;
-      rangedAttack = true;
+  try {
+    const response = await submitBackendCheckIn({
+      districtId,
+      districtName: districtDisplayName,
+      mode: checkinMode,
+      precision,
+      locationSource: sourceForBackend,
+      coordinates: coordinatesPayload,
+    });
+    const checkin = response && response.checkin ? response.checkin : null;
+    const pointsAwarded = checkin ? Number(checkin.points_awarded) : null;
+    const multiplierValue = checkin ? Number(checkin.multiplier) : null;
+    const resolvedAction = checkin ? checkin.action : checkInType;
+    const statusType = resolvedAction === 'defend' ? 'Defended' : 'Captured';
+    const pointsLabel = resolvedAction === 'defend' ? 'defend' : 'attack';
+    const multiplierText =
+      multiplierValue && Number.isFinite(multiplierValue) && multiplierValue > 1
+        ? ` (x${Number(multiplierValue).toLocaleString()})`
+        : '';
+    const modeText =
+      checkin && checkin.mode === 'ranged'
+        ? ' (ranged)'
+        : checkin && checkin.mode === 'remote'
+        ? ' (remote)'
+        : '';
+    if (resolvedAction === 'attack' && (contextCoords || contextPoint)) {
+      showAttackHitmarker({ lngLat: contextCoords, point: contextPoint, variant: 'attack' });
+    } else if (resolvedAction === 'defend' && (contextCoords || contextPoint)) {
+      showAttackHitmarker({ lngLat: contextCoords, point: contextPoint, variant: 'defend' });
     }
+    if (pointsAwarded !== null && Number.isFinite(pointsAwarded)) {
+      updateStatus(`${statusType}${modeText} ${districtDisplayName}. +${pointsAwarded} ${pointsLabel} pts${multiplierText}!`);
+    } else {
+      updateStatus(`${statusType}${modeText} ${districtDisplayName}.`);
+    }
+  } catch (error) {
+    console.warn('Failed to record check-in with backend', error);
+    const message =
+      (error && error.message) || 'Unable to check in right now. Please try again.';
+    updateStatus(message);
+    return;
   }
 
-  const pointsAwarded = basePoints * effectiveMultiplier;
-
-  if (isDefending) {
-    applyDistrictScoreDelta(districtId, pointsAwarded, districtDisplayName);
-  } else {
-    applyDistrictScoreDelta(districtId, -pointsAwarded, districtDisplayName);
-  }
-
-  profile.checkins.unshift({
-    timestamp: Date.now(),
-    districtId,
-    districtName: districtDisplayName,
-    type: checkInType,
-    multiplier: effectiveMultiplier,
-    ranged: rangedAttack,
-    melee: meleeAttack,
-    cooldownType: actionKey,
-    cooldownMode,
-  });
-  profile.checkins = profile.checkins.slice(0, MAX_HISTORY_ITEMS);
-  profile.points += pointsAwarded;
-  if (isDefending) {
-    profile.defendPoints += pointsAwarded;
-  } else {
-    profile.attackPoints += pointsAwarded;
-  }
-  profile.serverCheckinCount = profile.checkins.length;
-  const locationPersistOrigin = normalizedLocationSource === 'geolocated' ? 'geolocated' : null;
-  if (
-    locationPersistOrigin &&
-    saveProfileLocation(
-      profile,
-      {
-        lng: locationLng,
-        lat: locationLat,
-        districtId: locationContextId,
-        districtName: locationDisplayName,
-        source: locationPersistOrigin,
-      },
-      {
-        origin: locationPersistOrigin,
-        syncBackend: true,
-      }
-    )
-  ) {
-    savePlayers();
-  } else if (
-    locationSource !== 'home-remote' &&
-    profile.lastKnownLocation &&
-    safeId(profile.lastKnownLocation.districtId) === locationContextId
-  ) {
-    profile.lastKnownLocation.timestamp = Date.now();
-  }
-  profile.nextCheckinMultiplier = 1;
-  if (!profile.skipCooldown || !isDevUser(currentUser)) {
-    const modeDetail = cooldownMode === 'remote' ? 'remote' : null;
-    setProfileCooldown(profile, actionKey, cooldownDuration, { mode: modeDetail });
-  } else {
-    clearProfileCooldown(profile, actionKey);
-  }
-
-  savePlayers();
-  renderPlayerState();
-  scheduleProfileStatsSync(profile);
-  const statusType = isDefending ? 'Defended' : 'Captured';
-  const pointsLabel = isDefending ? 'defend' : 'attack';
-  const multiplierText = effectiveMultiplier > 1 ? ` (x${effectiveMultiplier})` : '';
-  const attackModeText = !isDefending && rangedAttack ? ' (ranged)' : '';
-  if (!isDefending && (contextCoords || contextPoint)) {
-    showAttackHitmarker({ lngLat: contextCoords, point: contextPoint, variant: 'attack' });
-  } else if (isDefending && (contextCoords || contextPoint)) {
-    showAttackHitmarker({ lngLat: contextCoords, point: contextPoint, variant: 'defend' });
-  }
-  updateStatus(`${statusType}${attackModeText} ${districtDisplayName}. +${pointsAwarded} ${pointsLabel} pts${multiplierText}!`);
   refreshDistrictHover();
 }
 
@@ -8795,7 +8689,7 @@ function handleSetHomeDistrict() {
   openHomeDistrictModal();
 }
 
-function handleChargeAttack() {
+async function handleChargeAttack() {
   if (!currentUser) {
     updateStatus('Log in to charge your next attack.');
     return;
@@ -8813,18 +8707,22 @@ function handleChargeAttack() {
   const locationInfo = getCurrentLocationDistrictInfo({ profile, allowHomeFallback: true });
   const locationId = locationInfo && locationInfo.id ? safeId(locationInfo.id) : null;
   const isAtHome = profile.homeDistrictId && locationId && safeId(profile.homeDistrictId) === locationId;
-  profile.nextCheckinMultiplier = CHARGE_ATTACK_MULTIPLIER;
-  if (!profile.skipCooldown || !isDevUser(currentUser)) {
-    setProfileCooldown(profile, COOLDOWN_KEYS.CHARGE, COOLDOWN_DURATIONS.charge);
-  } else {
-    clearProfileCooldown(profile, COOLDOWN_KEYS.CHARGE);
+
+  try {
+    await submitChargeAttack();
+  } catch (error) {
+    console.warn('Failed to start charge attack on backend', error);
+    const message =
+      (error && error.message) || 'Unable to charge right now. Please try again.';
+    updateStatus(message);
+    return;
   }
-  savePlayers();
-  renderPlayerState();
-  scheduleProfileStatsSync(profile);
+
+  const refreshedProfile = ensurePlayerProfile(currentUser);
+  const multiplier = Math.max(1, Number(refreshedProfile.nextCheckinMultiplier) || CHARGE_ATTACK_MULTIPLIER);
   const label = isAtHome ? 'defend' : 'attack';
   updateStatus(
-    `Charging ${label}! In ${Math.floor(COOLDOWN_DURATIONS.charge / 60000)} minutes your next check-in will pay x${CHARGE_ATTACK_MULTIPLIER} points.`
+    `Charging ${label}! Your next check-in will pay x${multiplier} points once the cooldown completes.`
   );
   refreshDistrictHover();
 }
@@ -8879,42 +8777,47 @@ async function handleRangedAttack({ districtId, districtName, contextCoords = nu
     updateStatus('Attack cooldown active. Wait until it finishes before attacking again.');
     return;
   }
-  const pointsAwarded = 10 * chargeMultiplier;
 
-  profile.checkins.unshift({
-    timestamp: now,
-    districtId: safeDistrictId,
-    districtName: name,
-    type: 'attack',
-    multiplier: chargeMultiplier,
-    ranged: true,
-    melee: false,
-    cooldownType: COOLDOWN_KEYS.ATTACK,
-    cooldownMode: 'ranged',
-  });
-  profile.checkins = profile.checkins.slice(0, MAX_HISTORY_ITEMS);
+  const coordinatesPayload =
+    Array.isArray(contextCoords) &&
+    contextCoords.length === 2 &&
+    Number.isFinite(Number(contextCoords[0])) &&
+    Number.isFinite(Number(contextCoords[1]))
+      ? { lng: Number(contextCoords[0]), lat: Number(contextCoords[1]) }
+      : null;
 
-  profile.points += pointsAwarded;
-  profile.attackPoints += pointsAwarded;
-  profile.nextCheckinMultiplier = 1;
-  profile.serverCheckinCount = profile.checkins.length;
-
-  applyDistrictScoreDelta(safeDistrictId, -pointsAwarded, name);
-
-  if (!profile.skipCooldown || !isDevUser(currentUser)) {
-    setProfileCooldown(profile, COOLDOWN_KEYS.ATTACK, COOLDOWN_DURATIONS.attack);
-  } else {
-    clearProfileCooldown(profile, COOLDOWN_KEYS.ATTACK);
+  try {
+    const response = await submitBackendCheckIn({
+      districtId: safeDistrictId,
+      districtName: name,
+      mode: 'ranged',
+      precision: null,
+      locationSource: 'ranged',
+      coordinates: coordinatesPayload,
+    });
+    const checkin = response && response.checkin ? response.checkin : null;
+    const pointsAwarded = checkin ? Number(checkin.points_awarded) : null;
+    const multiplierValue = checkin ? Number(checkin.multiplier) : chargeMultiplier;
+    if (contextCoords || contextPoint) {
+      showAttackHitmarker({ lngLat: contextCoords, point: contextPoint });
+    }
+    const multiplierText =
+      multiplierValue && Number.isFinite(multiplierValue) && multiplierValue > 1
+        ? ` (x${Number(multiplierValue).toLocaleString()})`
+        : '';
+    if (pointsAwarded !== null && Number.isFinite(pointsAwarded)) {
+      updateStatus(`Ranged attack on ${name}. +${pointsAwarded} attack pts${multiplierText}!`);
+    } else {
+      updateStatus(`Ranged attack on ${name} initiated.`);
+    }
+  } catch (error) {
+    console.warn('Failed to launch ranged attack with backend', error);
+    const message =
+      (error && error.message) || 'Unable to launch a ranged attack right now. Please try again.';
+    updateStatus(message);
+    return;
   }
 
-  savePlayers();
-  renderPlayerState();
-  scheduleProfileStatsSync(profile);
-  const multiplierText = chargeMultiplier > 1 ? ` (x${chargeMultiplier})` : '';
-  if (contextCoords || contextPoint) {
-    showAttackHitmarker({ lngLat: contextCoords, point: contextPoint });
-  }
-  updateStatus(`Ranged attack on ${name}. +${pointsAwarded} attack pts${multiplierText}!`);
   refreshDistrictHover();
 }
 

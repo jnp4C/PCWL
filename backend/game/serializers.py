@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from rest_framework import serializers
 
-from .models import FriendLink, FriendRequest, Player
+from .models import CheckIn, FriendLink, FriendRequest, Player
 
 
 DEFAULT_MAP_MARKER_COLOR = "#6366f1"
@@ -13,9 +13,9 @@ HEX_COLOR_PATTERN = re.compile(r"^#(?:[0-9a-fA-F]{6})$")
 
 class PlayerSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
-    checkin_history = serializers.JSONField(required=False)
-    cooldowns = serializers.JSONField(required=False)
-    cooldown_details = serializers.JSONField(required=False)
+    checkin_history = serializers.JSONField(read_only=True)
+    cooldowns = serializers.JSONField(read_only=True)
+    cooldown_details = serializers.JSONField(read_only=True)
 
     MAX_CHECKIN_HISTORY = 50
     VALID_COOLDOWN_TYPES: Set[str] = {"attack", "defend", "charge"}
@@ -42,59 +42,48 @@ class PlayerSerializer(serializers.ModelSerializer):
             "is_active",
             "checkin_history",
              "cooldowns",
-             "cooldown_details",
+            "cooldown_details",
             "created_at",
             "updated_at",
             "password",
+            "next_checkin_multiplier",
         ]
         extra_kwargs = {
             "last_known_location": {"required": False, "allow_null": True},
             "password": {"write_only": True},
             "home_district_code": {"required": False, "allow_blank": True},
             "home_district_name": {"required": False, "allow_blank": True},
-            "attack_points": {"required": False},
-            "defend_points": {"required": False},
-            "checkin_history": {"required": False},
-            "cooldowns": {"required": False},
-            "cooldown_details": {"required": False},
+            "attack_points": {"read_only": True},
+            "defend_points": {"read_only": True},
+            "checkin_history": {"read_only": True},
+            "cooldowns": {"read_only": True},
+            "cooldown_details": {"read_only": True},
             "profile_image_url": {"required": False, "allow_blank": True},
             "map_marker_color": {"required": False, "allow_blank": True},
+            "score": {"read_only": True},
+            "checkins": {"read_only": True},
+            "attack_ratio": {"read_only": True},
+            "defend_ratio": {"read_only": True},
+            "next_checkin_multiplier": {"read_only": True},
         }
 
     def create(self, validated_data):
         password = validated_data.pop("password", None)
         player = super().create(validated_data)
-        if "checkin_history" in validated_data:
-            player.checkins = len(player.checkin_history or [])
-        if "home_district_name" in validated_data and validated_data.get("home_district_name"):
-            player.home_district = player.home_district_name
         player.ensure_auth_user(password=password)
-        if "checkin_history" in validated_data or "home_district_name" in validated_data:
-            update_fields: List[str] = []
-            if "checkin_history" in validated_data:
-                update_fields.append("checkins")
-            if "home_district_name" in validated_data:
-                update_fields.append("home_district")
-            if update_fields:
-                player.save(update_fields=update_fields)
+        if player.home_district_name:
+            player.home_district = player.home_district_name
+            player.save(update_fields=["home_district"])
         return player
 
     def update(self, instance, validated_data):
         password = validated_data.pop("password", None)
-        history_provided = "checkin_history" in validated_data
-        home_name_provided = "home_district_name" in validated_data
         player = super().update(instance, validated_data)
         if password:
             player.ensure_auth_user(password=password)
-        update_fields: List[str] = []
-        if history_provided:
-            player.checkins = len(player.checkin_history or [])
-            update_fields.append("checkins")
-        if home_name_provided:
+        if "home_district_name" in validated_data:
             player.home_district = player.home_district_name or ""
-            update_fields.append("home_district")
-        if update_fields:
-            player.save(update_fields=update_fields)
+            player.save(update_fields=["home_district"])
         return player
 
     def validate_checkin_history(self, value: Any) -> List[Dict[str, Any]]:
@@ -391,6 +380,88 @@ class FriendLinkSerializer(serializers.ModelSerializer):
 
 class FriendFavoriteSerializer(serializers.Serializer):
     is_favorite = serializers.BooleanField()
+
+
+class CoordinatesSerializer(serializers.Serializer):
+    lng = serializers.FloatField()
+    lat = serializers.FloatField()
+
+
+class CheckInRequestSerializer(serializers.Serializer):
+    MODE_CHOICES = [choice[0] for choice in CheckIn.Mode.choices]
+    PRECISION_CHOICES = ("precise", "fallback")
+    SOURCE_CHOICES = (
+        "geolocated",
+        "map",
+        "profile",
+        "cached",
+        "home-remote",
+        "home-fallback",
+        "manual",
+        "ranged",
+    )
+
+    district_code = serializers.CharField(max_length=64)
+    district_name = serializers.CharField(max_length=120, required=False, allow_blank=True)
+    mode = serializers.ChoiceField(choices=MODE_CHOICES)
+    precision = serializers.ChoiceField(
+        choices=PRECISION_CHOICES,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+    source = serializers.ChoiceField(choices=SOURCE_CHOICES, required=False, allow_blank=True)
+    coordinates = CoordinatesSerializer(required=False)
+    metadata = serializers.DictField(required=False)
+
+    def validate(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
+        mode = attrs.get("mode")
+        precision = attrs.get("precision")
+        if mode != CheckIn.Mode.LOCAL and precision:
+            attrs["precision"] = None
+        return attrs
+
+
+class CheckInSerializer(serializers.ModelSerializer):
+    precision = serializers.SerializerMethodField()
+    coordinates = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CheckIn
+        fields = [
+            "id",
+            "occurred_at",
+            "district_code",
+            "district_name",
+            "action",
+            "mode",
+            "multiplier",
+            "base_points",
+            "points_awarded",
+            "precision",
+            "coordinates",
+        ]
+
+    def get_precision(self, obj: CheckIn) -> Optional[str]:
+        metadata = obj.metadata if isinstance(obj.metadata, dict) else {}
+        precision = metadata.get("precision")
+        if isinstance(precision, str) and precision:
+            return precision
+        return None
+
+    def get_coordinates(self, obj: CheckIn) -> Optional[Dict[str, float]]:
+        metadata = obj.metadata if isinstance(obj.metadata, dict) else {}
+        coords = metadata.get("coordinates")
+        if not isinstance(coords, dict):
+            return None
+        try:
+            lng = float(coords.get("lng"))
+            lat = float(coords.get("lat"))
+        except (TypeError, ValueError):
+            return None
+        if not (math.isfinite(lng) and math.isfinite(lat)):
+            return None
+        return {"lng": lng, "lat": lat}
 
 
 class FriendRequestSerializer(serializers.ModelSerializer):

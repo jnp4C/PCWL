@@ -4,3 +4,4 @@ __pycache__/
 .DS_Store
 /backend/db.sqlite3
 _pcwl_staticfiles/
+AGENTS.md

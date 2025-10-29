@@ -3,6 +3,8 @@ from rest_framework.routers import DefaultRouter
 from rest_framework.authtoken.views import obtain_auth_token
 
 from .views import (
+    CheckInView,
+    ChargeAttackView,
     FriendDetailView,
     FriendListView,
     FriendRequestDetailView,
@@ -27,6 +29,8 @@ urlpatterns = [
     path("session/login/", SessionLoginView.as_view(), name="session-login"),
     path("session/logout/", SessionLogoutView.as_view(), name="session-logout"),
     path("session/", SessionCurrentView.as_view(), name="session-current"),
+    path("checkins/", CheckInView.as_view(), name="checkin-log"),
+    path("checkins/charge/", ChargeAttackView.as_view(), name="checkin-charge"),
     path("friends/", FriendListView.as_view(), name="friend-list"),
     path("friends/search/", FriendSearchView.as_view(), name="friend-search"),
     path("friends/<str:username>/", FriendDetailView.as_view(), name="friend-detail"),

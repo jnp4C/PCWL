@@ -1,8 +1,6 @@
-from collections import defaultdict
-
 from django.contrib.auth import authenticate, login, logout
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Sum
 from django.db import DatabaseError
 from django.db.utils import OperationalError
 from django.utils import timezone
@@ -14,22 +12,24 @@ from django.core.management import call_command
 from django.conf import settings
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view
-from rest_framework.exceptions import NotAuthenticated
+from rest_framework.exceptions import NotAuthenticated, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import FriendLink, FriendRequest, Player
+from .models import CheckIn, FriendLink, FriendRequest, Player
 from .serializers import (
+    CheckInRequestSerializer,
+    CheckInSerializer,
     FriendFavoriteSerializer,
     FriendLinkSerializer,
     FriendRequestSerializer,
     PlayerSearchResultSerializer,
     PlayerSerializer,
 )
+from .services import CooldownActive, apply_checkin, start_charge
 
 
-POINTS_PER_CHECKIN = 10
 DISTRICT_BASE_SCORE = 2000
 
 
@@ -233,6 +233,46 @@ class SessionCurrentView(APIView):
                 )
         data = PlayerSerializer(player, context={"request": request}).data if player else None
         return Response({"authenticated": True, "player": data}, status=status.HTTP_200_OK)
+
+
+class ChargeAttackView(PlayerScopedAPIView):
+    """Begin charging an attack or defend multiplier."""
+
+    def post(self, request):
+        player = self.get_current_player(request)
+        try:
+            updated_player = start_charge(player)
+        except CooldownActive as exc:
+            raise ValidationError({"detail": str(exc)})
+        serialized = PlayerSerializer(updated_player, context={"request": request})
+        return Response({"player": serialized.data}, status=status.HTTP_200_OK)
+
+
+class CheckInView(PlayerScopedAPIView):
+    """Record an attack or defend action and return the updated player state."""
+
+    def post(self, request):
+        serializer = CheckInRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        player = self.get_current_player(request)
+        payload = serializer.validated_data.copy()
+        metadata = payload.pop("metadata", {}) or {}
+        source = payload.pop("source", None)
+        if source:
+            metadata["source"] = source
+        try:
+            result = apply_checkin(player, metadata=metadata or None, **payload)
+        except CooldownActive as exc:
+            raise ValidationError({"detail": str(exc)})
+        except ValueError as exc:
+            raise ValidationError({"detail": str(exc)})
+        player_data = PlayerSerializer(result.player, context={"request": request}).data
+        checkin_data = CheckInSerializer(result.checkin).data
+        response = {
+            "player": player_data,
+            "checkin": checkin_data,
+        }
+        return Response(response, status=status.HTTP_201_CREATED)
 
 
 class FriendListView(PlayerScopedAPIView):
@@ -442,23 +482,6 @@ class FriendRequestDetailView(PlayerScopedAPIView):
         return Response({"friend_request": request_data}, status=status.HTTP_200_OK)
 
 
-def _compute_checkin_points(entry):
-    if not isinstance(entry, dict):
-        return 0
-    points = entry.get("points")
-    if isinstance(points, (int, float)):
-        return max(int(points), 0)
-    base = 10 if entry.get("ranged") else POINTS_PER_CHECKIN
-    multiplier = entry.get("multiplier")
-    try:
-        multiplier = float(multiplier)
-    except (TypeError, ValueError):
-        multiplier = 1
-    if multiplier <= 0:
-        multiplier = 1
-    return int(base * multiplier)
-
-
 def _build_player_leaderboard(limit=50):
     players = (
         Player.objects.filter(is_active=True)
@@ -482,41 +505,36 @@ def _build_player_leaderboard(limit=50):
 
 
 def _build_district_leaderboard(limit=50):
-    totals = defaultdict(lambda: {"name": None, "defended": 0, "attacked": 0})
-    players = Player.objects.filter(is_active=True)
-    for player in players:
-        history = player.checkin_history or []
-        if not isinstance(history, list):
-            continue
-        for entry in history:
-            if not isinstance(entry, dict):
-                continue
-            district_id = entry.get("districtId") or entry.get("district_id")
-            if not district_id:
-                continue
-            points = _compute_checkin_points(entry)
-            if points <= 0:
-                continue
-            bucket = totals[district_id]
-            district_name = entry.get("districtName") or entry.get("district_name")
-            if district_name:
-                bucket["name"] = district_name
-            action_type = str(entry.get("type") or "").lower()
-            if action_type == "defend":
-                bucket["defended"] += points
-            elif action_type == "attack":
-                bucket["attacked"] += points
+    aggregates = (
+        CheckIn.objects.filter(district_code__isnull=False)
+        .values("district_code", "district_name")
+        .annotate(
+            defended=Sum(
+                "points_awarded",
+                filter=Q(action=CheckIn.Action.DEFEND),
+            ),
+            attacked=Sum(
+                "points_awarded",
+                filter=Q(action=CheckIn.Action.ATTACK),
+            ),
+        )
+    )
     districts = []
-    for district_id, data in totals.items():
-        change = data["defended"] - data["attacked"]
+    for row in aggregates:
+        district_id = (row.get("district_code") or "").strip()
+        if not district_id:
+            continue
+        defended = row.get("defended") or 0
+        attacked = row.get("attacked") or 0
+        change = defended - attacked
         districts.append(
             {
                 "id": district_id,
-                "name": data["name"] or f"District {district_id}",
+                "name": (row.get("district_name") or "").strip() or f"District {district_id}",
                 "score": DISTRICT_BASE_SCORE + change,
                 "change": change,
-                "defended": data["defended"],
-                "attacked": data["attacked"],
+                "defended": defended,
+                "attacked": attacked,
             }
         )
     districts.sort(key=lambda item: (-item["score"], -item["defended"], item["name"]))

@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import models
+from django.utils import timezone
 
 
 class Player(models.Model):
@@ -41,6 +42,7 @@ class Player(models.Model):
         null=True,
         blank=True,
     )
+    next_checkin_multiplier = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -73,6 +75,42 @@ class Player(models.Model):
             user.set_password(password)
             user.save(update_fields=["password"])
         return user
+
+
+class CheckIn(models.Model):
+    """Authoritative log of player scoring events."""
+
+    class Action(models.TextChoices):
+        ATTACK = "attack", "Attack"
+        DEFEND = "defend", "Defend"
+
+    class Mode(models.TextChoices):
+        LOCAL = "local", "Local"
+        REMOTE = "remote", "Remote"
+        RANGED = "ranged", "Ranged"
+
+    player = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="checkin_events",
+    )
+    occurred_at = models.DateTimeField(default=timezone.now)
+    district_code = models.CharField(max_length=64, blank=True)
+    district_name = models.CharField(max_length=120, blank=True)
+    action = models.CharField(max_length=16, choices=Action.choices)
+    mode = models.CharField(max_length=16, choices=Mode.choices)
+    multiplier = models.DecimalField(max_digits=6, decimal_places=2, default=1)
+    base_points = models.PositiveIntegerField(default=10)
+    points_awarded = models.IntegerField()
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-occurred_at"]
+
+    def __str__(self):
+        return f"{self.player.username} {self.action} {self.district_code or '?'} ({self.points_awarded} pts)"
 
 
 class FriendLink(models.Model):

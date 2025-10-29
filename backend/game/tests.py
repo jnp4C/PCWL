@@ -1,7 +1,9 @@
+from decimal import Decimal
+
 from django.test import TestCase
 from django.urls import reverse
 
-from .models import FriendLink, Player
+from .models import CheckIn, FriendLink, Player
 
 
 class HealthEndpointTests(TestCase):
@@ -53,7 +55,7 @@ class PlayerApiTests(TestCase):
         self.assertIsNotNone(player.last_known_location)
         self.assertEqual(player.last_known_location["districtId"], "1100")
 
-    def test_update_player_stats_persists_history(self):
+    def test_score_related_fields_are_read_only(self):
         player = Player.objects.create(username="stat-user")
         self._login_player(player)
         payload = {
@@ -98,27 +100,22 @@ class PlayerApiTests(TestCase):
         response = self.client.patch(reverse("player-detail", args=[player.id]), payload, content_type="application/json")
         self.assertEqual(response.status_code, 200)
         player.refresh_from_db()
-        self.assertEqual(player.score, 125)
-        self.assertEqual(player.attack_points, 80)
-        self.assertEqual(player.defend_points, 45)
-        self.assertEqual(player.checkins, 2)
+        # Score-related fields remain untouched because they are server-authoritative
+        self.assertEqual(player.score, 0)
+        self.assertEqual(player.attack_points, 0)
+        self.assertEqual(player.defend_points, 0)
+        self.assertEqual(player.checkins, 0)
         self.assertEqual(player.home_district_code, "1100")
         self.assertEqual(player.home_district_name, "Prague 1")
         self.assertEqual(player.home_district, "Prague 1")
-        self.assertEqual(len(player.checkin_history), 2)
-        self.assertEqual(player.checkin_history[0]["cooldownType"], "defend")
-        self.assertEqual(player.checkin_history[1]["cooldownMode"], "ranged")
-        self.assertEqual(player.cooldowns, {"attack": 1700000010000})
-        self.assertEqual(
-            player.cooldown_details,
-            {
-                "attack": {
-                    "duration": 180000,
-                    "startedAt": 1700000005000,
-                    "mode": "ranged",
-                }
-            },
-        )
+        self.assertEqual(player.checkin_history, [])
+        self.assertEqual(player.cooldowns, {})
+        self.assertEqual(player.cooldown_details, {})
+        body = response.json()
+        self.assertEqual(body["score"], 0)
+        self.assertEqual(body["attack_points"], 0)
+        self.assertEqual(body["defend_points"], 0)
+        self.assertEqual(body["checkins"], 0)
 
     def test_cooldown_payload_ignores_invalid_entries(self):
         player = Player.objects.create(username="cooldown-user")
@@ -138,11 +135,11 @@ class PlayerApiTests(TestCase):
         response = self.client.patch(reverse("player-detail", args=[player.id]), payload, content_type="application/json")
         self.assertEqual(response.status_code, 200)
         player.refresh_from_db()
-        self.assertEqual(player.cooldowns, {"attack": 1700000020000})
-        self.assertEqual(
-            player.cooldown_details,
-            {"attack": {"duration": 60000, "startedAt": 1700000000000, "mode": "local"}},
-        )
+        self.assertEqual(player.cooldowns, {})
+        self.assertEqual(player.cooldown_details, {})
+        body = response.json()
+        self.assertEqual(body["cooldowns"], {})
+        self.assertEqual(body["cooldown_details"], {})
 
     def test_update_map_marker_color(self):
         player = Player.objects.create(username="color-user")
@@ -230,6 +227,52 @@ class SessionAuthTests(TestCase):
         self.assertIn(response.status_code, (200, 403, 405))  # Endpoint exists and protected
 
 
+class CheckInApiTests(TestCase):
+    def setUp(self):
+        self.player = Player.objects.create(
+            username="checkin-user",
+            home_district_code="1100",
+            home_district_name="Prague 1",
+            home_district="Prague 1",
+        )
+        self.user = self.player.ensure_auth_user(password="checkpass123")
+        self.client.force_login(self.user)
+
+    def test_attack_checkin_records_event(self):
+        payload = {
+            "district_code": "1200",
+            "district_name": "Prague 2",
+            "mode": "ranged",
+            "source": "ranged",
+        }
+        response = self.client.post(reverse("checkin-log"), payload, content_type="application/json")
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertIn("player", data)
+        self.assertIn("checkin", data)
+        self.player.refresh_from_db()
+        self.assertEqual(self.player.score, 10)
+        self.assertEqual(self.player.attack_points, 10)
+        self.assertEqual(self.player.defend_points, 0)
+        self.assertEqual(self.player.checkins, 1)
+        self.assertEqual(self.player.next_checkin_multiplier, 1)
+        self.assertIn("attack", self.player.cooldowns)
+        self.assertEqual(CheckIn.objects.filter(player=self.player).count(), 1)
+        checkin = CheckIn.objects.filter(player=self.player).first()
+        self.assertEqual(checkin.action, CheckIn.Action.ATTACK)
+        self.assertEqual(checkin.mode, CheckIn.Mode.RANGED)
+        self.assertEqual(checkin.points_awarded, 10)
+
+    def test_charge_endpoint_sets_multiplier(self):
+        response = self.client.post(reverse("checkin-charge"), content_type="application/json")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("player", data)
+        self.player.refresh_from_db()
+        self.assertEqual(self.player.next_checkin_multiplier, 3)
+        self.assertIn("charge", self.player.cooldowns)
+
+
 class FriendApiTests(TestCase):
     def setUp(self):
         self.primary = Player.objects.create(username="primary-user")
@@ -313,6 +356,36 @@ class LeaderboardApiTests(TestCase):
                     "multiplier": 1,
                 }
             ],
+        )
+        CheckIn.objects.create(
+            player=self.alpha,
+            district_code="1100",
+            district_name="Prague 1",
+            action=CheckIn.Action.DEFEND,
+            mode=CheckIn.Mode.LOCAL,
+            multiplier=Decimal("2.00"),
+            base_points=10,
+            points_awarded=20,
+        )
+        CheckIn.objects.create(
+            player=self.alpha,
+            district_code="1200",
+            district_name="Prague 2",
+            action=CheckIn.Action.ATTACK,
+            mode=CheckIn.Mode.RANGED,
+            multiplier=Decimal("1.00"),
+            base_points=10,
+            points_awarded=10,
+        )
+        CheckIn.objects.create(
+            player=self.beta,
+            district_code="1200",
+            district_name="Prague 2",
+            action=CheckIn.Action.DEFEND,
+            mode=CheckIn.Mode.LOCAL,
+            multiplier=Decimal("1.00"),
+            base_points=10,
+            points_awarded=10,
         )
 
     def test_leaderboard_endpoint_returns_data(self):
