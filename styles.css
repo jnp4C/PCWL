@@ -1066,6 +1066,81 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   color: var(--color-text-muted);
 }
 
+.friend-party-invitations {
+  margin-top: 0.75rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 16px;
+  background: rgba(255, 208, 120, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 208, 120, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.friend-party-invitations.hidden {
+  display: none !important;
+}
+
+.friend-party-subheading {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+
+.friend-party-invite-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.friend-party-invite-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 14px;
+  background: rgba(255, 208, 120, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 208, 120, 0.32);
+}
+
+.friend-party-invite-label {
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--color-text-strong);
+}
+
+.friend-party-invite-meta {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-top: 0.1rem;
+}
+
+.friend-party-invite-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.friend-party-invite-actions .secondary {
+  padding-inline: 0.75rem;
+  font-size: 0.78rem;
+}
+
+.friend-party-invite-outgoing {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.friend-party-invite-outgoing strong {
+  color: var(--color-text-strong);
+}
+
 .music-track-label {
   margin: 0.4rem 0;
   font-size: 0.85rem;
@@ -2064,7 +2139,7 @@ body.modal-open {
   width: 100%;
   margin-top: 0.2rem;
   flex: 1 0 auto;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .cooldown-strip.hidden {
@@ -2080,6 +2155,7 @@ body.modal-open {
   box-shadow: 0 12px 26px rgba(15, 6, 32, 0.22);
   border: 1px solid rgba(180, 150, 255, 0.18);
   overflow: hidden;
+  padding: 0;
 }
 
 .cooldown-track {
@@ -2114,6 +2190,31 @@ body.modal-open {
   color: var(--cooldown-text-color, rgba(240, 240, 255, 0.92));
   pointer-events: none;
   text-shadow: 0 2px 6px rgba(9, 4, 22, 0.6);
+}
+
+.cooldown-item.party-invite {
+  cursor: pointer;
+  background: rgba(255, 238, 0, 0.18);
+  border-color: rgba(255, 255, 110, 0.55);
+  box-shadow: 0 16px 32px rgba(120, 120, 0, 0.36), 0 0 18px rgba(255, 255, 120, 0.55);
+}
+
+.cooldown-item.party-invite .cooldown-track {
+  background: rgba(255, 255, 120, 0.28);
+}
+
+.cooldown-item.party-invite .cooldown-fill {
+  background: linear-gradient(135deg, rgba(255, 255, 120, 0.95), rgba(200, 255, 0, 0.9));
+}
+
+.cooldown-item.party-invite .cooldown-time {
+  color: rgba(25, 35, 0, 0.94);
+  text-shadow: 0 0 10px rgba(255, 255, 180, 0.9), 0 0 4px rgba(200, 255, 0, 0.65);
+}
+
+.cooldown-item.party-invite:focus-visible {
+  outline: 2px solid rgba(255, 255, 160, 0.95);
+  outline-offset: 2px;
 }
 
 .recent-checkin-cooldown {

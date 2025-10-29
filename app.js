@@ -124,6 +124,9 @@ const friendsLeaderboardHint = document.getElementById('friends-leaderboard-hint
 const friendsPartySection = document.getElementById('friends-party');
 const friendsPartyStatus = document.getElementById('friends-party-status');
 const friendsPartyMembersList = document.getElementById('friends-party-members');
+const friendsPartyInvitationsPanel = document.getElementById('friends-party-invitations');
+const friendsPartyInviteIncomingList = document.getElementById('friends-party-invite-incoming');
+const friendsPartyInviteOutgoing = document.getElementById('friends-party-invite-outgoing');
 const friendsPartySelect = document.getElementById('friends-party-select');
 const friendsPartyStartButton = document.getElementById('friends-party-start');
 const friendsPartyAddButton = document.getElementById('friends-party-add');
@@ -256,9 +259,9 @@ const BACKGROUND_TRACKS = [
 const MUSIC_STORAGE_KEY = 'pcwlMusicPrefs';
 const MUSIC_DEFAULT_VOLUME = 0.45;
 const MUSIC_RESUME_MAX_AGE_MS = 15 * 60 * 1000; // 15 minutes
-const PARTY_STORAGE_KEY = 'pcwlActiveParty';
 const PARTY_DURATION_MS = 3 * 60 * 60 * 1000;
 const PARTY_MAX_FRIENDS = 3;
+const PARTY_INVITE_DISPLAY_MS = 60 * 1000;
 
 const TREE_GIF_URL = resolveDataUrl('tree.gif?v=2');
 const HITMARKER_GIF_URL = resolveDataUrl('attack_hitmarker.gif?v=1');
@@ -894,13 +897,14 @@ function stopCooldownTicker() {
 
 function tickCooldowns() {
   const now = Date.now();
-  let removedAny = false;
+  let removedCooldowns = false;
+  let removedInvites = false;
   const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
 
   activeCooldowns.forEach((info, key) => {
     if (!info || typeof info.deadline !== 'number' || info.deadline <= now) {
       activeCooldowns.delete(key);
-      removedAny = true;
+      removedCooldowns = true;
       if (profile) {
         ensureProfileCooldownState(profile);
         if (profile.cooldowns) {
@@ -913,14 +917,21 @@ function tickCooldowns() {
     }
   });
 
-  if (!activeCooldowns.size) {
+  activePartyInviteNotices.forEach((info, key) => {
+    if (!info || typeof info.deadline !== 'number' || info.deadline <= now) {
+      activePartyInviteNotices.delete(key);
+      removedInvites = true;
+    }
+  });
+
+  if (!activeCooldowns.size && !activePartyInviteNotices.size) {
     stopCooldownTicker();
   }
 
   renderCooldownStrip(now);
   updateRecentCheckinCooldownBadges(now, profile);
 
-  if (removedAny) {
+  if (removedCooldowns) {
     if (profile) {
       savePlayers();
       if (profile.nextCheckinMultiplier > 1 && !isActionOnCooldown(profile, COOLDOWN_KEYS.CHARGE, now)) {
@@ -937,55 +948,107 @@ function tickCooldowns() {
     }
     renderPlayerState();
   }
+
+  if (removedInvites) {
+    renderPartyInvitations();
+  }
 }
 
 function renderCooldownStrip(now = Date.now()) {
   if (!cooldownStrip) {
     return;
   }
-  if (!activeCooldowns.size) {
+  const cooldownEntries = Array.from(activeCooldowns.entries())
+    .filter(([, info]) => info && typeof info.deadline === 'number')
+    .map(([key, info]) => ({
+      type: 'cooldown',
+      key,
+      info,
+    }));
+  const inviteEntries = Array.from(activePartyInviteNotices.entries())
+    .filter(([, info]) => info && typeof info.deadline === 'number')
+    .map(([key, info]) => ({
+      type: 'party-invite',
+      key,
+      info,
+    }));
+  const combinedEntries = cooldownEntries.concat(inviteEntries);
+  if (!combinedEntries.length) {
     cooldownStrip.classList.add('hidden');
     cooldownStrip.innerHTML = '';
     return;
   }
+
   cooldownStrip.classList.remove('hidden');
   const fragment = document.createDocumentFragment();
-  const sortedEntries = Array.from(activeCooldowns.entries()).sort((a, b) => {
-    const deadlineA = a[1] && typeof a[1].deadline === 'number' ? a[1].deadline : Number.POSITIVE_INFINITY;
-    const deadlineB = b[1] && typeof b[1].deadline === 'number' ? b[1].deadline : Number.POSITIVE_INFINITY;
-    return deadlineA - deadlineB;
-  });
-  sortedEntries.forEach(([key, info]) => {
-    if (!info || typeof info.deadline !== 'number') {
-      return;
-    }
-    const remaining = Math.max(0, info.deadline - now);
-    const duration = Math.max(1, Number(info.duration) || remaining || 1);
-    const ratio = Math.max(0, Math.min(1, remaining / duration));
-    const colors = resolveCooldownColors(key, info.mode);
-    const item = document.createElement('div');
-    item.className = 'cooldown-item';
-    item.dataset.cooldownAction = key;
-    item.style.setProperty('--cooldown-track-color', colors.track);
-    item.style.setProperty('--cooldown-fill-color', colors.fill);
-    item.style.setProperty('--cooldown-text-color', colors.text);
-    item.setAttribute('aria-label', `${formatCooldownLabel(key, info.mode)} cooldown ${formatCooldownTime(remaining)}`);
+  combinedEntries
+    .sort((a, b) => {
+      const deadlineA = a.info.deadline ?? Number.POSITIVE_INFINITY;
+      const deadlineB = b.info.deadline ?? Number.POSITIVE_INFINITY;
+      return deadlineA - deadlineB;
+    })
+    .forEach((entry) => {
+      const { info } = entry;
+      const remaining = Math.max(0, info.deadline - now);
+      const duration = Math.max(1, Number(info.duration) || PARTY_INVITE_DISPLAY_MS);
+      const ratio = Math.max(0, Math.min(1, remaining / duration));
 
-    const track = document.createElement('div');
-    track.className = 'cooldown-track';
-    const fill = document.createElement('div');
-    fill.className = 'cooldown-fill';
-    fill.style.transform = `scaleX(${ratio})`;
-    track.appendChild(fill);
+      if (entry.type === 'party-invite') {
+        const inviteButton = document.createElement('button');
+        inviteButton.type = 'button';
+        inviteButton.className = 'cooldown-item party-invite';
+        inviteButton.dataset.partyInvite = String(entry.key);
+        const inviter = info.fromUsername ? `@${info.fromUsername}` : 'Party invite';
+        inviteButton.setAttribute(
+          'aria-label',
+          `${inviter} — ${formatCooldownTime(remaining)} left`,
+        );
 
-    const timeLabel = document.createElement('span');
-    timeLabel.className = 'cooldown-time';
-    timeLabel.textContent = formatCooldownTime(remaining);
+        const track = document.createElement('div');
+        track.className = 'cooldown-track';
+        const fill = document.createElement('div');
+        fill.className = 'cooldown-fill';
+        fill.style.transform = `scaleX(${ratio})`;
+        track.appendChild(fill);
 
-    item.appendChild(track);
-    item.appendChild(timeLabel);
-    fragment.appendChild(item);
-  });
+        const timeLabel = document.createElement('span');
+        timeLabel.className = 'cooldown-time';
+        timeLabel.textContent = `${inviter} • ${formatCooldownTime(remaining)}`;
+
+        inviteButton.appendChild(track);
+        inviteButton.appendChild(timeLabel);
+        fragment.appendChild(inviteButton);
+        return;
+      }
+
+      const colors = resolveCooldownColors(entry.key, info.mode);
+      const item = document.createElement('div');
+      item.className = 'cooldown-item';
+      item.dataset.cooldownAction = entry.key;
+      item.style.setProperty('--cooldown-track-color', colors.track);
+      item.style.setProperty('--cooldown-fill-color', colors.fill);
+      item.style.setProperty('--cooldown-text-color', colors.text);
+      item.setAttribute(
+        'aria-label',
+        `${formatCooldownLabel(entry.key, info.mode)} cooldown ${formatCooldownTime(remaining)}`,
+      );
+
+      const track = document.createElement('div');
+      track.className = 'cooldown-track';
+      const fill = document.createElement('div');
+      fill.className = 'cooldown-fill';
+      fill.style.transform = `scaleX(${ratio})`;
+      track.appendChild(fill);
+
+      const timeLabel = document.createElement('span');
+      timeLabel.className = 'cooldown-time';
+      timeLabel.textContent = formatCooldownTime(remaining);
+
+      item.appendChild(track);
+      item.appendChild(timeLabel);
+      fragment.appendChild(item);
+    });
+
   cooldownStrip.innerHTML = '';
   cooldownStrip.appendChild(fragment);
 }
@@ -2849,7 +2912,14 @@ let friendsState = {
   error: null,
   items: [],
 };
-let activePartyState = null;
+let partyState = {
+  party: null,
+  incoming: [],
+  outgoing: [],
+  insights: null,
+};
+const activePartyInviteNotices = new Map();
+const seenPartyInviteIds = new Set();
 let friendRequestsState = {
   loading: false,
   loaded: false,
@@ -2877,7 +2947,6 @@ let musicInitialised = false;
 let musicAwaitingUnlock = false;
 let musicPausedByVisibility = false;
 let musicLastPersistedAt = 0;
-activePartyState = loadPartyStateFromStorage();
 
 const STORAGE_KEY = 'pragueExplorerPlayers';
 const COOLDOWN_KEYS = {
@@ -3657,84 +3726,237 @@ function loadPlayers() {
 
 function savePlayers() {}
 
-function sanitizePartyState(raw) {
-  if (!raw || typeof raw !== 'object') {
+function resetPartyState() {
+  partyState = {
+    party: null,
+    incoming: [],
+    outgoing: [],
+    insights: null,
+  };
+  activePartyInviteNotices.clear();
+  seenPartyInviteIds.clear();
+  renderCooldownStrip();
+}
+
+function parseServerTimestamp(value) {
+  if (value === null || value === undefined || value === '') {
     return null;
   }
-  const expiresAt = Number(raw.expiresAt);
-  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function sanitizePartyMember(member) {
+  if (!member || typeof member !== 'object') {
     return null;
   }
-  const createdAt = Number(raw.createdAt);
-  const leader = typeof raw.leader === 'string' && raw.leader.trim() ? raw.leader.trim() : null;
-  const members = Array.isArray(raw.members)
-    ? Array.from(
-        new Set(
-          raw.members
-            .map((name) => (typeof name === 'string' && name.trim() ? name.trim() : null))
-            .filter(Boolean),
-        ),
-      )
-    : [];
+  const username = typeof member.username === 'string' && member.username.trim() ? member.username.trim() : null;
+  if (!username) {
+    return null;
+  }
+  const displayName =
+    typeof member.display_name === 'string' && member.display_name.trim()
+      ? member.display_name.trim()
+      : '';
+  const homeCode =
+    typeof member.home_district_code === 'string' && member.home_district_code.trim()
+      ? safeId(member.home_district_code)
+      : '';
+  const homeName =
+    typeof member.home_district_name === 'string' && member.home_district_name.trim()
+      ? member.home_district_name.trim()
+      : '';
   return {
-    leader,
-    members,
-    createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
-    expiresAt,
+    username,
+    displayName,
+    homeDistrictCode: homeCode,
+    homeDistrictName: homeName,
+    isLeader: Boolean(member.is_leader),
+    isSelf: Boolean(member.is_self),
   };
 }
 
-function loadPartyStateFromStorage() {
-  if (typeof window === 'undefined') {
+function sanitizePartyPayload(raw) {
+  if (!raw || typeof raw !== 'object') {
     return null;
   }
-  try {
-    const stored = window.localStorage.getItem(PARTY_STORAGE_KEY);
-    if (!stored) {
-      return null;
+  const members = Array.isArray(raw.members)
+    ? raw.members.map(sanitizePartyMember).filter(Boolean)
+    : [];
+  if (!members.length) {
+    return null;
+  }
+  const secondsRemaining = Number(raw.seconds_remaining);
+  const expiresAtFromServer = parseServerTimestamp(raw.expires_at);
+  let expiresAt = Number.isFinite(secondsRemaining)
+    ? Date.now() + Math.max(0, secondsRemaining) * 1000
+    : expiresAtFromServer;
+  if (!Number.isFinite(expiresAt) && Number.isFinite(expiresAtFromServer)) {
+    expiresAt = expiresAtFromServer;
+  }
+  if (!Number.isFinite(expiresAt)) {
+    const createdAtFallback = parseServerTimestamp(raw.created_at) || Date.now();
+    expiresAt = createdAtFallback + PARTY_DURATION_MS;
+  }
+  const attackMultiplier = Number(raw.attack_multiplier);
+  const contributionMultiplier = Number(raw.contribution_multiplier);
+  const playerContributionMultiplier = Number(raw.player_contribution_multiplier);
+  return {
+    code: typeof raw.code === 'string' ? raw.code : '',
+    leader: typeof raw.leader === 'string' ? raw.leader : '',
+    createdAt: parseServerTimestamp(raw.created_at),
+    expiresAt,
+    expiresAtServer: expiresAtFromServer,
+    secondsRemaining: Number.isFinite(secondsRemaining)
+      ? Math.max(0, Math.floor(secondsRemaining))
+      : Math.max(0, Math.round((expiresAt - Date.now()) / 1000)),
+    size: Number.isFinite(Number(raw.size)) && Number(raw.size) > 0 ? Number(raw.size) : members.length,
+    members,
+    isLeader: Boolean(raw.is_leader),
+    attackMultiplier: Number.isFinite(attackMultiplier) ? attackMultiplier : 0,
+    contributionMultiplier: Number.isFinite(contributionMultiplier) ? contributionMultiplier : 0,
+    playerContributionMultiplier: Number.isFinite(playerContributionMultiplier)
+      ? playerContributionMultiplier
+      : 0,
+    attackPoints: Math.max(0, Math.round(Number(raw.attack_points) || 0)),
+    contributionPoints: Math.max(0, Math.round(Number(raw.contribution_points) || 0)),
+    attackCheckins: Math.max(0, Math.round(Number(raw.attack_checkins) || 0)),
+    contributionCheckins: Math.max(0, Math.round(Number(raw.contribution_checkins) || 0)),
+    focus: typeof raw.focus === 'string' ? raw.focus : 'balanced',
+  };
+}
+
+function sanitizePartyInvitation(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const id = Number(raw.id);
+  if (!Number.isFinite(id)) {
+    return null;
+  }
+  return {
+    id,
+    status: typeof raw.status === 'string' ? raw.status : 'pending',
+    fromUsername: typeof raw.from_username === 'string' ? raw.from_username : '',
+    toUsername: typeof raw.to_username === 'string' ? raw.to_username : '',
+    partyCode: typeof raw.party_code === 'string' ? raw.party_code : '',
+    createdAt: parseServerTimestamp(raw.created_at),
+    respondedAt: parseServerTimestamp(raw.responded_at),
+    partyExpiresAt: parseServerTimestamp(raw.party_expires_at),
+  };
+}
+
+function sanitizePartyInsights(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return { bestPartner: null, topContributors: [] };
+  }
+  let bestPartner = null;
+  if (raw.best_partner && typeof raw.best_partner === 'object') {
+    const partnerUsername =
+      typeof raw.best_partner.username === 'string' ? raw.best_partner.username : '';
+    if (partnerUsername) {
+      bestPartner = {
+        username: partnerUsername,
+        displayName:
+          typeof raw.best_partner.display_name === 'string'
+            ? raw.best_partner.display_name
+            : '',
+        checkins: Math.max(0, Number(raw.best_partner.checkins) || 0),
+        attackPoints: Math.max(0, Number(raw.best_partner.attack_points) || 0),
+        contributionPoints: Math.max(0, Number(raw.best_partner.contribution_points) || 0),
+      };
     }
-    const parsed = JSON.parse(stored);
-    return sanitizePartyState(parsed);
-  } catch (error) {
-    console.warn('Failed to load party state', error);
-    return null;
   }
+  const topContributors = Array.isArray(raw.top_contributors)
+    ? raw.top_contributors
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') {
+            return null;
+          }
+          const username = typeof entry.username === 'string' ? entry.username : '';
+          if (!username) {
+            return null;
+          }
+          return {
+            username,
+            displayName:
+              typeof entry.display_name === 'string' ? entry.display_name : '',
+            points: Math.max(0, Number(entry.points) || 0),
+            checkins: Math.max(0, Number(entry.checkins) || 0),
+            lastContributionAt: parseServerTimestamp(entry.last_contribution_at),
+          };
+        })
+        .filter(Boolean)
+    : [];
+  return { bestPartner, topContributors };
 }
 
-function savePartyStateToStorage(state) {
-  if (typeof window === 'undefined') {
+function addPartyInviteNotice(invitation) {
+  if (!invitation || !Number.isFinite(invitation.id)) {
     return;
   }
-  if (!state) {
-    window.localStorage.removeItem(PARTY_STORAGE_KEY);
-    return;
-  }
-  try {
-    window.localStorage.setItem(PARTY_STORAGE_KEY, JSON.stringify(state));
-  } catch (error) {
-    console.warn('Failed to persist party state', error);
-  }
+  const now = Date.now();
+  activePartyInviteNotices.set(invitation.id, {
+    deadline: now + PARTY_INVITE_DISPLAY_MS,
+    duration: PARTY_INVITE_DISPLAY_MS,
+    fromUsername: invitation.fromUsername,
+  });
+  startCooldownTicker();
+  renderCooldownStrip(now);
 }
 
-function isPartyActive(state) {
-  return Boolean(state && Number.isFinite(state.expiresAt) && state.expiresAt > Date.now());
+function removePartyInviteNotice(invitationId) {
+  if (!Number.isFinite(invitationId)) {
+    return;
+  }
+  activePartyInviteNotices.delete(invitationId);
+}
+
+function applyPartyStateFromServer(snapshot = {}, options = {}) {
+  const { party, incoming, outgoing, insights } = snapshot;
+  const { silent = false } = options;
+  const normalizedParty = sanitizePartyPayload(party);
+  const incomingInvites = Array.isArray(incoming)
+    ? incoming.map(sanitizePartyInvitation).filter((invite) => invite && invite.status === 'pending')
+    : [];
+  const outgoingInvites = Array.isArray(outgoing)
+    ? outgoing.map(sanitizePartyInvitation).filter(Boolean)
+    : [];
+  partyState = {
+    party: normalizedParty,
+    incoming: incomingInvites,
+    outgoing: outgoingInvites,
+    insights: sanitizePartyInsights(insights),
+  };
+  const currentPendingIds = new Set(incomingInvites.map((invite) => invite.id));
+  Array.from(activePartyInviteNotices.keys()).forEach((id) => {
+    if (!currentPendingIds.has(id)) {
+      activePartyInviteNotices.delete(id);
+    }
+  });
+  Array.from(seenPartyInviteIds).forEach((id) => {
+    if (!currentPendingIds.has(id)) {
+      seenPartyInviteIds.delete(id);
+    }
+  });
+  incomingInvites.forEach((invite) => {
+    if (!seenPartyInviteIds.has(invite.id)) {
+      seenPartyInviteIds.add(invite.id);
+      if (!silent) {
+        addPartyInviteNotice(invite);
+      }
+    }
+  });
+  updatePartyUi(friendsState.items);
+  renderPartyInvitations();
+  renderCooldownStrip();
 }
 
 function getActivePartyState() {
-  if (!activePartyState) {
-    return null;
-  }
-  if (!isPartyActive(activePartyState)) {
-    activePartyState = null;
-    savePartyStateToStorage(null);
-    return null;
-  }
-  return activePartyState;
-}
-
-function setActivePartyState(nextState) {
-  activePartyState = nextState ? { ...nextState } : null;
-  savePartyStateToStorage(activePartyState);
+  return partyState.party;
 }
 
 function loadMusicPreferences() {
@@ -4262,6 +4484,8 @@ async function restoreSessionFromServer() {
     if (error && (error.status === 401 || error.status === 403)) {
       isSessionAuthenticated = false;
       activePlayerBackendId = null;
+      resetPartyState();
+      renderPartyInvitations();
       return;
     }
     if (error && error.status === 503) {
@@ -4271,6 +4495,8 @@ async function restoreSessionFromServer() {
       updateStatus(`${serverDetail} — To fix locally: ./scripts/setup.sh (first time), then ${action}.`);
       isSessionAuthenticated = false;
       activePlayerBackendId = null;
+      resetPartyState();
+      renderPartyInvitations();
       return;
     }
     console.warn('Failed to verify existing session', error);
@@ -4280,6 +4506,8 @@ async function restoreSessionFromServer() {
   if (!sessionData || typeof sessionData !== 'object' || !sessionData.authenticated) {
     isSessionAuthenticated = false;
     activePlayerBackendId = null;
+    resetPartyState();
+    renderPartyInvitations();
     return;
   }
 
@@ -4306,10 +4534,19 @@ async function restoreSessionFromServer() {
   isSessionAuthenticated = true;
   activePlayerBackendId = profile.backendId || null;
 
+  const partySnapshot = {
+    party: sessionData.party || null,
+    incoming: sessionData.party_invitations?.incoming || [],
+    outgoing: sessionData.party_invitations?.outgoing || [],
+    insights: sessionData.party_insights || {},
+  };
+
   completeAuthenticatedLogin(username, profile, {
     message: apiPlayer.display_name ? `Welcome back, ${apiPlayer.display_name}.` : `Welcome back, ${username}.`,
     triggerGeolocation: false,
   });
+  applyPartyStateFromServer(partySnapshot, { silent: false });
+  refreshPartyState(false, { silent: true }).catch(() => null);
 }
 
 async function logoutCurrentSession() {
@@ -4339,11 +4576,13 @@ function completeLogoutTransition() {
     incoming: [],
     outgoing: [],
   };
+  resetPartyState();
   clearFriendLocationMarkers();
   updateFriendLocationsLayer();
   renderFriendRequestsSection();
   closeFriendsManagePanel();
   updateFriendsDrawerContent();
+  renderPartyInvitations();
   renderPlayerState();
   applyMarkerColorTheme(DEFAULT_MARKER_COLOR);
   switchToWelcome();
@@ -5910,13 +6149,44 @@ function updatePartySelectOptions(friends, excludedSet) {
   friendsPartySelect.disabled = friendsPartySelect.options.length <= 1;
 }
 
-function formatPartyStatus(activeState) {
+function formatPartyMultiplier(value) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '×1';
+  }
+  return Number.isInteger(value) ? `×${value}` : `×${value.toFixed(1)}`;
+}
+
+function formatPartyStatus(activeState, pendingInvites = 0, firstPendingInvite = null) {
   if (!activeState) {
+    if (pendingInvites > 0) {
+      const inviterLabel =
+        firstPendingInvite && firstPendingInvite.fromUsername
+          ? `@${firstPendingInvite.fromUsername}`
+          : 'A friend';
+      return pendingInvites === 1
+        ? `${inviterLabel} invited you. Open the party drawer to respond.`
+        : `${pendingInvites} party invites waiting.`;
+    }
     return 'No active party. Start one to boost shared check-ins.';
   }
   const expiresIn = formatPartyCountdown(activeState.expiresAt);
-  const memberCount = activeState.members ? activeState.members.length + 1 : 1;
-  return `Party active • ${memberCount} player${memberCount === 1 ? '' : 's'} • ${expiresIn} left`;
+  const playerCount = Number.isFinite(activeState.size) && activeState.size > 0 ? activeState.size : activeState.members?.length || 1;
+  const focusLabel =
+    activeState.focus === 'aggressive'
+      ? 'Aggressive'
+      : activeState.focus === 'defensive'
+      ? 'Defensive'
+      : 'Balanced';
+  const fragments = [
+    'Party active',
+    `${playerCount} player${playerCount === 1 ? '' : 's'}`,
+    expiresIn ? `${expiresIn} left` : null,
+    `Focus: ${focusLabel}`,
+    `Attack ${formatPartyMultiplier(activeState.attackMultiplier)}`,
+    `Contribute ${formatPartyMultiplier(activeState.contributionMultiplier)}`,
+    `Personal ${formatPartyMultiplier(activeState.playerContributionMultiplier)}`,
+  ];
+  return fragments.filter(Boolean).join(' • ');
 }
 
 function updatePartyUi(friends) {
@@ -5924,69 +6194,374 @@ function updatePartyUi(friends) {
     return;
   }
   const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
-  const active = getActivePartyState();
+  const activeParty = getActivePartyState();
+  const pendingInvites = Array.isArray(partyState.incoming) ? partyState.incoming.length : 0;
   const hasFriends = Array.isArray(friends) && friends.length > 0;
-  if (!profile || (!hasFriends && !active)) {
+
+  if (!profile && !activeParty && pendingInvites === 0) {
     friendsPartySection.classList.add('hidden');
     return;
   }
 
   friendsPartySection.classList.remove('hidden');
-  friendsPartyStatus.textContent = formatPartyStatus(active);
+  const firstPendingInvite = pendingInvites > 0 ? partyState.incoming?.[0] : null;
+  friendsPartyStatus.textContent = formatPartyStatus(activeParty, pendingInvites, firstPendingInvite);
 
   if (friendsPartyMembersList) {
     friendsPartyMembersList.innerHTML = '';
-    const hostItem = document.createElement('li');
-    hostItem.className = 'host';
-    hostItem.textContent = `@${currentUser || 'you'} (host)`;
-    friendsPartyMembersList.appendChild(hostItem);
-    if (active && Array.isArray(active.members)) {
-      active.members.forEach((member) => {
+    if (activeParty && Array.isArray(activeParty.members) && activeParty.members.length) {
+      activeParty.members.forEach((member) => {
+        if (!member) {
+          return;
+        }
         const li = document.createElement('li');
-        li.textContent = `@${member}`;
+        const username = member.username ? `@${member.username}` : 'Unknown';
+        const descriptors = [];
+        if (member.isSelf) {
+          descriptors.push('you');
+        }
+        if (member.isLeader) {
+          descriptors.push('leader');
+          li.classList.add('host');
+        }
+        const text = descriptors.length ? `${username} (${descriptors.join(', ')})` : username;
+        li.textContent = text;
         friendsPartyMembersList.appendChild(li);
       });
+    } else if (pendingInvites > 0) {
+      const li = document.createElement('li');
+      li.textContent = 'Awaiting responses…';
+      friendsPartyMembersList.appendChild(li);
+    } else {
+      const li = document.createElement('li');
+      li.textContent = 'No active party.';
+      friendsPartyMembersList.appendChild(li);
     }
   }
 
-  const excluded = new Set();
-  if (active && Array.isArray(active.members)) {
-    active.members.forEach((member) => excluded.add(member.toLowerCase()));
-  }
-  if (hasFriends) {
-    updatePartySelectOptions(friends, excluded);
-  } else if (friendsPartySelect) {
-    friendsPartySelect.innerHTML = '';
-    const placeholder = document.createElement('option');
-    placeholder.value = '';
-    placeholder.textContent = 'No friends available';
-    friendsPartySelect.appendChild(placeholder);
-    friendsPartySelect.disabled = true;
+  const showSelect = (!activeParty && hasFriends) || (activeParty && activeParty.isLeader);
+  if (friendsPartySelect) {
+    if (!showSelect) {
+      friendsPartySelect.classList.add('hidden');
+      friendsPartySelect.innerHTML = '';
+      friendsPartySelect.disabled = true;
+    } else {
+      friendsPartySelect.classList.remove('hidden');
+      const excluded = new Set();
+      if (currentUser) {
+        excluded.add(currentUser.toLowerCase());
+      }
+      if (activeParty && Array.isArray(activeParty.members)) {
+        activeParty.members.forEach((member) => {
+          if (member && member.username) {
+            excluded.add(member.username.toLowerCase());
+          }
+        });
+      }
+      if (Array.isArray(partyState.outgoing)) {
+        partyState.outgoing.forEach((invite) => {
+          if (invite && invite.toUsername) {
+            excluded.add(invite.toUsername.toLowerCase());
+          }
+        });
+      }
+      updatePartySelectOptions(friends, excluded);
+    }
   }
 
   if (friendsPartyStartButton) {
-    if (active) {
+    if (activeParty) {
       friendsPartyStartButton.classList.add('hidden');
     } else {
       friendsPartyStartButton.classList.remove('hidden');
-      const disableStart = !hasFriends || friendsPartySelect.options.length <= 1;
-      friendsPartyStartButton.disabled = disableStart;
+      friendsPartyStartButton.disabled =
+        !showSelect || !friendsPartySelect || friendsPartySelect.options.length <= 1;
     }
   }
+
   if (friendsPartyAddButton) {
-    if (active && hasFriends && active.members.length < PARTY_MAX_FRIENDS) {
-      friendsPartyAddButton.classList.remove('hidden');
-      friendsPartyAddButton.disabled = friendsPartySelect.options.length <= 1;
+    const maxPartySize = PARTY_MAX_FRIENDS + 1;
+    if (activeParty && activeParty.isLeader) {
+      const canInviteMore = activeParty.size < maxPartySize;
+      if (canInviteMore && showSelect) {
+        friendsPartyAddButton.classList.remove('hidden');
+        friendsPartyAddButton.disabled =
+          !friendsPartySelect || friendsPartySelect.options.length <= 1;
+      } else {
+        friendsPartyAddButton.classList.add('hidden');
+      }
     } else {
       friendsPartyAddButton.classList.add('hidden');
     }
   }
+
   if (friendsPartyDisbandButton) {
-    if (active) {
+    if (activeParty) {
       friendsPartyDisbandButton.classList.remove('hidden');
+      friendsPartyDisbandButton.textContent = activeParty.isLeader ? 'Disband Party' : 'Leave Party';
     } else {
       friendsPartyDisbandButton.classList.add('hidden');
     }
+  }
+
+  renderPartyInvitations();
+}
+
+function renderPartyInvitations() {
+  if (!friendsPartyInvitationsPanel) {
+    return;
+  }
+  const incoming = Array.isArray(partyState.incoming) ? partyState.incoming : [];
+  const outgoing = Array.isArray(partyState.outgoing) ? partyState.outgoing : [];
+  const pendingOutgoing = outgoing.filter(
+    (invite) => invite && invite.status === 'pending' && invite.toUsername,
+  );
+  const hasIncoming = incoming.length > 0;
+  if (!hasIncoming && pendingOutgoing.length === 0) {
+    friendsPartyInvitationsPanel.classList.add('hidden');
+    if (friendsPartyInviteIncomingList) {
+      friendsPartyInviteIncomingList.innerHTML = '';
+    }
+    if (friendsPartyInviteOutgoing) {
+      friendsPartyInviteOutgoing.textContent = '';
+      friendsPartyInviteOutgoing.classList.add('hidden');
+    }
+    return;
+  }
+
+  friendsPartyInvitationsPanel.classList.remove('hidden');
+
+  if (friendsPartyInviteIncomingList) {
+    friendsPartyInviteIncomingList.innerHTML = '';
+    incoming.forEach((invite) => {
+      if (!invite) {
+        return;
+      }
+      const item = document.createElement('li');
+      item.className = 'friend-party-invite-item';
+      item.dataset.inviteId = String(invite.id);
+
+      const label = document.createElement('div');
+      label.className = 'friend-party-invite-label';
+      const inviter = invite.fromUsername ? `@${invite.fromUsername}` : 'A friend';
+      label.textContent = `${inviter} invited you.`;
+      item.appendChild(label);
+
+      const actions = document.createElement('div');
+      actions.className = 'friend-party-invite-actions';
+
+      const acceptButton = document.createElement('button');
+      acceptButton.type = 'button';
+      acceptButton.className = 'primary small';
+      acceptButton.dataset.partyInviteAccept = String(invite.id);
+      acceptButton.textContent = 'Join Party';
+      actions.appendChild(acceptButton);
+
+      const declineButton = document.createElement('button');
+      declineButton.type = 'button';
+      declineButton.className = 'secondary small';
+      declineButton.dataset.partyInviteDecline = String(invite.id);
+      declineButton.textContent = 'Decline';
+      actions.appendChild(declineButton);
+
+      item.appendChild(actions);
+      friendsPartyInviteIncomingList.appendChild(item);
+    });
+  }
+
+  if (friendsPartyInviteOutgoing) {
+    if (pendingOutgoing.length) {
+      const names = pendingOutgoing.map((invite) => `@${invite.toUsername}`).join(', ');
+      friendsPartyInviteOutgoing.innerHTML = `<strong>Pending:</strong> ${names}`;
+      friendsPartyInviteOutgoing.classList.remove('hidden');
+    } else {
+      friendsPartyInviteOutgoing.textContent = '';
+      friendsPartyInviteOutgoing.classList.add('hidden');
+    }
+  }
+}
+
+async function refreshPartyState(showErrors = false, { silent = true } = {}) {
+  if (!isSessionAuthenticated || !currentUser) {
+    resetPartyState();
+    updatePartyUi(friendsState.items);
+    return;
+  }
+  try {
+    const response = await apiRequest('party/');
+    applyPartyStateFromServer(
+      {
+        party: response?.party || null,
+        incoming: response?.incoming_invitations || [],
+        outgoing: response?.outgoing_invitations || [],
+        insights: response?.insights || {},
+      },
+      { silent },
+    );
+  } catch (error) {
+    if (error && (error.status === 401 || error.status === 403)) {
+      isSessionAuthenticated = false;
+      activePlayerBackendId = null;
+      resetPartyState();
+    } else {
+      if (showErrors) {
+        const detail = error?.data?.detail || error?.message || 'Unable to load party data.';
+        updateStatus(detail);
+      }
+      console.warn('Failed to load party state', error);
+    }
+  }
+}
+
+async function sendPartyInvite(username, { suppressStatus = false } = {}) {
+  if (!username) {
+    if (!suppressStatus) {
+      updateStatus('Select a friend to invite.');
+    }
+    return { success: false, message: 'Select a friend to invite.' };
+  }
+  let message = '';
+  try {
+    await apiRequest('party/invite/', {
+      method: 'POST',
+      body: { username },
+    });
+    message = `Invitation sent to @${username}.`;
+    if (!suppressStatus) {
+      updateStatus(message);
+    }
+    return { success: true, message };
+  } catch (error) {
+    message = error?.data?.detail || error?.message || 'Unable to send party invite.';
+    if (!suppressStatus) {
+      updateStatus(message);
+    }
+    console.warn('Failed to invite friend to party', error);
+    return { success: false, message };
+  } finally {
+    await refreshPartyState(false, { silent: true });
+  }
+}
+
+async function startPartyWithFriend(username) {
+  if (!currentUser || !isSessionAuthenticated) {
+    updateStatus('Sign in to start a party.');
+    return;
+  }
+  const friend = findFriendByUsername(username || (friendsPartySelect ? friendsPartySelect.value : ''));
+  if (!friend) {
+    updateStatus('Select a friend to start a party.');
+    return;
+  }
+  try {
+    await apiRequest('party/', { method: 'POST' });
+  } catch (error) {
+    const detail = error?.data?.detail || error?.message || 'Unable to start a party.';
+    updateStatus(detail);
+    console.warn('Failed to start party', error);
+    await refreshPartyState(false, { silent: true });
+    return;
+  }
+  const result = await sendPartyInvite(friend.username, { suppressStatus: true });
+  if (result.success) {
+    updateStatus(`Party started with @${friend.username}. Boost lasts 3 hours.`);
+    if (friendsPartySelect) {
+      friendsPartySelect.value = '';
+    }
+  } else if (result.message) {
+    updateStatus(result.message);
+  }
+}
+
+async function addFriendToParty(username) {
+  if (!currentUser || !isSessionAuthenticated) {
+    updateStatus('Sign in to manage your party.');
+    return;
+  }
+  const activeParty = getActivePartyState();
+  if (!activeParty) {
+    await startPartyWithFriend(username);
+    return;
+  }
+  if (!activeParty.isLeader) {
+    updateStatus('Only the party leader can invite new members.');
+    return;
+  }
+  const maxPartySize = PARTY_MAX_FRIENDS + 1;
+  if (activeParty.size >= maxPartySize) {
+    updateStatus('Party is full. Disband to start a new one.');
+    return;
+  }
+  const friend = findFriendByUsername(username || (friendsPartySelect ? friendsPartySelect.value : ''));
+  if (!friend) {
+    updateStatus('Select a friend to add to your party.');
+    return;
+  }
+  const friendName = friend.username.toLowerCase();
+  if (
+    activeParty.members?.some(
+      (member) => member && member.username && member.username.toLowerCase() === friendName,
+    )
+  ) {
+    updateStatus(`@${friend.username} is already in your party.`);
+    return;
+  }
+  const invitePending = partyState.outgoing?.some(
+    (invite) =>
+      invite &&
+      invite.status === 'pending' &&
+      invite.toUsername &&
+      invite.toUsername.toLowerCase() === friendName,
+  );
+  if (invitePending) {
+    updateStatus(`Invitation to @${friend.username} is already pending.`);
+    return;
+  }
+  const result = await sendPartyInvite(friend.username);
+  if (result.success && friendsPartySelect) {
+    friendsPartySelect.value = '';
+  }
+}
+
+async function disbandActiveParty() {
+  if (!isSessionAuthenticated || !currentUser) {
+    return;
+  }
+  const activeParty = getActivePartyState();
+  if (!activeParty) {
+    return;
+  }
+  try {
+    await apiRequest('party/', { method: 'DELETE' });
+    updateStatus(activeParty.isLeader ? 'Party disbanded.' : 'You left the party.');
+  } catch (error) {
+    const detail = error?.data?.detail || error?.message || 'Unable to update party.';
+    updateStatus(detail);
+    console.warn('Failed to end party', error);
+  } finally {
+    await refreshPartyState(false, { silent: true });
+  }
+}
+
+async function handlePartyInviteResponse(invitationId, accept) {
+  const numericId = Number(invitationId);
+  if (!Number.isFinite(numericId) || !isSessionAuthenticated || !currentUser) {
+    return;
+  }
+  try {
+    await apiRequest(`party/invitations/${numericId}/`, {
+      method: 'POST',
+      body: { action: accept ? 'accept' : 'decline' },
+    });
+    updateStatus(accept ? 'Joined party boost!' : 'Invitation declined.');
+  } catch (error) {
+    const detail = error?.data?.detail || error?.message || 'Unable to respond to invitation.';
+    updateStatus(detail);
+    console.warn('Failed to respond to party invite', error);
+  } finally {
+    removePartyInviteNotice(numericId);
+    renderCooldownStrip();
+    await refreshPartyState(false, { silent: true });
   }
 }
 
@@ -6918,6 +7493,7 @@ async function refreshFriends(force = false) {
     };
     updateFriendsDrawerContent();
     updateFriendLocationsLayer();
+    updatePartyUi(friendsState.items);
     return;
   }
   if (friendsState.loading) {
@@ -6958,6 +7534,7 @@ async function refreshFriends(force = false) {
   } finally {
     friendsState.loading = false;
     updateFriendsDrawerContent();
+    updatePartyUi(friendsState.items);
     if (friendsManageOpen) {
       renderFriendManageList();
     }
@@ -9703,6 +10280,46 @@ if (friendsPartyAddButton) {
 if (friendsPartyDisbandButton) {
   friendsPartyDisbandButton.addEventListener('click', () => {
     disbandActiveParty();
+  });
+}
+
+if (friendsPartyInviteIncomingList) {
+  friendsPartyInviteIncomingList.addEventListener('click', (event) => {
+    const acceptTarget = event.target.closest('[data-party-invite-accept]');
+    if (acceptTarget) {
+      event.preventDefault();
+      handlePartyInviteResponse(acceptTarget.dataset.partyInviteAccept, true);
+      return;
+    }
+    const declineTarget = event.target.closest('[data-party-invite-decline]');
+    if (declineTarget) {
+      event.preventDefault();
+      handlePartyInviteResponse(declineTarget.dataset.partyInviteDecline, false);
+    }
+  });
+}
+
+if (cooldownStrip) {
+  cooldownStrip.addEventListener('click', (event) => {
+    const inviteChip = event.target.closest('[data-party-invite]');
+    if (!inviteChip) {
+      return;
+    }
+    event.preventDefault();
+    const inviteId = Number(inviteChip.dataset.partyInvite);
+    if (Number.isFinite(inviteId)) {
+      removePartyInviteNotice(inviteId);
+      renderCooldownStrip();
+    }
+    openFriendsDrawer(friendsButton || null);
+    if (
+      friendsPartyInvitationsPanel &&
+      typeof friendsPartyInvitationsPanel.scrollIntoView === 'function'
+    ) {
+      window.setTimeout(() => {
+        friendsPartyInvitationsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 120);
+    }
   });
 }
 
