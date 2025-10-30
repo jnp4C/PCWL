@@ -264,6 +264,8 @@ const PARTY_MAX_FRIENDS = 3;
 const PARTY_INVITE_DISPLAY_MS = 60 * 1000;
 const PARTY_POLL_INTERVAL_MS = 15 * 1000;
 const FRIEND_REQUEST_NOTICE_DISPLAY_MS = 60 * 1000;
+const PARTY_OUTGOING_NOTICE_STORAGE_KEY = 'partyOutgoingInviteLastSentAt';
+const PARTY_OUTGOING_NOTICE_NAME_STORAGE_KEY = 'partyOutgoingInviteLastTo';
 
 const TREE_GIF_URL = resolveDataUrl('tree.gif?v=2');
 const HITMARKER_GIF_URL = resolveDataUrl('attack_hitmarker.gif?v=1');
@@ -342,11 +344,13 @@ async function apiRequest(path, options = {}) {
     if (!requestHeaders['Content-Type'] && !requestHeaders['content-type']) {
       requestHeaders['Content-Type'] = 'application/json';
     }
-    if (!requestHeaders[CSRF_HEADER_NAME]) {
-      const csrfToken = getCsrfToken();
-      if (csrfToken) {
-        requestHeaders[CSRF_HEADER_NAME] = csrfToken;
-      }
+  }
+  // Ensure CSRF token is attached for unsafe methods even when no body is present
+  const upperMethod = String(method || 'GET').toUpperCase();
+  if ((upperMethod === 'POST' || upperMethod === 'PUT' || upperMethod === 'PATCH' || upperMethod === 'DELETE') && !requestHeaders[CSRF_HEADER_NAME]) {
+    const csrfToken = getCsrfToken();
+    if (csrfToken) {
+      requestHeaders[CSRF_HEADER_NAME] = csrfToken;
     }
   }
 
@@ -926,7 +930,15 @@ function tickCooldowns() {
     }
   });
 
-  if (!activeCooldowns.size && !activePartyInviteNotices.size) {
+  if (activeOutgoingInviteNotice) {
+    const info = activeOutgoingInviteNotice;
+    if (!info || typeof info.deadline !== 'number' || info.deadline <= now) {
+      clearOutgoingInviteNotice();
+      removedInvites = true;
+    }
+  }
+
+  if (!activeCooldowns.size && !activePartyInviteNotices.size && !activeOutgoingInviteNotice) {
     stopCooldownTicker();
   }
 
@@ -2922,6 +2934,7 @@ let partyState = {
   insights: null,
 };
 const activePartyInviteNotices = new Map();
+let activeOutgoingInviteNotice = null;
 const seenPartyInviteIds = new Set();
 let friendRequestsState = {
   loading: false,
@@ -3912,6 +3925,31 @@ function addPartyInviteNotice(invitation) {
   renderCooldownStrip(now);
 }
 
+function addOutgoingInviteNotice(toUsername, now = Date.now()) {
+  if (!toUsername || typeof toUsername !== 'string') {
+    return;
+  }
+  activeOutgoingInviteNotice = {
+    deadline: now + PARTY_INVITE_DISPLAY_MS,
+    duration: PARTY_INVITE_DISPLAY_MS,
+    toUsername,
+  };
+  try {
+    window.localStorage.setItem(PARTY_OUTGOING_NOTICE_STORAGE_KEY, String(now));
+    window.localStorage.setItem(PARTY_OUTGOING_NOTICE_NAME_STORAGE_KEY, toUsername);
+  } catch (_) {}
+  startCooldownTicker();
+  renderCooldownStrip(now);
+  renderPartyPanelChip(now);
+}
+
+function clearOutgoingInviteNotice() {
+  activeOutgoingInviteNotice = null;
+  try {
+    window.localStorage.removeItem(PARTY_OUTGOING_NOTICE_STORAGE_KEY);
+    window.localStorage.removeItem(PARTY_OUTGOING_NOTICE_NAME_STORAGE_KEY);
+  } catch (_) {}
+}
 function removePartyInviteNotice(invitationId) {
   if (!Number.isFinite(invitationId)) {
     return;
@@ -3935,6 +3973,23 @@ function applyPartyStateFromServer(snapshot = {}, options = {}) {
     outgoing: outgoingInvites,
     insights: sanitizePartyInsights(insights),
   };
+  // Restore or clear outgoing invite 60s notice based on pending outgoing and last sent time
+  try {
+    const savedAtStr = window.localStorage.getItem(PARTY_OUTGOING_NOTICE_STORAGE_KEY);
+    const savedTo = window.localStorage.getItem(PARTY_OUTGOING_NOTICE_NAME_STORAGE_KEY);
+    const savedAt = savedAtStr ? Number(savedAtStr) : 0;
+    const nowTs = Date.now();
+    if (outgoingInvites.length > 0 && savedAt && nowTs - savedAt <= PARTY_INVITE_DISPLAY_MS) {
+      const matches = !savedTo || outgoingInvites.some((inv) => inv && inv.toUsername && savedTo && inv.toUsername.toLowerCase() === savedTo.toLowerCase());
+      if (matches) {
+        addOutgoingInviteNotice(savedTo || outgoingInvites[0].toUsername, savedAt);
+      }
+    } else {
+      if (activeOutgoingInviteNotice) {
+        clearOutgoingInviteNotice();
+      }
+    }
+  } catch (_) {}
   const currentPendingIds = new Set(incomingInvites.map((invite) => invite.id));
   Array.from(activePartyInviteNotices.keys()).forEach((id) => {
     if (!currentPendingIds.has(id)) {
@@ -6393,6 +6448,35 @@ function renderPartyPanelChip(now = Date.now()) {
     }
   }
 
+  // Outgoing invite notice (leader) for 60s after sending, if no other chip shown
+  if (activeOutgoingInviteNotice && typeof activeOutgoingInviteNotice.deadline === 'number') {
+    const remaining = Math.max(0, activeOutgoingInviteNotice.deadline - now);
+    const duration = Math.max(1, Number(activeOutgoingInviteNotice.duration) || PARTY_INVITE_DISPLAY_MS);
+    const ratio = Math.max(0, Math.min(1, remaining / duration));
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'cooldown-item party-invite';
+    button.dataset.partyPanelChip = 'outgoing-invite';
+
+    const track = document.createElement('div');
+    track.className = 'cooldown-track';
+    const fill = document.createElement('div');
+    fill.className = 'cooldown-fill';
+    fill.style.transform = `scaleX(${ratio})`;
+    track.appendChild(fill);
+
+    const label = document.createElement('span');
+    label.className = 'cooldown-time';
+    const to = activeOutgoingInviteNotice.toUsername ? `@${activeOutgoingInviteNotice.toUsername}` : 'Invite sent';
+    label.textContent = `${to} • ${formatCooldownTime(remaining)}`;
+
+    button.appendChild(track);
+    button.appendChild(label);
+    friendsPartyChip.appendChild(button);
+    return;
+  }
+
   // No active party and no invite: hide chip area
   friendsPartyChip.classList.add('hidden');
 }
@@ -6549,6 +6633,12 @@ async function sendPartyInvite(username, { suppressStatus = false } = {}) {
     message = `Invitation sent to @${username}.`;
     if (!suppressStatus) {
       updateStatus(message);
+    }
+    // Show local 60s outgoing-invite notice and inline hint
+    addOutgoingInviteNotice(username);
+    if (friendsPartyInviteOutgoing) {
+      friendsPartyInviteOutgoing.classList.remove('hidden');
+      friendsPartyInviteOutgoing.innerHTML = `<strong>Pending:</strong> @${username}`;
     }
     return { success: true, message };
   } catch (error) {
@@ -9132,6 +9222,7 @@ async function submitChargeAttack() {
   const profile = ensurePlayerProfile(currentUser);
   const response = await apiRequest('checkins/charge/', {
     method: 'POST',
+    body: {},
   });
   if (response && response.player) {
     applyServerPlayerData(profile, response.player);
