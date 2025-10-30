@@ -44,6 +44,9 @@
           Don't have an account?
           <a class="account-link" href="create-account.html">Create one here</a>
         </p>
+        <div class="login-row">
+          <button type="button" id="howto-open" class="secondary">How does it work?</button>
+        </div>
       </form>
       <div id="known-players" class="known-players hidden">
         <h2>Jump back in</h2>
@@ -216,6 +219,43 @@
             <h2 class="drawer-heading">Activity</h2>
             <div id="status" class="drawer-status">Allow geolocation to begin.</div>
           </section>
+          <section id="party-boost" class="drawer-block hidden" aria-hidden="true">
+            <h2 class="drawer-heading">Party Boost</h2>
+            <div id="party-boost-summary" class="drawer-status">Join a party to boost your actions together.</div>
+            <ul id="party-boost-list" class="recent-checkins-list"></ul>
+          </section>
+          <section class="drawer-block how-it-works">
+            <h2 class="drawer-heading">How does it work?</h2>
+            <details open>
+              <summary class="how-summary">Quick guide to playing</summary>
+              <div class="how-content">
+                <h3>1) Set and represent your Home District</h3>
+                <ul>
+                  <li>Set your home via the “Set Home” button (desktop) or in Character &amp; Settings → Home District.</li>
+                  <li>Defending happens when you check in at your home district. If you are away, you can still defend home using Remote Defend.</li>
+                  <li>Your home gains points when you defend and loses ground when others attack it. Keep it secure!</li>
+                </ul>
+                <h3>2) Friends and Parties</h3>
+                <ul>
+                  <li>Open Friends to add players by username. You can favorite friends to keep them at the top.</li>
+                  <li>Create a Party to play together. When at least two party members are in the same district, check-ins there can synchronize to everyone present.</li>
+                  <li>Synced actions put nearby party members on cooldown labeled “Party attack”. Play together to multiply gains.</li>
+                </ul>
+                <h3>3) Attack or Defend</h3>
+                <ul>
+                  <li>Use the Check In button for a quick action based on where you are: attack other districts you’re in, or defend your home when you’re there.</li>
+                  <li>On desktop, Right‑click the map to target a district; on mobile, Long‑press the map. This opens the context to launch a ranged attack (at other districts) or a precise local action.</li>
+                  <li>Remote Defend: If you’re away from home, choose your home district to defend it remotely.</li>
+                </ul>
+                <h3>4) Charge and Cooldowns</h3>
+                <ul>
+                  <li>Tap “Charge Attack” to power up your next check‑in for extra points. It has its own cooldown.</li>
+                  <li>Attacks, defends (local/remote), and charge have separate cooldowns. The strip at the top shows what’s cooling down and for how long.</li>
+                </ul>
+                <p class="how-tip">Tip: Enable geolocation for precise local actions, or use the map click/press to pick a district.</p>
+              </div>
+            </details>
+          </section>
         </aside>
         <div id="drawer-overlay" class="drawer-overlay hidden" tabindex="-1" aria-hidden="true"></div>
         <button id="drawer-toggle" class="fab-button drawer-toggle mobile-only" type="button" aria-expanded="false" aria-controls="mobile-drawer">
@@ -316,6 +356,51 @@
           <h3 class="character-section-title">Recent Interactions</h3>
           <p id="character-interactions-empty" class="character-empty">No interactions yet. Check in to build your story.</p>
           <ul id="character-interactions-list" class="character-interactions-list" hidden aria-live="polite"></ul>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <div id="howto-overlay" class="sheet-overlay hidden" tabindex="-1" aria-hidden="true"></div>
+  <section id="howto-drawer" class="sheet-drawer" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="howto-title">
+    <div id="howto-content" class="sheet-content" tabindex="-1">
+      <header class="sheet-header">
+        <h2 id="howto-title">How does it work?</h2>
+        <button type="button" id="howto-close" class="icon-button sheet-close" aria-label="Close help">
+          &times;
+        </button>
+      </header>
+      <div class="sheet-body">
+        <section class="drawer-block how-it-works">
+          <details open>
+            <summary class="how-summary">Quick guide to playing</summary>
+            <div class="how-content">
+              <h3>1) Set and represent your Home District</h3>
+              <ul>
+                <li>Set your home via the “Set Home” button (desktop) or in Character &amp; Settings → Home District.</li>
+                <li>Defending happens when you check in at your home district. If you are away, you can still defend home using Remote Defend.</li>
+                <li>Your home gains points when you defend and loses ground when others attack it. Keep it secure!</li>
+              </ul>
+              <h3>2) Friends and Parties</h3>
+              <ul>
+                <li>Open Friends to add players by username. You can favorite friends to keep them at the top.</li>
+                <li>Create a Party to play together. When at least two party members are in the same district, check-ins there can synchronize to everyone present.</li>
+                <li>Synced actions put nearby party members on cooldown labeled “Party attack”. Play together to multiply gains.</li>
+              </ul>
+              <h3>3) Attack or Defend</h3>
+              <ul>
+                <li>Use the Check In button for a quick action based on where you are: attack other districts you’re in, or defend your home when you’re there.</li>
+                <li>On desktop, Right‑click the map to target a district; on mobile, Long‑press the map. This opens the context to launch a ranged attack (at other districts) or a precise local action.</li>
+                <li>Remote Defend: If you’re away from home, choose your home district to defend it remotely.</li>
+              </ul>
+              <h3>4) Charge and Cooldowns</h3>
+              <ul>
+                <li>Tap “Charge Attack” to power up your next check‑in for extra points. It has its own cooldown.</li>
+                <li>Attacks, defends (local/remote), and charge have separate cooldowns. The strip at the top shows what’s cooling down and for how long.</li>
+              </ul>
+              <p class="how-tip">Tip: Enable geolocation for precise local actions, or use the map click/press to pick a district.</p>
+            </div>
+          </details>
         </section>
       </div>
     </div>

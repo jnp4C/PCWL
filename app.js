@@ -53,6 +53,9 @@ const recentCheckinsContent = document.getElementById('recent-checkins-content')
 const recentCheckinsOverlay = document.getElementById('recent-checkins-overlay');
 const recentCheckinsCloseButton = document.getElementById('recent-checkins-close');
 const recentCheckinsList = document.getElementById('recent-checkins-list');
+const partyBoostSection = document.getElementById('party-boost');
+const partyBoostSummary = document.getElementById('party-boost-summary');
+const partyBoostList = document.getElementById('party-boost-list');
 const recentCheckinsToggleButton = document.getElementById('recent-checkins-toggle');
 const recentCheckinsEmptyState = document.getElementById('recent-checkins-empty');
 const mobileFindMeButton = document.getElementById('mobile-find-me-button');
@@ -65,6 +68,11 @@ const musicTrackName = document.getElementById('music-track-name');
 const musicVolumeSlider = document.getElementById('music-volume');
 const musicSkipButton = document.getElementById('music-skip-button');
 const drawerLeaderboardLink = document.getElementById('drawer-leaderboard');
+const howtoOpenButton = document.getElementById('howto-open');
+const howtoOverlay = document.getElementById('howto-overlay');
+const howtoDrawer = document.getElementById('howto-drawer');
+const howtoContent = document.getElementById('howto-content');
+const howtoCloseButton = document.getElementById('howto-close');
 const profileImageUrlInput = document.getElementById('profile-image-url-input');
 const profileImagePreview = document.getElementById('profile-image-preview');
 const profileImageSaveButton = document.getElementById('profile-image-save');
@@ -1432,11 +1440,35 @@ function sanitiseCheckinHistoryEntry(entry) {
     ranged: Boolean(entry.ranged),
     melee: Boolean(entry.melee),
   };
+  // Preserve server-calculated points to allow better summaries
+  const pointsNum = Number(entry.points);
+  if (Number.isFinite(pointsNum)) {
+    payload.points = pointsNum;
+  }
+  const districtPointsNum = Number(entry.districtPoints);
+  if (Number.isFinite(districtPointsNum)) {
+    payload.districtPoints = districtPointsNum;
+  }
   if (cooldownType) {
     payload.cooldownType = cooldownType;
   }
   if (cooldownMode) {
     payload.cooldownMode = cooldownMode;
+  }
+  // Preserve party-related flags so UI can label party-triggered actions
+  if (typeof entry.partyCode === 'string' && entry.partyCode) {
+    payload.partyCode = entry.partyCode;
+  }
+  if (typeof entry.partyContribution === 'boolean') {
+    payload.partyContribution = entry.partyContribution;
+  }
+  const partySizeNum = Number(entry.partySize);
+  if (Number.isFinite(partySizeNum) && partySizeNum > 0) {
+    payload.partySize = partySizeNum;
+  }
+  const partyMultNum = Number(entry.partyMultiplier);
+  if (Number.isFinite(partyMultNum) && partyMultNum > 0) {
+    payload.partyMultiplier = partyMultNum;
   }
 
   return payload;
@@ -4089,10 +4121,82 @@ function applyPartyStateFromServer(snapshot = {}, options = {}) {
   renderPartyInvitations();
   renderPartyPanelChip();
   renderCooldownStrip();
+  renderPartyBoostBox();
 }
 
 function getActivePartyState() {
   return partyState.party;
+}
+
+function renderPartyBoostBox() {
+  if (!partyBoostSection || !partyBoostSummary || !partyBoostList) {
+    return;
+  }
+  const party = getActivePartyState();
+  const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+  if (!party || !profile) {
+    partyBoostSection.classList.add('hidden');
+    partyBoostSection.setAttribute('aria-hidden', 'true');
+    partyBoostList.innerHTML = '';
+    partyBoostSummary.textContent = 'Join a party to boost your actions together.';
+    return;
+  }
+
+  // Show section
+  partyBoostSection.classList.remove('hidden');
+  partyBoostSection.setAttribute('aria-hidden', 'false');
+
+  // Build summary line from party payload
+  const size = Number(party.size) || 1;
+  const atkMult = Number(party.attackMultiplier) || 0;
+  const contribMult = Number(party.contributionMultiplier) || 0;
+  const atkChecks = Number(party.attackCheckins) || 0;
+  const contribChecks = Number(party.contributionCheckins) || 0;
+  const parts = [];
+  parts.push(`Size ${size}`);
+  if (atkMult) parts.push(`Attack x${atkMult}`);
+  if (contribMult) parts.push(`Defend x${contribMult}`);
+  if (atkChecks || contribChecks) parts.push(`${atkChecks + contribChecks} party boosts`);
+  partyBoostSummary.textContent = parts.join(' • ');
+
+  // Recent party-affected check-ins from history
+  const history = Array.isArray(profile.checkins) ? profile.checkins : [];
+  const partyEntries = history.filter((e) => e && (e.partyCode || e.partyContribution));
+  const entriesToShow = partyEntries.slice(0, 3);
+
+  partyBoostList.innerHTML = '';
+  if (!entriesToShow.length) {
+    return;
+  }
+  entriesToShow.forEach((entry) => {
+    const li = document.createElement('li');
+    li.className = 'recent-checkins-item';
+    const title = document.createElement('div');
+    title.className = 'recent-checkins-entry';
+    const district = entry.districtName && entry.districtName.trim()
+      ? entry.districtName.trim()
+      : entry.districtId
+      ? `District ${entry.districtId}`
+      : 'Unknown district';
+    title.textContent = district;
+    li.appendChild(title);
+
+    const meta = document.createElement('div');
+    meta.className = 'recent-checkins-meta';
+    const typeLabel = entry.type === 'defend' ? 'Defend' : 'Attack';
+    const multLabel = Number(entry.multiplier) > 1 ? `x${Number(entry.multiplier)}` : null;
+    const when = entry.timestamp ? formatTimeAgo(entry.timestamp) : '';
+    const pieces = [`${typeLabel} (party)`];
+    if (multLabel) pieces.push(multLabel);
+    if (typeof entry.points === 'number') {
+      pieces.push(`${entry.points > 0 ? '+' : ''}${entry.points} pts`);
+    }
+    if (when) pieces.push(when);
+    meta.textContent = pieces.join(' • ');
+    li.appendChild(meta);
+
+    partyBoostList.appendChild(li);
+  });
 }
 
 function loadMusicPreferences() {
@@ -5110,6 +5214,8 @@ function initialiseMarkerColorControl(profile) {
 }
 
 function renderPlayerState() {
+  bindHowtoHandlersOnce();
+  renderPartyBoostBox();
   const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
 
   if (profileImageUrlInput && profileImagePreview && profileImageSaveButton && profileImageClearButton) {
@@ -5303,7 +5409,11 @@ function formatRecentCheckinTag(entry, options = {}) {
     ? `District ${entry.districtId}`
     : 'Unknown district';
   const type = typeof entry.type === 'string' ? entry.type.toLowerCase() : '';
-  const typeLabel = type === 'defend' ? 'Defend' : type === 'attack' ? 'Attack' : 'Check-in';
+  let typeLabel = type === 'defend' ? 'Defend' : type === 'attack' ? 'Attack' : 'Check-in';
+  const isParty = Boolean(entry.partyCode || entry.partyContribution);
+  if (isParty) {
+    typeLabel += ' (party)';
+  }
   const when = includeTime && entry.timestamp ? formatTimeAgo(entry.timestamp) : '';
   return when ? `${typeLabel} • ${district} (${when})` : `${typeLabel} • ${district}`;
 }
@@ -5443,7 +5553,11 @@ function updateRecentCheckinsDrawerContent(profile = undefined) {
     title.textContent = district;
     li.appendChild(title);
 
-    const typeLabel = type === 'defend' ? 'Defend' : type === 'attack' ? 'Attack' : 'Check-in';
+    let typeLabel = type === 'defend' ? 'Defend' : type === 'attack' ? 'Attack' : 'Check-in';
+    const isParty = Boolean(entry.partyCode || entry.partyContribution);
+    if (isParty) {
+      typeLabel += ' (party)';
+    }
     const points = calculateCheckinPoints(entry);
     const pointsText = `${points > 0 ? '+' : ''}${points.toLocaleString()} pts`;
     const multiplier = Number(entry.multiplier) > 1 ? `x${Number(entry.multiplier)}` : null;
@@ -9217,6 +9331,9 @@ function handleExistingPlayer(username) {
 }
 
 function switchToWelcome() {
+  // Ensure How-to modal is hidden when switching to welcome
+  bindHowtoHandlersOnce();
+  closeHowto(false);
   if (gameScreen) {
     gameScreen.classList.add('hidden');
   }
@@ -9492,6 +9609,12 @@ async function handleCheckIn(options = {}) {
     }
   } catch (error) {
     console.warn('Failed to record check-in with backend', error);
+    if (error && Number(error.status) === 429) {
+      // Cooldown active — show a friendly message; backend provides { detail }
+      const detail = (error && error.data && error.data.detail) || error.message || 'Cooldown active. Please wait and try again.';
+      updateStatus(detail);
+      return;
+    }
     const message =
       (error && error.message) || 'Unable to check in right now. Please try again.';
     updateStatus(message);
@@ -9532,6 +9655,11 @@ async function handleChargeAttack() {
     await submitChargeAttack();
   } catch (error) {
     console.warn('Failed to start charge attack on backend', error);
+    if (error && Number(error.status) === 429) {
+      const detail = (error && error.data && error.data.detail) || error.message || 'Charge cooldown active. Please wait and try again.';
+      updateStatus(detail);
+      return;
+    }
     const message =
       (error && error.message) || 'Unable to charge right now. Please try again.';
     updateStatus(message);
@@ -11156,3 +11284,59 @@ ensureMap(() => {
     }
   }
 });
+
+
+// How-to (Welcome) modal helpers
+let howtoHandlersBound = false;
+
+function isHowtoOpen() {
+  return Boolean(howtoDrawer && howtoDrawer.getAttribute('aria-hidden') === 'false');
+}
+
+function openHowto(trigger = null) {
+  if (!howtoOverlay || !howtoDrawer || !howtoContent) {
+    return;
+  }
+  howtoOverlay.classList.remove('hidden');
+  howtoDrawer.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('howto-open');
+  try {
+    howtoContent.focus();
+  } catch (_) {}
+}
+
+function closeHowto(restoreFocus = true) {
+  if (!howtoOverlay || !howtoDrawer) {
+    return;
+  }
+  howtoOverlay.classList.add('hidden');
+  howtoDrawer.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('howto-open');
+  if (restoreFocus && howtoOpenButton) {
+    try { howtoOpenButton.focus(); } catch (_) {}
+  }
+}
+
+function bindHowtoHandlersOnce() {
+  if (howtoHandlersBound) return;
+  howtoHandlersBound = true;
+  if (howtoOpenButton) {
+    howtoOpenButton.addEventListener('click', () => openHowto(howtoOpenButton));
+  }
+  if (howtoCloseButton) {
+    howtoCloseButton.addEventListener('click', () => closeHowto(true));
+  }
+  if (howtoOverlay) {
+    howtoOverlay.addEventListener('click', (e) => {
+      if (e.target === howtoOverlay) {
+        closeHowto(true);
+      }
+    });
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && isHowtoOpen()) {
+      e.preventDefault();
+      closeHowto(true);
+    }
+  });
+}
