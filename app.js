@@ -987,7 +987,28 @@ function renderCooldownStrip(now = Date.now()) {
       key,
       info,
     }));
-  const combinedEntries = cooldownEntries.concat(inviteEntries);
+
+  // Include active party 3h countdown chip in the main cooldown strip
+  const activeParty = getActivePartyState ? getActivePartyState() : null;
+  const partyEntries = [];
+  if (activeParty && Number.isFinite(activeParty.expiresAt)) {
+    const createdAt = Number.isFinite(activeParty.createdAt)
+      ? activeParty.createdAt
+      : activeParty.expiresAt - PARTY_DURATION_MS;
+    const duration = Math.max(1, (activeParty.expiresAt - createdAt) || PARTY_DURATION_MS);
+    partyEntries.push({
+      type: 'party-active',
+      key: 'party-active',
+      info: {
+        deadline: activeParty.expiresAt,
+        duration,
+        createdAt,
+        expiresAt: activeParty.expiresAt,
+      },
+    });
+  }
+
+  const combinedEntries = partyEntries.concat(cooldownEntries).concat(inviteEntries);
   if (!combinedEntries.length) {
     cooldownStrip.classList.add('hidden');
     cooldownStrip.innerHTML = '';
@@ -1033,6 +1054,29 @@ function renderCooldownStrip(now = Date.now()) {
         inviteButton.appendChild(track);
         inviteButton.appendChild(timeLabel);
         fragment.appendChild(inviteButton);
+        return;
+      }
+
+      if (entry.type === 'party-active') {
+        const partyButton = document.createElement('button');
+        partyButton.type = 'button';
+        partyButton.className = 'cooldown-item party-invite';
+        partyButton.dataset.partyPanelChip = 'active-party';
+        const track = document.createElement('div');
+        track.className = 'cooldown-track';
+        const fill = document.createElement('div');
+        fill.className = 'cooldown-fill';
+        fill.style.transform = `scaleX(${ratio})`;
+        track.appendChild(fill);
+        const label = document.createElement('span');
+        label.className = 'cooldown-time';
+        const expiresText = typeof formatPartyCountdown === 'function' && Number.isFinite(info.expiresAt)
+          ? formatPartyCountdown(info.expiresAt)
+          : formatCooldownTime(remaining);
+        label.textContent = `Party boost • ${expiresText} left`;
+        partyButton.appendChild(track);
+        partyButton.appendChild(label);
+        fragment.appendChild(partyButton);
         return;
       }
 
@@ -2847,7 +2891,7 @@ function openHomeDistrictModal() {
     });
 }
 
-function confirmHomeDistrictSelection() {
+async function confirmHomeDistrictSelection() {
   if (!currentUser || !homeDistrictModalSelectedId) {
     closeHomeDistrictModal();
     return;
@@ -2860,6 +2904,8 @@ function confirmHomeDistrictSelection() {
   const option = homeDistrictOptionMap.get(homeDistrictModalSelectedId);
   const profile = ensurePlayerProfile(currentUser);
   const previousId = profile.homeDistrictId;
+
+  // Optimistically update local state
   profile.homeDistrictId = option.id;
   profile.homeDistrictName = option.name;
   savePlayers();
@@ -2870,6 +2916,27 @@ function confirmHomeDistrictSelection() {
     updateStatus(`${option.name} is now your home district. Defend it to earn points!`);
   } else {
     updateStatus(`${option.name} is already your home district.`);
+  }
+
+  // Persist to backend so it survives reloads and appears in session/player payloads
+  try {
+    if (isSessionAuthenticated && Number.isFinite(Number(activePlayerBackendId))) {
+      const updated = await apiRequest(`players/${activePlayerBackendId}/`, {
+        method: 'PATCH',
+        body: {
+          home_district_code: option.id,
+          home_district_name: option.name,
+        },
+      });
+      if (updated && typeof updated === 'object') {
+        applyServerPlayerData(profile, updated);
+        savePlayers();
+        renderPlayerState();
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to persist home district to backend', error);
+    // Soft warn but keep local change; backend will be retried next time user changes it.
   }
 
   closeHomeDistrictModal();
