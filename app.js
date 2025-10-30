@@ -123,6 +123,7 @@ const friendsLeaderboardHint = document.getElementById('friends-leaderboard-hint
 const friendsPartySection = document.getElementById('friends-party');
 const friendsPartyStatus = document.getElementById('friends-party-status');
 const friendsPartyMembersList = document.getElementById('friends-party-members');
+const friendsPartyChip = document.getElementById('friends-party-chip');
 const friendsPartyInvitationsPanel = document.getElementById('friends-party-invitations');
 const friendsPartyInviteIncomingList = document.getElementById('friends-party-invite-incoming');
 const friendsPartyInviteOutgoing = document.getElementById('friends-party-invite-outgoing');
@@ -930,6 +931,7 @@ function tickCooldowns() {
   }
 
   renderCooldownStrip(now);
+  renderPartyPanelChip(now);
   updateRecentCheckinCooldownBadges(now, profile);
 
   if (removedCooldowns) {
@@ -3737,6 +3739,7 @@ function resetPartyState() {
   activePartyInviteNotices.clear();
   seenPartyInviteIds.clear();
   renderCooldownStrip();
+  renderPartyPanelChip();
 }
 
 function parseServerTimestamp(value) {
@@ -3953,6 +3956,7 @@ function applyPartyStateFromServer(snapshot = {}, options = {}) {
   });
   updatePartyUi(friendsState.items);
   renderPartyInvitations();
+  renderPartyPanelChip();
   renderCooldownStrip();
 }
 
@@ -6308,6 +6312,89 @@ function updatePartyUi(friends) {
   }
 
   renderPartyInvitations();
+}
+
+function renderPartyPanelChip(now = Date.now()) {
+  if (!friendsPartyChip) {
+    return;
+  }
+  // Default: clear chip
+  friendsPartyChip.innerHTML = '';
+  friendsPartyChip.classList.remove('hidden');
+
+  const activeParty = getActivePartyState();
+  // If an active party exists, show a 3h countdown chip reflecting remaining time
+  if (activeParty && Number.isFinite(activeParty.expiresAt)) {
+    const remaining = Math.max(0, activeParty.expiresAt - now);
+    // Progress across full party duration
+    const createdAt = Number.isFinite(activeParty.createdAt) ? activeParty.createdAt : activeParty.expiresAt - PARTY_DURATION_MS;
+    const duration = Math.max(1, (activeParty.expiresAt - createdAt) || PARTY_DURATION_MS);
+    const ratio = Math.max(0, Math.min(1, remaining / duration));
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'cooldown-item party-invite';
+    button.dataset.partyPanelChip = 'active-party';
+    const track = document.createElement('div');
+    track.className = 'cooldown-track';
+    const fill = document.createElement('div');
+    fill.className = 'cooldown-fill';
+    fill.style.transform = `scaleX(${ratio})`;
+    track.appendChild(fill);
+    const label = document.createElement('span');
+    label.className = 'cooldown-time';
+    const expiresText = formatPartyCountdown(activeParty.expiresAt);
+    label.textContent = `Party boost • ${expiresText} left`;
+    button.appendChild(track);
+    button.appendChild(label);
+    friendsPartyChip.appendChild(button);
+    return;
+  }
+
+  // Otherwise, if there is a pending invite notice, show a 60s invite chip
+  if (activePartyInviteNotices && activePartyInviteNotices.size) {
+    // Pick the earliest deadline invite
+    let chosenId = null;
+    let chosen = null;
+    activePartyInviteNotices.forEach((info, id) => {
+      if (!chosen || (info && info.deadline < chosen.deadline)) {
+        chosenId = id;
+        chosen = info;
+      }
+    });
+    if (chosen && typeof chosen.deadline === 'number') {
+      const remaining = Math.max(0, chosen.deadline - now);
+      const duration = Math.max(1, Number(chosen.duration) || PARTY_INVITE_DISPLAY_MS);
+      const ratio = Math.max(0, Math.min(1, remaining / duration));
+
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'cooldown-item party-invite';
+      button.dataset.partyPanelChip = 'invite';
+      button.dataset.partyInvite = String(chosenId);
+      const inviter = chosen.fromUsername ? `@${chosen.fromUsername}` : 'Party invite';
+      button.setAttribute('aria-label', `${inviter} — ${formatCooldownTime(remaining)} left`);
+
+      const track = document.createElement('div');
+      track.className = 'cooldown-track';
+      const fill = document.createElement('div');
+      fill.className = 'cooldown-fill';
+      fill.style.transform = `scaleX(${ratio})`;
+      track.appendChild(fill);
+
+      const label = document.createElement('span');
+      label.className = 'cooldown-time';
+      label.textContent = `${inviter} • ${formatCooldownTime(remaining)}`;
+
+      button.appendChild(track);
+      button.appendChild(label);
+      friendsPartyChip.appendChild(button);
+      return;
+    }
+  }
+
+  // No active party and no invite: hide chip area
+  friendsPartyChip.classList.add('hidden');
 }
 
 function renderPartyInvitations() {
@@ -10281,6 +10368,7 @@ if (cooldownStrip) {
     if (Number.isFinite(inviteId)) {
       removePartyInviteNotice(inviteId);
       renderCooldownStrip();
+      renderPartyPanelChip();
     }
     openFriendsDrawer(friendsButton || null);
     if (
@@ -10290,6 +10378,36 @@ if (cooldownStrip) {
       window.setTimeout(() => {
         friendsPartyInvitationsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 120);
+    }
+  });
+}
+
+if (friendsPartyChip) {
+  friendsPartyChip.addEventListener('click', (event) => {
+    const chip = event.target.closest('[data-party-panel-chip]');
+    if (!chip) {
+      return;
+    }
+    event.preventDefault();
+    const type = chip.dataset.partyPanelChip;
+    if (type === 'invite') {
+      const inviteId = Number(chip.dataset.partyInvite);
+      if (Number.isFinite(inviteId)) {
+        removePartyInviteNotice(inviteId);
+        renderPartyPanelChip();
+        renderCooldownStrip();
+      }
+      openFriendsDrawer(friendsButton || null);
+      if (
+        friendsPartyInvitationsPanel &&
+        typeof friendsPartyInvitationsPanel.scrollIntoView === 'function'
+      ) {
+        window.setTimeout(() => {
+          friendsPartyInvitationsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 120);
+      }
+    } else if (type === 'active-party') {
+      openFriendsDrawer(friendsButton || null);
     }
   });
 }

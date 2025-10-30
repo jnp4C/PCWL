@@ -15,8 +15,7 @@ body[data-theme='dark'] {
   --color-panel-bg: #fdfbff;
   --color-panel-shadow: 0 22px 45px rgba(71, 40, 115, 0.12);
   --color-surface-subtle: rgba(94, 53, 177, 0.08);
-  --colo
-  r-surface-strong: rgba(94, 53, 177, 0.14);
+  --color-surface-strong: rgba(94, 53, 177, 0.14);
   --color-border-soft: rgba(71, 40, 115, 0.18);
   --color-button-primary: #4c1d95;
   --color-button-primary-hover: #5b21b6;
@@ -1064,6 +1063,11 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   margin: 0;
   font-size: 0.78rem;
   color: var(--color-text-muted);
+}
+
+.friend-party-chip {
+  margin: 0.35rem 0 0.6rem;
+  display: block;
 }
 
 .friend-party-invitations {
