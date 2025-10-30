@@ -103,10 +103,12 @@ def _build_party_payload(party: Party, player: Player) -> Optional[Dict[str, Any
         return None
     now = timezone.now()
     members_payload = []
+    member_players = []
     size = 0
     player_is_leader = False
     for membership in memberships:
         member = membership.player
+        member_players.append(member)
         size += 1
         if member.id == player.id and membership.is_leader:
             player_is_leader = True
@@ -117,6 +119,24 @@ def _build_party_payload(party: Party, player: Player) -> Optional[Dict[str, Any
                 is_self=member.id == player.id,
             )
         )
+
+    # Determine active district by majority presence among members (>= 2)
+    try:
+        from .services import _determine_party_active_district
+    except Exception:
+        _determine_party_active_district = None  # type: ignore
+    active_district_code = None
+    active_district_name = None
+    active_district_count = 0
+    if _determine_party_active_district is not None:
+        active_info = _determine_party_active_district(party, member_players)
+        if isinstance(active_info, dict):
+            active_district_code = active_info.get("code") or None
+            active_district_name = active_info.get("name") or None
+            try:
+                active_district_count = int(active_info.get("count") or 0)
+            except (TypeError, ValueError):
+                active_district_count = 0
 
     seconds_remaining = None
     if party.expires_at:
@@ -163,6 +183,10 @@ def _build_party_payload(party: Party, player: Player) -> Optional[Dict[str, Any
         "focus": focus,
         "members": members_payload,
         "is_leader": player_is_leader,
+        # Active district majority info for frontend UX
+        "active_district_code": active_district_code or "",
+        "active_district_name": active_district_name or "",
+        "active_district_count": active_district_count,
     }
 
 
@@ -472,7 +496,8 @@ class ChargeAttackView(PlayerScopedAPIView):
         try:
             updated_player = start_charge(player)
         except CooldownActive as exc:
-            raise ValidationError({"detail": str(exc)})
+            # Return a more appropriate status for rate-limited/cooldown state
+            return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
         serialized = PlayerSerializer(updated_player, context={"request": request})
         return Response({"player": serialized.data}, status=status.HTTP_200_OK)
 
@@ -493,7 +518,8 @@ class CheckInView(PlayerScopedAPIView):
         try:
             result = apply_checkin(player, metadata=metadata or None, **payload)
         except CooldownActive as exc:
-            raise ValidationError({"detail": str(exc)})
+            # Use 429 Too Many Requests to indicate active cooldown rather than a generic 400
+            return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
         except ValueError as exc:
             raise ValidationError({"detail": str(exc)})
         player_data = PlayerSerializer(result.player, context={"request": request}).data

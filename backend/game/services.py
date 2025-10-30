@@ -223,6 +223,97 @@ def get_active_party(player: Player) -> Optional[Party]:
     return membership.party if membership else None
 
 
+def _member_inferred_district(member: Player, party_code: Optional[str] = None) -> Optional[str]:
+    """Infer a member's current district code.
+
+    Priority:
+    1) member.last_known_location["districtId"]
+    2) Latest CheckIn with this party_code (if provided)
+    3) Latest CheckIn overall
+    """
+    try:
+        lk = member.last_known_location or {}
+        code = lk.get("districtId") if isinstance(lk, dict) else None
+        code = _normalise_district_code(code)
+        if code:
+            return code
+    except Exception:
+        pass
+
+    qs = CheckIn.objects.filter(player=member).order_by("-occurred_at")
+    if party_code:
+        with_party = qs.filter(party_code=party_code).first()
+        if with_party and with_party.district_code:
+            return _normalise_district_code(with_party.district_code)
+    any_ci = qs.first()
+    if any_ci and any_ci.district_code:
+        return _normalise_district_code(any_ci.district_code)
+    return None
+
+
+def _determine_party_active_district(party: Party, members: Optional[List[Player]] = None) -> Dict[str, Any]:
+    """Compute the party's active district based on majority presence.
+
+    Returns a dict: {"code": str|None, "name": str|None, "count": int}
+    Active if count >= 2. Name is a best-effort from members' last_known_location.
+    """
+    if party is None:
+        return {"code": None, "name": None, "count": 0}
+
+    if members is None:
+        active_memberships = (
+            PartyMembership.objects.select_related("player")
+            .filter(party=party, left_at__isnull=True)
+            .order_by("joined_at")
+        )
+        members = [m.player for m in active_memberships]
+
+    counts: Dict[str, int] = {}
+    names: Dict[str, str] = {}
+    recency: Dict[str, Any] = {}
+
+    for m in members or []:
+        code = _member_inferred_district(m, party.code)
+        if not code:
+            continue
+        counts[code] = counts.get(code, 0) + 1
+        # prefer last_known_location name if matches
+        lk = m.last_known_location or {}
+        if isinstance(lk, dict) and _normalise_district_code(lk.get("districtId")) == code:
+            name = _normalise_district_name(lk.get("districtName"))
+            if name:
+                names[code] = names.get(code) or name
+            ts = lk.get("timestamp")
+            if ts is not None:
+                try:
+                    recency[code] = max(int(ts), recency.get(code, 0))
+                except (TypeError, ValueError):
+                    pass
+
+    if not counts:
+        return {"code": None, "name": None, "count": 0}
+
+    # pick max count; if tie, pick most recent timestamp
+    best_code = None
+    best_count = -1
+    for code, cnt in counts.items():
+        if cnt > best_count:
+            best_code = code
+            best_count = cnt
+        elif cnt == best_count:
+            prev_ts = recency.get(best_code, 0)
+            cur_ts = recency.get(code, 0)
+            if cur_ts > prev_ts:
+                best_code = code
+                best_count = cnt
+
+    if best_count < 2:
+        return {"code": None, "name": None, "count": best_count}
+
+    name = names.get(best_code) or ""
+    return {"code": best_code, "name": name, "count": best_count}
+
+
 def _resolve_party_context(
     player: Player,
     district_code: Optional[str],
@@ -511,12 +602,37 @@ def apply_checkin(
         party_context = _resolve_party_context(locked, code)
         party = party_context["party"]
         party_members: List[Player] = party_context["members"]
-        party_size = party_context["size"] if party else 0
         party_code_value = party_context["code"] if party else ""
-        has_home_member = party_context["has_home_member"]
-        home_members: List[Player] = party_context.get("home_members", [])
+        # Determine active district by majority presence (>=2) among members
+        active_info = _determine_party_active_district(party, party_members) if party else {"code": None, "name": None, "count": 0}
+        active_code = active_info.get("code")
+        active_count = int(active_info.get("count") or 0)
+        initiator_in_active = bool(active_code and code and active_code.lower() == code.lower())
 
-        if party and has_home_member:
+        # For home-member contribution logic, consider only members in the active district
+        def _members_in_active(members: List[Player]) -> List[Player]:
+            result: List[Player] = []
+            if not members or not active_code:
+                return result
+            for m in members:
+                m_code = _member_inferred_district(m, party_code_value)
+                if m_code and m_code.lower() == active_code.lower():
+                    result.append(m)
+            return result
+
+        members_in_active: List[Player] = _members_in_active(party_members) if party else []
+        party_size = len(members_in_active) if (party and initiator_in_active) else 0
+        # Compute has_home_member within the active district only
+        has_home_member = False
+        home_members: List[Player] = []
+        if party and initiator_in_active and active_code:
+            for m in members_in_active:
+                m_home = _normalise_district_code(m.home_district_code)
+                if m_home and m_home.lower() == active_code.lower():
+                    has_home_member = True
+                    home_members.append(m)
+
+        if party and initiator_in_active and has_home_member:
             action = CheckIn.Action.DEFEND
 
         if action == CheckIn.Action.ATTACK and _is_on_cooldown(locked, COOLDOWN_KEYS["attack"], now_ms):
@@ -701,5 +817,115 @@ def apply_checkin(
                 "updated_at",
             ]
         )
+
+        # Party synchronized check-ins: propagate only within the party's active district (majority)
+        if party and initiator_in_active and active_count >= 2 and party_size > 1:
+            # Determine the action taken by the initiator to mirror for others
+            initiator_action = action
+            # Determine cooldown duration based on action/mode used by initiator
+            if initiator_action == CheckIn.Action.DEFEND and mode == CheckIn.Mode.REMOTE:
+                others_duration = COOLDOWN_DURATIONS_MS["defend_remote"]
+            elif initiator_action == CheckIn.Action.DEFEND:
+                others_duration = COOLDOWN_DURATIONS_MS["defend_local"]
+            else:
+                others_duration = COOLDOWN_DURATIONS_MS["attack"]
+
+            # Eligible members: those in the computed active district (excluding initiator)
+            same_district_members: List[Player] = []
+            for member in members_in_active:
+                if member.id == locked.id:
+                    continue
+                same_district_members.append(member)
+
+            if same_district_members:
+                # Precompute shared values for all others
+                others_base_points = POINTS_PER_CHECKIN
+                # Use party multipliers based on initiator context
+                party_mult_player_dec = party_multiplier_player
+                party_mult_district_dec = party_multiplier_district
+                others_is_contribution = bool(is_party_contribution)
+                party_code_for_others = party_value
+                home_code_snapshot = home_snapshot_code
+                home_name_snapshot = home_snapshot_name
+
+                for member in same_district_members:
+                    # Lock each member row for update to avoid races
+                    m_locked = Player.objects.select_for_update().get(pk=member.pk)
+                    m_now_ms = now_ms
+                    # Compute points for member: no charge and no local precision bonus
+                    m_total_player_multiplier = (Decimal(1) * Decimal(1) * party_mult_player_dec).quantize(Decimal("0.01"))
+                    m_total_district_multiplier = (Decimal(1) * Decimal(1) * party_mult_district_dec).quantize(Decimal("0.01"))
+                    m_player_points = int((Decimal(others_base_points) * m_total_player_multiplier).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+                    m_district_points = int((Decimal(others_base_points) * m_total_district_multiplier).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+                    if initiator_action == CheckIn.Action.ATTACK:
+                        m_district_points = -abs(m_district_points)
+                    else:
+                        m_district_points = abs(m_district_points)
+                    if m_player_points <= 0:
+                        m_player_points = 1
+
+                    # Create CheckIn for the member
+                    m_checkin = CheckIn.objects.create(
+                        player=m_locked,
+                        occurred_at=now,
+                        district_code=code or "",
+                        district_name=name or "",
+                        action=initiator_action,
+                        mode=mode,  # keep model mode consistent; UI uses cooldown_details.mode='party' for labeling
+                        multiplier=m_total_player_multiplier,
+                        base_points=others_base_points,
+                        points_awarded=m_player_points,
+                        district_points_delta=m_district_points,
+                        party_size_snapshot=party_size,
+                        party_multiplier_snapshot=party_mult_player_dec.quantize(Decimal("0.01")),
+                        home_district_code_snapshot=home_code_snapshot,
+                        home_district_name_snapshot=home_name_snapshot,
+                        party_code=party_code_for_others,
+                        is_party_contribution=others_is_contribution,
+                        metadata={
+                            "source": "party",
+                            "triggeredBy": locked.username,
+                            "synchronized": True,
+                        },
+                    )
+
+                    # Update member stats and cooldown; do NOT consume their charge
+                    m_locked.score += m_player_points
+                    m_locked.checkins += 1
+                    if initiator_action == CheckIn.Action.ATTACK:
+                        m_locked.attack_points += m_player_points
+                    else:
+                        m_locked.defend_points += m_player_points
+
+                    # Set/refresh the appropriate cooldown with mode 'party'
+                    m_cooldown_key = COOLDOWN_KEYS["defend"] if initiator_action == CheckIn.Action.DEFEND else COOLDOWN_KEYS["attack"]
+                    _update_cooldown(m_locked, m_cooldown_key, others_duration, mode="party", now_ms=m_now_ms)
+
+                    # Append a history entry for the member
+                    _append_history_entry(
+                        m_locked,
+                        checkin=m_checkin,
+                        mode="party",
+                        precision=None,
+                        multiplier=m_total_player_multiplier,
+                        now_ms=m_now_ms,
+                    )
+                    _update_ratios(m_locked)
+
+                    # Persist member updates
+                    m_locked.save(
+                        update_fields=[
+                            "score",
+                            "checkins",
+                            "attack_points",
+                            "defend_points",
+                            "attack_ratio",
+                            "defend_ratio",
+                            "cooldowns",
+                            "cooldown_details",
+                            "checkin_history",
+                            "updated_at",
+                        ]
+                    )
 
         return CheckInResult(player=locked, checkin=checkin, points_awarded=points_awarded)

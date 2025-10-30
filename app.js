@@ -594,6 +594,9 @@ function formatCooldownTime(milliseconds) {
 }
 
 function formatCooldownLabel(actionKey, mode = null) {
+  if (mode === 'party') {
+    return 'Party attack';
+  }
   if (actionKey === COOLDOWN_KEYS.DEFEND) {
     return mode === 'remote' ? 'Defend (Remote)' : 'Defend';
   }
@@ -633,7 +636,7 @@ function resolveCooldownColors(actionKey, mode = null) {
 }
 
 const VALID_COOLDOWN_ACTIONS = new Set(['attack', 'defend', 'charge']);
-const VALID_COOLDOWN_MODES = new Set(['local', 'remote', 'ranged']);
+const VALID_COOLDOWN_MODES = new Set(['local', 'remote', 'ranged', 'party']);
 
 function ensureProfileCooldownState(profile) {
   if (!profile || typeof profile !== 'object') {
@@ -3910,6 +3913,12 @@ function sanitizePartyPayload(raw) {
     attackCheckins: Math.max(0, Math.round(Number(raw.attack_checkins) || 0)),
     contributionCheckins: Math.max(0, Math.round(Number(raw.contribution_checkins) || 0)),
     focus: typeof raw.focus === 'string' ? raw.focus : 'balanced',
+    activeDistrictCode: typeof raw.active_district_code === 'string' ? safeId(raw.active_district_code) : '',
+    activeDistrictName:
+      typeof raw.active_district_name === 'string' && raw.active_district_name.trim()
+        ? raw.active_district_name.trim()
+        : '',
+    activeDistrictCount: Number.isFinite(Number(raw.active_district_count)) ? Number(raw.active_district_count) : 0,
   };
 }
 
@@ -6285,7 +6294,7 @@ function formatPartyMultiplier(value) {
   return Number.isInteger(value) ? `×${value}` : `×${value.toFixed(1)}`;
 }
 
-function formatPartyStatus(activeState, pendingInvites = 0, firstPendingInvite = null) {
+function formatPartyStatus(activeState, pendingInvites = 0, firstPendingInvite = null, profile = null) {
   if (!activeState) {
     if (pendingInvites > 0) {
       const inviterLabel =
@@ -6315,6 +6324,18 @@ function formatPartyStatus(activeState, pendingInvites = 0, firstPendingInvite =
     `Contribute ${formatPartyMultiplier(activeState.contributionMultiplier)}`,
     `Personal ${formatPartyMultiplier(activeState.playerContributionMultiplier)}`,
   ];
+  // If a majority active district exists and the user is outside it, append guidance
+  try {
+    if (activeState.activeDistrictCode) {
+      const activeCode = safeId(activeState.activeDistrictCode);
+      const userCode = profile && profile.lastKnownLocation && profile.lastKnownLocation.districtId
+        ? safeId(profile.lastKnownLocation.districtId)
+        : '';
+      if (!userCode || (activeCode && userCode && activeCode !== userCode)) {
+        fragments.push('Stay within the same district as party members to apply multipliers!');
+      }
+    }
+  } catch (_) {}
   return fragments.filter(Boolean).join(' • ');
 }
 
@@ -6334,7 +6355,7 @@ function updatePartyUi(friends) {
 
   friendsPartySection.classList.remove('hidden');
   const firstPendingInvite = pendingInvites > 0 ? partyState.incoming?.[0] : null;
-  friendsPartyStatus.textContent = formatPartyStatus(activeParty, pendingInvites, firstPendingInvite);
+  friendsPartyStatus.textContent = formatPartyStatus(activeParty, pendingInvites, firstPendingInvite, profile);
 
   if (friendsPartyMembersList) {
     friendsPartyMembersList.innerHTML = '';
@@ -9566,6 +9587,12 @@ async function handleRangedAttack({ districtId, districtName, contextCoords = nu
   const locationMatchesTarget = Boolean(locationDistrictId && locationDistrictId === safeDistrictId);
   const lastKnownMatchesTarget = Boolean(lastKnownDistrictId && lastKnownDistrictId === safeDistrictId);
 
+  // Prevent invalid ranged actions against your own home district; ranged is attack-only
+  if (!targetIsEnemy) {
+    updateStatus('Ranged attack is only available against enemy districts. Defend your home district instead.');
+    return;
+  }
+
   if (targetIsEnemy && (locationMatchesTarget || lastKnownMatchesTarget)) {
     updateStatus('You are in this district. Launch a melee attack instead of a ranged attack.');
     return;
@@ -10517,25 +10544,38 @@ if (friendsPartyInviteIncomingList) {
 
 if (cooldownStrip) {
   cooldownStrip.addEventListener('click', (event) => {
+    // Pending invite chip in the strip
     const inviteChip = event.target.closest('[data-party-invite]');
-    if (!inviteChip) {
+    if (inviteChip) {
+      event.preventDefault();
+      const inviteId = Number(inviteChip.dataset.partyInvite);
+      if (Number.isFinite(inviteId)) {
+        removePartyInviteNotice(inviteId);
+        renderCooldownStrip();
+        renderPartyPanelChip();
+      }
+      openFriendsDrawer(friendsButton || null);
+      if (
+        friendsPartyInvitationsPanel &&
+        typeof friendsPartyInvitationsPanel.scrollIntoView === 'function'
+      ) {
+        window.setTimeout(() => {
+          friendsPartyInvitationsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 120);
+      }
       return;
     }
-    event.preventDefault();
-    const inviteId = Number(inviteChip.dataset.partyInvite);
-    if (Number.isFinite(inviteId)) {
-      removePartyInviteNotice(inviteId);
-      renderCooldownStrip();
-      renderPartyPanelChip();
-    }
-    openFriendsDrawer(friendsButton || null);
-    if (
-      friendsPartyInvitationsPanel &&
-      typeof friendsPartyInvitationsPanel.scrollIntoView === 'function'
-    ) {
-      window.setTimeout(() => {
-        friendsPartyInvitationsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 120);
+
+    // Active party chip in the strip
+    const panelChip = event.target.closest('[data-party-panel-chip]');
+    if (panelChip && panelChip.dataset.partyPanelChip === 'active-party') {
+      event.preventDefault();
+      openFriendsDrawer(friendsButton || null);
+      if (friendsPartySection && typeof friendsPartySection.scrollIntoView === 'function') {
+        window.setTimeout(() => {
+          friendsPartySection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 120);
+      }
     }
   });
 }
@@ -10566,6 +10606,11 @@ if (friendsPartyChip) {
       }
     } else if (type === 'active-party') {
       openFriendsDrawer(friendsButton || null);
+      if (friendsPartySection && typeof friendsPartySection.scrollIntoView === 'function') {
+        window.setTimeout(() => {
+          friendsPartySection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 120);
+      }
     }
   });
 }
