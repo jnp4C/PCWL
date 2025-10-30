@@ -260,6 +260,80 @@ class PartyApiTests(TestCase):
         )
         self.friend.ensure_auth_user(password="friendpass")
 
+    def test_no_party_multiplier_after_party_expired(self):
+        # Arrange: Create party, add friend, then force-expire the party
+        party = create_party(self.host)
+        invite = invite_player_to_party(self.host, self.friend)
+        respond_to_party_invitation(invite, self.friend, accept=True)
+        # Force expiry
+        from django.utils import timezone
+        party.expires_at = timezone.now() - timezone.timedelta(seconds=1)
+        party.save(update_fields=["expires_at"])
+
+        # Act: Perform a local precise attack by host
+        result = apply_checkin(
+            self.host,
+            district_code="1300",
+            district_name="Prague 3",
+            mode=CheckIn.Mode.LOCAL,
+            precision="precise",
+        )
+        checkin = result.checkin
+
+        # Assert: No party boost should be applied
+        self.assertEqual(checkin.party_code, "")
+        self.assertEqual(checkin.party_size_snapshot, 1)
+        self.assertEqual(int(checkin.party_multiplier_snapshot), 1)
+        self.assertEqual(checkin.points_awarded, 20 if checkin.action == CheckIn.Action.ATTACK else 10)
+
+    def test_no_party_multiplier_after_leader_disbands(self):
+        # Arrange: Party with friend
+        party = create_party(self.host)
+        invite = invite_player_to_party(self.host, self.friend)
+        respond_to_party_invitation(invite, self.friend, accept=True)
+
+        # Leader leaves (disbands party)
+        leave_party(self.host)
+
+        # Act
+        result = apply_checkin(
+            self.host,
+            district_code="1300",
+            district_name="Prague 3",
+            mode=CheckIn.Mode.LOCAL,
+            precision="precise",
+        )
+        checkin = result.checkin
+
+        # Assert: No party boost
+        self.assertEqual(checkin.party_code, "")
+        self.assertEqual(checkin.party_size_snapshot, 1)
+        self.assertEqual(int(checkin.party_multiplier_snapshot), 1)
+
+    def test_no_party_multiplier_after_member_leaves(self):
+        # Arrange: Party with friend, then friend leaves
+        party = create_party(self.host)
+        invite = invite_player_to_party(self.host, self.friend)
+        respond_to_party_invitation(invite, self.friend, accept=True)
+
+        # Friend leaves; party may remain for leader, but the friend should not get boost
+        leave_party(self.friend)
+
+        # Act: Friend (who left) performs check-in
+        result = apply_checkin(
+            self.friend,
+            district_code="1300",
+            district_name="Prague 3",
+            mode=CheckIn.Mode.LOCAL,
+            precision="precise",
+        )
+        checkin = result.checkin
+
+        # Assert: No party boost for the leaver
+        self.assertEqual(checkin.party_code, "")
+        self.assertEqual(checkin.party_size_snapshot, 1)
+        self.assertEqual(int(checkin.party_multiplier_snapshot), 1)
+
     def test_create_party_and_leave(self):
         self.client.force_login(self.host.user)
         response = self.client.post(reverse("party"))
