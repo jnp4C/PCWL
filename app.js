@@ -11340,3 +11340,14 @@ function bindHowtoHandlersOnce() {
     }
   });
 }
+
+
+// Ensure How-to button works on the welcome screen even before login
+// Bind handlers unconditionally at boot, in addition to existing calls from renderPlayerState/switchToWelcome
+try {
+  if (typeof bindHowtoHandlersOnce === 'function') {
+    bindHowtoHandlersOnce();
+  }
+} catch (e) {
+  // non-fatal; app will still bind later via renderPlayerState
+}
