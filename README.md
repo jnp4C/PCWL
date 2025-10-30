@@ -12,7 +12,6 @@ Quick start (macOS/Linux/WSL)
   2) Apply database migrations:
      ./scripts/migrate.sh
   3) Start the local server (serves UI + API at http://127.0.0.1:8000):
-     ./scripts/run.sh
   4) Open the app in a browser:
      http://127.0.0.1:8000/
 

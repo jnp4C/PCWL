@@ -1,7 +1,25 @@
+# Python virtual environments
+.venv/
 venv/
+env/
+ENV/
+backend/.venv/
+backend/venv/
+backend/env/
+backend/ENV/
+
+# Python cache and artifacts
 __pycache__/
 *.pyc
+
+# macOS
 .DS_Store
+
+# Local database
 /backend/db.sqlite3
+
+# Collected staticfiles (build output)
 _pcwl_staticfiles/
+
+# Project docs not needed in prod
 AGENTS.md
