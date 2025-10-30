@@ -23,3 +23,6 @@ _pcwl_staticfiles/
 
 # Project docs not needed in prod
 AGENTS.md
+
+# Tooling artifacts
+.output.txt
