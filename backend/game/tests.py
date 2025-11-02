@@ -705,6 +705,7 @@ class LeaderboardApiTests(TestCase):
         for entry in districts:
             self.assertIn("status", entry)
             self.assertIn("recent_status", entry)
+            self.assertIn("checkins", entry)
             self.assertIn("base_strength", entry)
             self.assertIn("strength", entry)
             self.assertIn("assigned_players", entry)

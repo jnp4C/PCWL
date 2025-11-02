@@ -1425,6 +1425,7 @@ def _build_district_leaderboard(limit=50):
         recent_defended = int(recent_row.get("defended") or 0)
         recent_attacked = int(recent_row.get("attacked") or 0)
         strength = base_strength + change
+        checkins_total = defended + attacked
         districts.append(
             {
                 "id": district_code,
@@ -1435,6 +1436,7 @@ def _build_district_leaderboard(limit=50):
                 "change": change,
                 "defended": defended,
                 "attacked": attacked,
+                "checkins": checkins_total,
                 "assigned_players": int(player_counts_map.get(district_code, 0)),
                 "status": _classify_district_state(defended, attacked, DISTRICT_SECURE_THRESHOLD),
                 "recent_change": recent_defended - recent_attacked,

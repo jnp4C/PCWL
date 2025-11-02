@@ -9383,6 +9383,62 @@ function renderDistrictLeaderboard(data) {
   }
 }
 
+function calculateHomeDistrictContribution(profile) {
+  if (!profile) {
+    return { points: 0, checkins: 0 };
+  }
+  const homeId = profile.homeDistrictId ? safeId(profile.homeDistrictId).toLowerCase() : null;
+  const homeName =
+    typeof profile.homeDistrictName === 'string' && profile.homeDistrictName.trim()
+      ? profile.homeDistrictName.trim().toLowerCase()
+      : null;
+  if (!homeId && !homeName) {
+    return { points: 0, checkins: 0 };
+  }
+  const history = Array.isArray(profile.checkins) ? profile.checkins : [];
+  let points = 0;
+  let checkins = 0;
+  history.forEach((entry) => {
+    if (!entry || typeof entry !== 'object') {
+      return;
+    }
+    const type = typeof entry.type === 'string' ? entry.type.trim().toLowerCase() : '';
+    if (type !== 'defend') {
+      return;
+    }
+    const entryDistrictId = entry.districtId ? safeId(entry.districtId).toLowerCase() : null;
+    const entryDistrictName =
+      typeof entry.districtName === 'string' && entry.districtName.trim()
+        ? entry.districtName.trim().toLowerCase()
+        : null;
+    const matchesHome =
+      (homeId && entryDistrictId && entryDistrictId === homeId) ||
+      (homeName && entryDistrictName && entryDistrictName === homeName);
+    if (!matchesHome) {
+      return;
+    }
+    const mode = typeof entry.cooldownMode === 'string' ? entry.cooldownMode.trim().toLowerCase() : null;
+    if (mode === 'remote' || mode === 'ranged' || entry.ranged) {
+      return;
+    }
+    const districtPoints = Number(entry.districtPoints);
+    const playerPoints = Number(entry.points);
+    let contributionPoints = 0;
+    if (Number.isFinite(districtPoints)) {
+      contributionPoints = districtPoints;
+    } else if (Number.isFinite(playerPoints)) {
+      contributionPoints = playerPoints;
+    } else {
+      const multiplier = Number(entry.multiplier);
+      const resolvedMultiplier = Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
+      contributionPoints = POINTS_PER_CHECKIN * resolvedMultiplier;
+    }
+    points += Math.max(0, contributionPoints);
+    checkins += 1;
+  });
+  return { points, checkins };
+}
+
 function updateDistrictDrawerContent(profile = null) {
   if (
     !districtHomeNameValue ||
@@ -9400,7 +9456,7 @@ function updateDistrictDrawerContent(profile = null) {
   renderDistrictLeaderboard(leaderboardData);
   if (!resolvedProfile) {
     districtHomeNameValue.textContent = 'Not set';
-    districtContributionValue.textContent = '0 pts';
+    districtContributionValue.textContent = '0 pts • 0 local check-ins';
     districtRecentActivityValue.textContent = 'No check-ins yet';
     districtPerformanceBlurb.textContent = 'Sign in and choose a home district to see its performance.';
     districtCheckinsCountValue.textContent = '0';
@@ -9414,8 +9470,13 @@ function updateDistrictDrawerContent(profile = null) {
     (resolvedProfile.homeDistrictId ? `District ${resolvedProfile.homeDistrictId}` : 'Not set');
   districtHomeNameValue.textContent = homeName;
 
-  const points = Math.max(0, Math.round(Number(resolvedProfile.points) || 0));
-  districtContributionValue.textContent = `${points.toLocaleString()} pts`;
+  const homeContribution = calculateHomeDistrictContribution(resolvedProfile);
+  const localContributionPoints = Math.max(0, Math.round(homeContribution.points || 0));
+  const localContributionCheckins = Math.max(0, Math.round(homeContribution.checkins || 0));
+  const localCheckinsLabel = `${localContributionCheckins.toLocaleString()} local ${
+    localContributionCheckins === 1 ? 'check-in' : 'check-ins'
+  }`;
+  districtContributionValue.textContent = `${localContributionPoints.toLocaleString()} pts • ${localCheckinsLabel}`;
 
   const checkinsCount =
     resolvedProfile.serverCheckinCount || (Array.isArray(resolvedProfile.checkins) ? resolvedProfile.checkins.length : 0);
@@ -9441,9 +9502,6 @@ function updateDistrictDrawerContent(profile = null) {
     return;
   }
 
-  const defendCount = Array.isArray(resolvedProfile.checkins)
-    ? resolvedProfile.checkins.filter((entry) => entry && String(entry.type).toLowerCase() === 'defend').length
-    : 0;
   const latestType = latestCheckin && typeof latestCheckin.type === 'string' ? latestCheckin.type.toLowerCase() : '';
   let controlStatus = 'Holding steady';
   if (!latestCheckin) {
@@ -9457,10 +9515,10 @@ function updateDistrictDrawerContent(profile = null) {
   }
   districtControlStatusValue.textContent = controlStatus;
 
-  const defendText = defendCount
-    ? `You have logged ${defendCount.toLocaleString()} defend ${defendCount === 1 ? 'action' : 'actions'} in ${homeName}.`
-    : `Visit ${homeName} to defend and boost its resilience.`;
-  districtPerformanceBlurb.textContent = `You have contributed ${points.toLocaleString()} pts across ${checkinsCount.toLocaleString()} check-ins. ${defendText}`;
+  const defendText = localContributionCheckins
+    ? `Keep showing up in ${homeName} to fortify it.`
+    : `Visit ${homeName} and defend on location to boost its resilience.`;
+  districtPerformanceBlurb.textContent = `You have contributed ${localContributionPoints.toLocaleString()} pts directly to ${homeName} through ${localCheckinsLabel}. ${defendText}`;
 }
 
 function openDistrictDrawer(trigger = null) {

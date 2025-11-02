@@ -2920,15 +2920,31 @@ button.secondary:hover,
 }
 
 .leaderboard-table-wrapper {
+  position: relative;
   width: 100%;
-  overflow: hidden;
   overflow-x: auto;
-  overflow-y: auto;
+  overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-x;
+  cursor: grab;
   border-radius: 14px;
   box-shadow: 0 12px 28px rgba(76, 29, 149, 0.08);
   background: color-mix(in srgb, var(--color-panel-bg) 88%, transparent);
   max-height: 440px;
+}
+
+.leaderboard-table-wrapper:active {
+  cursor: grabbing;
+}
+
+.leaderboard-table-wrapper::-webkit-scrollbar {
+  height: 6px;
+}
+
+.leaderboard-table-wrapper::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-button-secondary) 55%, transparent);
+  border-radius: 999px;
 }
 
 .leaderboard-table {
@@ -2980,6 +2996,11 @@ button.secondary:hover,
 
 .leaderboard-table .negative {
   color: var(--color-danger-text);
+}
+
+.leaderboard-table .attacked-cell {
+  color: var(--color-danger-text);
+  font-weight: 600;
 }
 
 .leaderboard-empty {
@@ -3096,26 +3117,6 @@ button.secondary:hover,
 
   .leaderboard-table {
     min-width: 100%;
-  }
-
-  .leaderboard-table--players th:nth-child(4),
-  .leaderboard-table--players th:nth-child(5),
-  .leaderboard-table--players th:nth-child(6),
-  .leaderboard-table--players td:nth-child(4),
-  .leaderboard-table--players td:nth-child(5),
-  .leaderboard-table--players td:nth-child(6) {
-    display: none;
-  }
-
-  .leaderboard-table--districts th:nth-child(3),
-  .leaderboard-table--districts th:nth-child(5),
-  .leaderboard-table--districts th:nth-child(6),
-  .leaderboard-table--districts th:nth-child(7),
-  .leaderboard-table--districts td:nth-child(3),
-  .leaderboard-table--districts td:nth-child(5),
-  .leaderboard-table--districts td:nth-child(6),
-  .leaderboard-table--districts td:nth-child(7) {
-    display: none;
   }
 
   .leaderboard-intro {

@@ -211,6 +211,9 @@ function renderDistrictLeaderboard(districts) {
         ? Number(district.strength)
         : (Number.isFinite(district.score) ? Number(district.score) : baseStrength + change);
       const assignedPlayers = Number(district.assigned_players) || 0;
+      const checkins = Number.isFinite(district.checkins)
+        ? Number(district.checkins)
+        : defended + attacked;
       return {
         id: district.id,
         name: district.name || (district.id ? `District ${district.id}` : 'Unknown district'),
@@ -219,6 +222,7 @@ function renderDistrictLeaderboard(districts) {
         change,
         defended,
         attacked,
+        checkins,
         assignedPlayers,
       };
     })
@@ -277,8 +281,14 @@ function renderDistrictLeaderboard(districts) {
     if (district.attacked > 0) {
       attackedCell.classList.add('negative');
     }
+    attackedCell.classList.add('attacked-cell');
     attackedCell.textContent = integerFormatter.format(district.attacked);
     row.appendChild(attackedCell);
+
+    const checkinsCell = document.createElement('td');
+    checkinsCell.className = 'numeric';
+    checkinsCell.textContent = integerFormatter.format(district.checkins);
+    row.appendChild(checkinsCell);
 
     const assignedCell = document.createElement('td');
     assignedCell.className = 'numeric';
@@ -310,6 +320,7 @@ function renderFallbackLeaderboards() {
     change: Number(entry.adjustment) || 0,
     defended: Number(entry.defended) || 0,
     attacked: Number(entry.attacked) || 0,
+    checkins: (Number(entry.defended) || 0) + (Number(entry.attacked) || 0),
     assigned_players: Number(entry.assignedPlayers) || 0,
   }));
   renderDistrictLeaderboard(fallbackDistricts);
