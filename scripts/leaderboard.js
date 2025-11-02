@@ -281,8 +281,9 @@ function renderDistrictLeaderboard(districts) {
     if (district.attacked > 0) {
       attackedCell.classList.add('negative');
     }
-    attackedCell.classList.add('attacked-cell');
-    attackedCell.textContent = integerFormatter.format(district.attacked);
+    attackedCell.textContent = district.attacked > 0
+      ? `-${integerFormatter.format(district.attacked)}`
+      : '0';
     row.appendChild(attackedCell);
 
     const checkinsCell = document.createElement('td');

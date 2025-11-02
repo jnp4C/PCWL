@@ -2949,9 +2949,17 @@ button.secondary:hover,
 
 .leaderboard-table {
   width: 100%;
-  min-width: 620px;
+  min-width: 700px;
   border-collapse: collapse;
   background: transparent;
+}
+
+.leaderboard-table--players {
+  min-width: 720px;
+}
+
+.leaderboard-table--districts {
+  min-width: 880px;
 }
 
 .leaderboard-table thead {
@@ -2998,10 +3006,6 @@ button.secondary:hover,
   color: var(--color-danger-text);
 }
 
-.leaderboard-table .attacked-cell {
-  color: var(--color-danger-text);
-  font-weight: 600;
-}
 
 .leaderboard-empty {
   margin: 1rem 0 0;
@@ -3091,7 +3095,7 @@ button.secondary:hover,
   }
 
   .leaderboard-table {
-    min-width: 520px;
+    min-width: 640px;
   }
 }
 
@@ -3113,10 +3117,6 @@ button.secondary:hover,
   .leaderboard-table-wrapper {
     margin: 0 -0.75rem;
     border-radius: 12px;
-  }
-
-  .leaderboard-table {
-    min-width: 100%;
   }
 
   .leaderboard-intro {
