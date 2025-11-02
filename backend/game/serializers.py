@@ -1,6 +1,6 @@
 import math
 import re
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from rest_framework import serializers
 
@@ -76,23 +76,28 @@ class PlayerSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         password = validated_data.pop("password", None)
-        validated_data = self._apply_district_defaults(validated_data)
+        validated_data, resolved_district = self._apply_district_defaults(validated_data)
         player = super().create(validated_data)
         player.ensure_auth_user(password=password)
-        if player.home_district_name:
+        if resolved_district:
+            player.assign_home_district(resolved_district, save=True)
+        elif player.home_district_name:
             player.home_district = player.home_district_name
-            player.save(update_fields=["home_district"])
+            player.save(update_fields=["home_district", "updated_at"])
         return player
 
     def update(self, instance, validated_data):
         password = validated_data.pop("password", None)
-        validated_data = self._apply_district_defaults(validated_data)
+        validated_data, resolved_district = self._apply_district_defaults(validated_data)
         player = super().update(instance, validated_data)
         if password:
             player.ensure_auth_user(password=password)
-        if "home_district_name" in validated_data:
+        if resolved_district:
+            # assign_home_district saves the player
+            player.assign_home_district(resolved_district, save=True)
+        elif "home_district_name" in validated_data:
             player.home_district = player.home_district_name or ""
-            player.save(update_fields=["home_district"])
+            player.save(update_fields=["home_district", "updated_at"])
         return player
 
     def validate_home_district_code(self, value: Any) -> str:
@@ -101,10 +106,11 @@ class PlayerSerializer(serializers.ModelSerializer):
         code = str(value).strip()
         return code
 
-    def _apply_district_defaults(self, validated_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _apply_district_defaults(self, validated_data: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[District]]:
         data = dict(validated_data)
         code = data.get("home_district_code")
         name = data.get("home_district_name")
+        resolved_district: Optional[District] = None
         if isinstance(code, str):
             code = code.strip()
             data["home_district_code"] = code
@@ -129,13 +135,14 @@ class PlayerSerializer(serializers.ModelSerializer):
                     for field, value in updates.items():
                         setattr(district, field, value)
                     district.save(update_fields=[*updates.keys(), "updated_at"])
+            resolved_district = district
             if not name:
                 data["home_district_name"] = district.name
         if data.get("home_district_name"):
             data.setdefault("home_district", data["home_district_name"])
         elif "home_district_name" in data:
             data["home_district"] = ""
-        return data
+        return data, resolved_district
 
     def validate_checkin_history(self, value: Any) -> List[Dict[str, Any]]:
         if value in (None, ""):

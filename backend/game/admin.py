@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib import admin
 
-from .models import District, Player
+from .models import District, Player, PlayerDistrictContribution
 
 
 class PlayerAdminForm(forms.ModelForm):
@@ -37,15 +37,17 @@ class PlayerAdminForm(forms.ModelForm):
         if not district:
             self.instance.home_district_name = ""
             self.instance.home_district = ""
+            self.instance.home_district_ref = None
             return ""
         self.instance.home_district_name = district.name
         self.instance.home_district = district.name
+        self.instance.home_district_ref = district
         return district.code
 
 
 @admin.register(District)
 class DistrictAdmin(admin.ModelAdmin):
-    list_display = ("code", "name", "is_active", "updated_at")
+    list_display = ("code", "name", "base_strength", "is_active", "updated_at")
     list_filter = ("is_active",)
     search_fields = ("code", "name")
     ordering = ("name", "code")
@@ -54,6 +56,21 @@ class DistrictAdmin(admin.ModelAdmin):
 @admin.register(Player)
 class PlayerAdmin(admin.ModelAdmin):
     form = PlayerAdminForm
-    list_display = ("username", "display_name", "score", "checkins", "home_district", "is_active")
-    search_fields = ("username", "display_name", "home_district")
-    list_filter = ("is_active",)
+    list_display = ("username", "display_name", "score", "checkins", "home_district_ref", "is_active")
+    search_fields = ("username", "display_name", "home_district", "home_district_code")
+    list_filter = ("is_active", "home_district_ref")
+
+
+@admin.register(PlayerDistrictContribution)
+class PlayerDistrictContributionAdmin(admin.ModelAdmin):
+    list_display = (
+        "player",
+        "district",
+        "defend_points_total",
+        "attack_points_total",
+        "defend_checkins",
+        "attack_checkins",
+        "last_activity_at",
+    )
+    list_filter = ("district",)
+    search_fields = ("player__username", "district__code", "district__name")

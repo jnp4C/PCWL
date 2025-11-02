@@ -1,3 +1,5 @@
+from typing import Optional
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import models
@@ -10,6 +12,10 @@ class District(models.Model):
 
     code = models.CharField(max_length=64, unique=True)
     name = models.CharField(max_length=120)
+    base_strength = models.IntegerField(
+        default=2000,
+        help_text="Baseline strength score used when computing district leaderboards.",
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -43,6 +49,13 @@ class Player(models.Model):
     defend_points = models.PositiveIntegerField(default=0)
     home_district_code = models.CharField(max_length=64, blank=True)
     home_district_name = models.CharField(max_length=120, blank=True)
+    home_district_ref = models.ForeignKey(
+        District,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="players",
+    )
     checkin_history = models.JSONField(default=list, blank=True)
     cooldowns = models.JSONField(default=dict, blank=True)
     cooldown_details = models.JSONField(default=dict, blank=True)
@@ -92,6 +105,28 @@ class Player(models.Model):
             user.set_password(password)
             user.save(update_fields=["password"])
         return user
+
+    def assign_home_district(self, district: Optional["District"], save: bool = True):
+        """Synchronise home district fields with the given District record."""
+        if district is None:
+            self.home_district_ref = None
+            self.home_district_code = ""
+            self.home_district_name = ""
+            self.home_district = ""
+        else:
+            self.home_district_ref = district
+            self.home_district_code = district.code
+            self.home_district_name = district.name
+            self.home_district = district.name
+        if save:
+            update_fields = [
+                "home_district_ref",
+                "home_district_code",
+                "home_district_name",
+                "home_district",
+                "updated_at",
+            ]
+            self.save(update_fields=update_fields)
 
 
 class CheckIn(models.Model):
@@ -163,6 +198,40 @@ class DistrictEngagement(models.Model):
 
     def __str__(self):
         return f"{self.home_district_code or '?'} -> {self.target_district_code or '?'} ({self.attack_points_total} pts)"
+
+
+class PlayerDistrictContribution(models.Model):
+    """Aggregated contribution totals a player has provided to each district."""
+
+    player = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="district_contributions",
+    )
+    district = models.ForeignKey(
+        District,
+        on_delete=models.CASCADE,
+        related_name="player_contributions",
+    )
+    defend_points_total = models.PositiveIntegerField(default=0)
+    attack_points_total = models.PositiveIntegerField(default=0)
+    defend_checkins = models.PositiveIntegerField(default=0)
+    attack_checkins = models.PositiveIntegerField(default=0)
+    last_activity_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["player", "district"],
+                name="unique_player_district_contribution",
+            )
+        ]
+        ordering = ["-defend_points_total", "player__username"]
+
+    def __str__(self):
+        return f"{self.player.username} -> {self.district.code} (+{self.defend_points_total} / -{self.attack_points_total})"
 
 
 class Party(models.Model):

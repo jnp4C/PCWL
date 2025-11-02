@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import timedelta
@@ -10,12 +8,14 @@ from django.utils import timezone
 
 from .models import (
     CheckIn,
+    District,
     DistrictContributionStat,
     DistrictEngagement,
     Party,
     PartyInvitation,
     PartyMembership,
     Player,
+    PlayerDistrictContribution,
     PlayerPartyBond,
 )
 
@@ -78,6 +78,31 @@ def _normalise_district_name(value: Optional[str]) -> Optional[str]:
         return ""
     text = str(value).strip()
     return text[:120]
+
+
+def _get_or_create_district_record(code: Optional[str], name: Optional[str]) -> Optional[District]:
+    """Ensure a District row exists for the given identifiers."""
+    normalised_code = _normalise_district_code(code)
+    if not normalised_code:
+        return None
+    desired_name = _normalise_district_name(name) or f"District {normalised_code}"
+    district, created = District.objects.get_or_create(
+        code=normalised_code,
+        defaults={
+            "name": desired_name,
+            "is_active": True,
+        },
+    )
+    updates = {}
+    if desired_name and district.name != desired_name:
+        updates["name"] = desired_name
+    if not district.is_active:
+        updates["is_active"] = True
+    if updates:
+        for field, value in updates.items():
+            setattr(district, field, value)
+        district.save(update_fields=[*updates.keys(), "updated_at"])
+    return district
 
 
 def _ensure_dict(value: Any) -> Dict[str, Any]:
@@ -495,6 +520,53 @@ def _record_attack_engagement(
         )
 
 
+def _update_player_district_contribution(
+    player: Player,
+    *,
+    district_code: Optional[str],
+    district_name: Optional[str],
+    action: str,
+    points_delta: int,
+    home_snapshot_code: Optional[str],
+    home_snapshot_name: Optional[str],
+    occurred_at: timezone.datetime,
+) -> None:
+    """Persist per-district contribution totals for the player."""
+    if action == CheckIn.Action.DEFEND:
+        code = _normalise_district_code(home_snapshot_code) or _normalise_district_code(district_code)
+        name = _normalise_district_name(home_snapshot_name) or _normalise_district_name(district_name)
+    else:
+        code = _normalise_district_code(district_code)
+        name = _normalise_district_name(district_name)
+    district = _get_or_create_district_record(code, name)
+    if district is None:
+        return
+
+    contribution, _ = PlayerDistrictContribution.objects.get_or_create(
+        player=player,
+        district=district,
+        defaults={"last_activity_at": occurred_at},
+    )
+    updated_fields: List[str] = []
+    if action == CheckIn.Action.DEFEND:
+        points = max(points_delta, 0)
+        if points:
+            contribution.defend_points_total += points
+            updated_fields.append("defend_points_total")
+        contribution.defend_checkins += 1
+        updated_fields.append("defend_checkins")
+    else:
+        points = abs(points_delta)
+        if points:
+            contribution.attack_points_total += points
+            updated_fields.append("attack_points_total")
+        contribution.attack_checkins += 1
+        updated_fields.append("attack_checkins")
+    contribution.last_activity_at = occurred_at
+    updated_fields.append("last_activity_at")
+    contribution.save(update_fields=[*updated_fields, "updated_at"])
+
+
 def _record_contribution_stats(
     *,
     district_code: Optional[str],
@@ -582,11 +654,23 @@ def apply_checkin(
         name = _normalise_district_name(district_name)
         if not code:
             raise ValueError("District code is required.")
+        _get_or_create_district_record(code, name)
 
         now = timezone.now()
         now_ms = _now_ms()
 
         home_code = _normalise_district_code(locked.home_district_code)
+        home_ref_changed = False
+        home_district_obj = None
+        if home_code:
+            existing_home_ref_id = getattr(locked.home_district_ref, "id", None)
+            home_district_obj = _get_or_create_district_record(
+                home_code,
+                locked.home_district_name or locked.home_district,
+            )
+            if home_district_obj and existing_home_ref_id != home_district_obj.id:
+                locked.home_district_ref = home_district_obj
+                home_ref_changed = True
         action = CheckIn.Action.DEFEND if home_code and code == home_code else CheckIn.Action.ATTACK
 
         if mode not in {CheckIn.Mode.LOCAL, CheckIn.Mode.REMOTE, CheckIn.Mode.RANGED}:
@@ -720,6 +804,17 @@ def apply_checkin(
             metadata=payload_meta,
         )
 
+        _update_player_district_contribution(
+            locked,
+            district_code=code,
+            district_name=name,
+            action=action,
+            points_delta=district_points_delta,
+            home_snapshot_code=home_snapshot_code,
+            home_snapshot_name=home_snapshot_name,
+            occurred_at=now,
+        )
+
         locked.score += points_awarded
         locked.checkins += 1
         if action == CheckIn.Action.ATTACK:
@@ -801,22 +896,23 @@ def apply_checkin(
                 occurred_at=now,
             )
 
-        locked.save(
-            update_fields=[
-                "score",
-                "checkins",
-                "attack_points",
-                "defend_points",
-                "attack_ratio",
-                "defend_ratio",
-                "next_checkin_multiplier",
-                "cooldowns",
-                "cooldown_details",
-                "checkin_history",
-                "last_known_location",
-                "updated_at",
-            ]
-        )
+        player_update_fields = [
+            "score",
+            "checkins",
+            "attack_points",
+            "defend_points",
+            "attack_ratio",
+            "defend_ratio",
+            "next_checkin_multiplier",
+            "cooldowns",
+            "cooldown_details",
+            "checkin_history",
+            "last_known_location",
+            "updated_at",
+        ]
+        if home_ref_changed:
+            player_update_fields.append("home_district_ref")
+        locked.save(update_fields=player_update_fields)
 
         # Party synchronized check-ins: propagate only within the party's active district (majority)
         if party and initiator_in_active and active_count >= 2 and party_size > 1:

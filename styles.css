@@ -2858,6 +2858,30 @@ button.secondary:hover,
   font-size: 1.1rem;
 }
 
+.page-leaderboard {
+  min-height: 100vh;
+  background: var(--color-app-bg);
+  color: var(--color-text);
+}
+
+.leaderboard-container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 4rem;
+}
+
+.leaderboard-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 2.5rem;
+}
+
+.leaderboard-header h1 {
+  margin: 0;
+  font-size: 2.1rem;
+}
+
 .leaderboard-intro {
   margin: 0 0 2rem;
   color: var(--color-text-muted);
@@ -2978,6 +3002,20 @@ button.secondary:hover,
     text-align: center;
   }
 
+  .leaderboard-container {
+    padding: 1.5rem 1rem 3rem;
+  }
+
+  .leaderboard-header {
+    align-items: center;
+    text-align: center;
+    margin-bottom: 2rem;
+  }
+
+  .leaderboard-header h1 {
+    font-size: 1.85rem;
+  }
+
   .page-leaderboard .leaderboard-bar {
     position: static;
     padding: 0;
@@ -3069,12 +3107,14 @@ button.secondary:hover,
     display: none;
   }
 
-  .leaderboard-table--districts th:nth-child(4),
+  .leaderboard-table--districts th:nth-child(3),
   .leaderboard-table--districts th:nth-child(5),
   .leaderboard-table--districts th:nth-child(6),
-  .leaderboard-table--districts td:nth-child(4),
+  .leaderboard-table--districts th:nth-child(7),
+  .leaderboard-table--districts td:nth-child(3),
   .leaderboard-table--districts td:nth-child(5),
-  .leaderboard-table--districts td:nth-child(6) {
+  .leaderboard-table--districts td:nth-child(6),
+  .leaderboard-table--districts td:nth-child(7) {
     display: none;
   }
 

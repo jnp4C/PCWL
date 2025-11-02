@@ -204,20 +204,27 @@ function renderDistrictLeaderboard(districts) {
       const change = Number.isFinite(district.change)
         ? Number(district.change)
         : defended - attacked;
-      const score = Number.isFinite(district.score) ? Number(district.score) : DISTRICT_BASE_SCORE + change;
+      const baseStrength = Number.isFinite(district.base_strength)
+        ? Number(district.base_strength)
+        : DISTRICT_BASE_SCORE;
+      const strength = Number.isFinite(district.strength)
+        ? Number(district.strength)
+        : (Number.isFinite(district.score) ? Number(district.score) : baseStrength + change);
+      const assignedPlayers = Number(district.assigned_players) || 0;
       return {
         id: district.id,
         name: district.name || (district.id ? `District ${district.id}` : 'Unknown district'),
-        score,
+        baseStrength,
+        strength,
         change,
         defended,
         attacked,
+        assignedPlayers,
       };
     })
-    .filter((entry) => entry.defended > 0 || entry.attacked > 0 || entry.change !== 0)
     .sort((a, b) => {
-      if (b.score !== a.score) {
-        return b.score - a.score;
+      if (b.strength !== a.strength) {
+        return b.strength - a.strength;
       }
       if (b.defended !== a.defended) {
         return b.defended - a.defended;
@@ -239,10 +246,15 @@ function renderDistrictLeaderboard(districts) {
     nameCell.textContent = district.name;
     row.appendChild(nameCell);
 
-    const scoreCell = document.createElement('td');
-    scoreCell.className = 'numeric';
-    scoreCell.textContent = integerFormatter.format(district.score);
-    row.appendChild(scoreCell);
+    const baseCell = document.createElement('td');
+    baseCell.className = 'numeric';
+    baseCell.textContent = integerFormatter.format(district.baseStrength);
+    row.appendChild(baseCell);
+
+    const strengthCell = document.createElement('td');
+    strengthCell.className = 'numeric';
+    strengthCell.textContent = integerFormatter.format(district.strength);
+    row.appendChild(strengthCell);
 
     const changeCell = document.createElement('td');
     changeCell.className = 'numeric';
@@ -268,6 +280,11 @@ function renderDistrictLeaderboard(districts) {
     attackedCell.textContent = integerFormatter.format(district.attacked);
     row.appendChild(attackedCell);
 
+    const assignedCell = document.createElement('td');
+    assignedCell.className = 'numeric';
+    assignedCell.textContent = integerFormatter.format(district.assignedPlayers);
+    row.appendChild(assignedCell);
+
     tbody.appendChild(row);
   });
 
@@ -287,10 +304,13 @@ function renderFallbackLeaderboards() {
   const fallbackDistricts = loadDistrictData().map((entry) => ({
     id: entry.id,
     name: entry.name || `District ${entry.id}`,
+    base_strength: DISTRICT_BASE_SCORE,
+    strength: DISTRICT_BASE_SCORE + (Number(entry.adjustment) || 0),
     score: DISTRICT_BASE_SCORE + (Number(entry.adjustment) || 0),
     change: Number(entry.adjustment) || 0,
     defended: Number(entry.defended) || 0,
     attacked: Number(entry.attacked) || 0,
+    assigned_players: Number(entry.assignedPlayers) || 0,
   }));
   renderDistrictLeaderboard(fallbackDistricts);
 }

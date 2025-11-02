@@ -1299,8 +1299,7 @@ def _build_player_leaderboard(limit=50):
 def _build_district_leaderboard(limit=50):
     now = timezone.now()
     recent_cutoff = now - timedelta(hours=24)
-    recent_map = {}
-    recent_rows = (
+    recent_rows = list(
         CheckIn.objects.filter(district_code__isnull=False, occurred_at__gte=recent_cutoff)
         .values("district_code")
         .annotate(
@@ -1324,12 +1323,13 @@ def _build_district_leaderboard(limit=50):
             ),
         )
     )
+    recent_map = {}
     for row in recent_rows:
         key = (row.get("district_code") or "").strip()
         if key:
             recent_map[key] = row
 
-    aggregates = (
+    aggregate_rows = list(
         CheckIn.objects.filter(district_code__isnull=False)
         .values("district_code", "district_name")
         .annotate(
@@ -1353,25 +1353,64 @@ def _build_district_leaderboard(limit=50):
             ),
         )
     )
-    districts = []
-    for row in aggregates:
+    aggregate_map = {}
+    district_codes: Set[str] = set()
+    for row in aggregate_rows:
         district_id = (row.get("district_code") or "").strip()
         if not district_id:
             continue
+        aggregate_map[district_id] = row
+        district_codes.add(district_id)
+    district_codes.update(recent_map.keys())
+    active_codes = set(
+        District.objects.filter(is_active=True).values_list("code", flat=True)
+    )
+    district_codes.update(code for code in active_codes if code)
+
+    if not district_codes:
+        return []
+
+    district_map = {
+        district.code: district
+        for district in District.objects.filter(code__in=district_codes)
+    }
+    player_counts_map = {
+        row["home_district_code"]: row["total"]
+        for row in (
+            Player.objects.filter(home_district_code__in=district_codes, is_active=True)
+            .values("home_district_code")
+            .annotate(total=Count("id"))
+        )
+    }
+
+    districts = []
+    for district_code in district_codes:
+        row = aggregate_map.get(district_code, {})
         defended = int(row.get("defended") or 0)
         attacked = int(row.get("attacked") or 0)
         change = defended - attacked
-        recent_row = recent_map.get(district_id, {})
+        district_obj = district_map.get(district_code)
+        base_strength = getattr(district_obj, "base_strength", DISTRICT_BASE_SCORE)
+        name = (row.get("district_name") or "").strip()
+        if not name and district_obj:
+            name = district_obj.name
+        if not name:
+            name = f"District {district_code}"
+        recent_row = recent_map.get(district_code, {})
         recent_defended = int(recent_row.get("defended") or 0)
         recent_attacked = int(recent_row.get("attacked") or 0)
+        strength = base_strength + change
         districts.append(
             {
-                "id": district_id,
-                "name": (row.get("district_name") or "").strip() or f"District {district_id}",
-                "score": DISTRICT_BASE_SCORE + change,
+                "id": district_code,
+                "name": name,
+                "base_strength": base_strength,
+                "score": strength,
+                "strength": strength,
                 "change": change,
                 "defended": defended,
                 "attacked": attacked,
+                "assigned_players": int(player_counts_map.get(district_code, 0)),
                 "status": _classify_district_state(defended, attacked, DISTRICT_SECURE_THRESHOLD),
                 "recent_change": recent_defended - recent_attacked,
                 "recent_status": _classify_district_state(

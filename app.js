@@ -8059,7 +8059,6 @@ function updateFriendsDrawerContent() {
   if (
     hasExistingFriends &&
     !friendsBubbleState.loading &&
-    !friendsBubbleState.loaded &&
     (!Array.isArray(friendsBubbleState.items) || !friendsBubbleState.items.length)
   ) {
     const fallback = buildFriendsBubbleFallback();
@@ -8067,6 +8066,8 @@ function updateFriendsDrawerContent() {
       friendsBubbleState.items = fallback;
       friendsBubbleState.source = 'friends';
       friendsBubbleState.expanded = false;
+      friendsBubbleState.error = null;
+      updateFriendsBubbleSection({ isLoggedIn: true, hasFriends: hasExistingFriends });
     }
   }
 
