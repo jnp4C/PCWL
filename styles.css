@@ -1334,6 +1334,13 @@ body.dark .friend-profile-marker {
   color: #fbbf24;
 }
 
+.friend-profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+}
+
 .friend-profile-stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -1425,6 +1432,10 @@ body.dark .friend-profile-marker {
   font-weight: 600;
 }
 
+.friend-card.bubble-card .bubble-shared-note {
+  font-style: italic;
+}
+
 .bubble-actions {
   display: flex;
   justify-content: flex-end;
@@ -1433,6 +1444,10 @@ body.dark .friend-profile-marker {
 
 .bubble-actions .bubble-add-button {
   min-width: 8rem;
+}
+
+.friends-bubble-toggle {
+  margin-left: auto;
 }
 
 .friend-meta {
@@ -2033,6 +2048,7 @@ body.dark .friend-profile-marker {
 body.recent-checkins-open,
 body.friends-open,
 body.friend-profile-open,
+body.howto-open,
 body.district-open,
 body.character-open {
   overflow: hidden;
@@ -2041,6 +2057,7 @@ body.character-open {
 body.recent-checkins-open .recent-checkins-overlay,
 body.friends-open .friends-overlay,
 body.friend-profile-open .friend-profile-overlay,
+body.howto-open .howto-overlay,
 body.district-open .district-overlay,
 body.character-open .character-overlay {
   display: block;
@@ -2051,6 +2068,7 @@ body.character-open .character-overlay {
 body.recent-checkins-open .recent-checkins-drawer,
 body.friends-open .friends-drawer,
 body.friend-profile-open .friend-profile-drawer,
+body.howto-open .howto-drawer,
 body.district-open .district-drawer,
 body.character-open .character-drawer {
   transform: translate(-50%, 0);

@@ -111,6 +111,8 @@ const friendsEmptyState = document.getElementById('friends-empty');
 const friendsBubbleSection = document.getElementById('friends-bubble-section');
 const friendsBubbleList = document.getElementById('friends-bubble-list');
 const friendsBubbleEmpty = document.getElementById('friends-bubble-empty');
+const friendsBubbleSubtitle = document.getElementById('friends-bubble-subtitle');
+const friendsBubbleToggleButton = document.getElementById('friends-bubble-toggle');
 const friendsInviteButton = document.getElementById('friends-invite-button');
 const friendsManageButton = document.getElementById('friends-manage-button');
 const friendsManagePanel = document.getElementById('friends-manage-panel');
@@ -3177,13 +3179,18 @@ let friendsBubbleState = {
   loaded: false,
   error: null,
   items: [],
+  source: 'bubble',
+  expanded: false,
 };
+const FRIENDS_BUBBLE_PREVIEW_LIMIT = 4;
 function resetFriendsBubbleState() {
   friendsBubbleState = {
     loading: false,
     loaded: false,
     error: null,
     items: [],
+    source: 'bubble',
+    expanded: false,
   };
 }
 let partyState = {
@@ -7362,6 +7369,30 @@ function renderFriendProfileContent(friend) {
 
   friendProfileBody.appendChild(header);
 
+  const profileActions = document.createElement('div');
+  profileActions.className = 'friend-profile-actions';
+  let hasProfileActions = false;
+
+  if (friend && typeof friend.username === 'string') {
+    const favoriteButton = document.createElement('button');
+    favoriteButton.type = 'button';
+    favoriteButton.className = friend.is_favorite ? 'secondary small' : 'primary small';
+    favoriteButton.dataset.friendProfileAction = 'toggle-favorite';
+    favoriteButton.dataset.username = friend.username;
+    favoriteButton.textContent = friend.is_favorite ? 'Unfavorite' : 'Favorite';
+    favoriteButton.setAttribute('aria-pressed', friend.is_favorite ? 'true' : 'false');
+    if (!isSessionAuthenticated || !currentUser) {
+      favoriteButton.disabled = true;
+      favoriteButton.title = 'Sign in to manage favorites.';
+    }
+    profileActions.appendChild(favoriteButton);
+    hasProfileActions = true;
+  }
+
+  if (hasProfileActions) {
+    friendProfileBody.appendChild(profileActions);
+  }
+
   const statsGrid = document.createElement('div');
   statsGrid.className = 'friend-profile-stats-grid';
 
@@ -7917,6 +7948,27 @@ function updateFriendsBubbleSection({ isLoggedIn, hasFriends }) {
     return;
   }
 
+  if (friendsBubbleToggleButton) {
+    friendsBubbleToggleButton.hidden = true;
+    friendsBubbleToggleButton.setAttribute('hidden', 'hidden');
+    friendsBubbleToggleButton.setAttribute('aria-expanded', 'false');
+  }
+
+  const defaultSubtitle = 'Friends-of-friends you may want to connect with.';
+  const fallbackSubtitle = 'Sharing your friends so teammates can add them.';
+  const source = friendsBubbleState.source || 'bubble';
+  if (friendsBubbleSubtitle) {
+    if (!isLoggedIn) {
+      friendsBubbleSubtitle.textContent = defaultSubtitle;
+    } else if (!hasFriends) {
+      friendsBubbleSubtitle.textContent = 'Add friends to start sharing your bubble.';
+    } else if (source === 'friends') {
+      friendsBubbleSubtitle.textContent = fallbackSubtitle;
+    } else {
+      friendsBubbleSubtitle.textContent = defaultSubtitle;
+    }
+  }
+
   if (!isLoggedIn) {
     friendsBubbleEmpty.hidden = false;
     friendsBubbleEmpty.textContent = 'Sign in to discover your bubble.';
@@ -7952,7 +8004,10 @@ function updateFriendsBubbleSection({ isLoggedIn, hasFriends }) {
   const suggestions = Array.isArray(friendsBubbleState.items) ? friendsBubbleState.items : [];
   if (!suggestions.length) {
     friendsBubbleEmpty.hidden = false;
-    friendsBubbleEmpty.textContent = 'Party up with teammates to surface friends-of-friends.';
+    friendsBubbleEmpty.textContent =
+      source === 'friends'
+        ? 'Add friends to populate your bubble and share them with teammates.'
+        : 'Party up with teammates to surface friends-of-friends.';
     friendsBubbleList.hidden = true;
     friendsBubbleList.innerHTML = '';
     return;
@@ -7961,8 +8016,12 @@ function updateFriendsBubbleSection({ isLoggedIn, hasFriends }) {
   friendsBubbleEmpty.hidden = true;
   friendsBubbleList.hidden = false;
   friendsBubbleList.innerHTML = '';
+  const isFallback = source === 'friends';
+  const shouldLimit =
+    isFallback && !friendsBubbleState.expanded && suggestions.length > FRIENDS_BUBBLE_PREVIEW_LIMIT;
+  const renderList = shouldLimit ? suggestions.slice(0, FRIENDS_BUBBLE_PREVIEW_LIMIT) : suggestions;
   let appended = false;
-  suggestions.forEach((suggestion) => {
+  renderList.forEach((suggestion) => {
     const card = renderBubbleSuggestionCard(suggestion);
     if (card) {
       friendsBubbleList.appendChild(card);
@@ -7973,6 +8032,19 @@ function updateFriendsBubbleSection({ isLoggedIn, hasFriends }) {
     friendsBubbleEmpty.hidden = false;
     friendsBubbleEmpty.textContent = 'No bubble suggestions just yet.';
     friendsBubbleList.hidden = true;
+    if (friendsBubbleToggleButton) {
+      friendsBubbleToggleButton.hidden = true;
+      friendsBubbleToggleButton.setAttribute('hidden', 'hidden');
+    }
+    return;
+  }
+
+  if (friendsBubbleToggleButton && isFallback && suggestions.length > FRIENDS_BUBBLE_PREVIEW_LIMIT) {
+    friendsBubbleToggleButton.hidden = false;
+    friendsBubbleToggleButton.removeAttribute('hidden');
+    const expanded = Boolean(friendsBubbleState.expanded);
+    friendsBubbleToggleButton.textContent = expanded ? 'Show fewer' : 'Show more';
+    friendsBubbleToggleButton.setAttribute('aria-expanded', expanded ? 'true' : 'false');
   }
 }
 
@@ -8159,6 +8231,9 @@ function renderBubbleSuggestionCard(suggestion) {
   const card = document.createElement('div');
   card.className = 'friend-card bubble-card';
   card.dataset.username = username;
+  if (suggestion.bubble_source) {
+    card.dataset.bubbleSource = suggestion.bubble_source;
+  }
 
   const header = document.createElement('div');
   header.className = 'bubble-header';
@@ -8227,6 +8302,13 @@ function renderBubbleSuggestionCard(suggestion) {
     card.appendChild(party);
   }
 
+  if (suggestion.bubble_source === 'friends') {
+    const shareMeta = document.createElement('div');
+    shareMeta.className = 'bubble-meta bubble-shared-note';
+    shareMeta.textContent = 'Shared from your friends list.';
+    card.appendChild(shareMeta);
+  }
+
   const actions = document.createElement('div');
   actions.className = 'bubble-actions';
   const addButton = document.createElement('button');
@@ -8234,6 +8316,18 @@ function renderBubbleSuggestionCard(suggestion) {
   addButton.className = 'primary small bubble-add-button';
   addButton.dataset.username = username;
   addButton.textContent = 'Add friend';
+  const alreadyFriend = isFriendUsername(username) || suggestion.is_friend;
+  if (suggestion.bubble_source === 'friends') {
+    addButton.textContent = 'Shared';
+    addButton.disabled = true;
+    addButton.classList.remove('primary');
+    addButton.classList.add('secondary');
+  } else if (alreadyFriend) {
+    addButton.textContent = 'Friends';
+    addButton.disabled = true;
+    addButton.classList.remove('primary');
+    addButton.classList.add('secondary');
+  }
   actions.appendChild(addButton);
   card.appendChild(actions);
 
@@ -8307,6 +8401,49 @@ async function refreshFriends(force = false) {
   }
 }
 
+function shuffleArray(items) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+  const copy = items.slice();
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    const tmp = copy[index];
+    copy[index] = copy[swapIndex];
+    copy[swapIndex] = tmp;
+  }
+  return copy;
+}
+
+function buildFriendsBubbleFallback() {
+  if (!Array.isArray(friendsState.items) || !friendsState.items.length) {
+    return [];
+  }
+  return shuffleArray(friendsState.items)
+    .filter((friend) => friend && typeof friend.username === 'string' && friend.username.trim())
+    .map((friend) => {
+      const username = friend.username.trim();
+      const displayName =
+        typeof friend.display_name === 'string' && friend.display_name.trim() ? friend.display_name.trim() : '';
+      const homeName =
+        (typeof friend.home_district_name === 'string' && friend.home_district_name.trim()
+          ? friend.home_district_name.trim()
+          : null) ||
+        (typeof friend.home_district === 'string' && friend.home_district.trim() ? friend.home_district.trim() : null);
+      return {
+        username,
+        display_name: displayName,
+        home_district_name: homeName,
+        home_district_code:
+          typeof friend.home_district_code === 'string' && friend.home_district_code.trim()
+            ? friend.home_district_code.trim()
+            : null,
+        bubble_source: 'friends',
+        is_friend: true,
+      };
+    });
+}
+
 async function refreshFriendBubble(force = false) {
   const isLoggedIn = Boolean(isSessionAuthenticated && currentUser);
   const hasFriends = Array.isArray(friendsState.items) && friendsState.items.length > 0;
@@ -8336,10 +8473,21 @@ async function refreshFriendBubble(force = false) {
 
   try {
     const response = await apiRequest('friends/bubble/');
-    const items = Array.isArray(response?.bubble) ? response.bubble : [];
-    friendsBubbleState.items = items;
+    const items = Array.isArray(response?.bubble) ? response.bubble.filter(Boolean) : [];
+    let suggestions = items;
+    let source = 'bubble';
+    if (!suggestions.length) {
+      const fallback = buildFriendsBubbleFallback();
+      if (fallback.length) {
+        suggestions = fallback;
+        source = 'friends';
+      }
+    }
+    friendsBubbleState.items = suggestions;
     friendsBubbleState.loaded = true;
     friendsBubbleState.error = null;
+    friendsBubbleState.source = source;
+    friendsBubbleState.expanded = false;
   } catch (error) {
     if (error && (error.status === 401 || error.status === 403)) {
       isSessionAuthenticated = false;
@@ -8349,9 +8497,20 @@ async function refreshFriendBubble(force = false) {
       return;
     }
     console.warn('Failed to load friend bubble', error);
-    friendsBubbleState.loaded = false;
-    friendsBubbleState.error = 'Unable to load your bubble right now.';
-    friendsBubbleState.items = [];
+    const fallback = buildFriendsBubbleFallback();
+    if (fallback.length) {
+      friendsBubbleState.items = fallback;
+      friendsBubbleState.loaded = true;
+      friendsBubbleState.error = null;
+      friendsBubbleState.source = 'friends';
+      friendsBubbleState.expanded = false;
+    } else {
+      friendsBubbleState.loaded = false;
+      friendsBubbleState.error = 'Unable to load your bubble right now.';
+      friendsBubbleState.items = [];
+      friendsBubbleState.source = 'bubble';
+      friendsBubbleState.expanded = false;
+    }
   } finally {
     friendsBubbleState.loading = false;
     updateFriendsBubbleSection({
@@ -8538,7 +8697,7 @@ async function addFriendByUsername(username) {
 
 async function updateFriendFavorite(username, isFavorite) {
   if (!username || !isSessionAuthenticated || !currentUser) {
-    return;
+    return false;
   }
   try {
     const payload = await apiRequest(`friends/${encodeURIComponent(username)}/`, {
@@ -8552,6 +8711,7 @@ async function updateFriendFavorite(username, isFavorite) {
         renderFriendManageList();
       }
     }
+    return true;
   } catch (error) {
     if (error && (error.status === 401 || error.status === 403)) {
       isSessionAuthenticated = false;
@@ -8561,6 +8721,7 @@ async function updateFriendFavorite(username, isFavorite) {
       updateStatus('Unable to update favorite status right now.');
     }
     console.warn('Failed to update friend favorite', error);
+    return false;
   }
 }
 
@@ -8710,6 +8871,48 @@ function handleFriendManageAction(event) {
     actionButton.disabled = true;
     removeFriend(username).finally(() => {
       actionButton.disabled = false;
+    });
+  }
+}
+
+function handleFriendProfileAction(event) {
+  const actionButton = event.target.closest('button[data-friend-profile-action]');
+  if (!actionButton) {
+    return;
+  }
+  event.preventDefault();
+  const action = actionButton.dataset.friendProfileAction;
+  const username = actionButton.dataset.username;
+  if (!action || !username) {
+    return;
+  }
+
+  if (!isSessionAuthenticated || !currentUser) {
+    updateStatus('Sign in to manage favorites.');
+    return;
+  }
+
+  if (action === 'toggle-favorite') {
+    const friend = findFriendByUsername(username);
+    if (!friend) {
+      updateStatus('Unable to update favorite right now.');
+      return;
+    }
+    const nextFavorite = !Boolean(friend.is_favorite);
+    const originalLabel = actionButton.textContent;
+    const originalClassName = actionButton.className;
+    const originalPressed = actionButton.getAttribute('aria-pressed') || 'false';
+    actionButton.disabled = true;
+    actionButton.textContent = nextFavorite ? 'Adding…' : 'Removing…';
+    actionButton.setAttribute('aria-pressed', nextFavorite ? 'true' : 'false');
+    actionButton.className = 'secondary small';
+    updateFriendFavorite(username, nextFavorite).finally(() => {
+      if (document.body.contains(actionButton)) {
+        actionButton.disabled = false;
+        actionButton.textContent = originalLabel;
+        actionButton.className = originalClassName;
+        actionButton.setAttribute('aria-pressed', originalPressed);
+      }
     });
   }
 }
@@ -11118,6 +11321,18 @@ if (friendsBubbleList) {
   });
 }
 
+if (friendsBubbleToggleButton) {
+  friendsBubbleToggleButton.addEventListener('click', () => {
+    const hasFriends = Array.isArray(friendsState.items) && friendsState.items.length > 0;
+    friendsBubbleState.expanded = !friendsBubbleState.expanded;
+    updateFriendsBubbleSection({
+      isLoggedIn: Boolean(isSessionAuthenticated && currentUser),
+      hasFriends,
+    });
+    friendsBubbleToggleButton.focus();
+  });
+}
+
 if (friendsListContainer) {
   friendsListContainer.addEventListener('click', (event) => {
     const profileTrigger = event.target.closest('[data-friend-profile]');
@@ -11153,6 +11368,12 @@ if (friendsLeaderboardList) {
     if (username) {
       openFriendProfileDrawer(username, profileTrigger);
     }
+  });
+}
+
+if (friendProfileContent) {
+  friendProfileContent.addEventListener('click', (event) => {
+    handleFriendProfileAction(event);
   });
 }
 
