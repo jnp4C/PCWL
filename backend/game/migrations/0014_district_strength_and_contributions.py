@@ -54,8 +54,8 @@ class Migration(migrations.Migration):
                 ('last_activity_at', models.DateTimeField(blank=True, null=True)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
-                ('district', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='player_contributions', to='game.District')),
-                ('player', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='district_contributions', to='game.Player')),
+                ('district', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='player_totals', to='game.District')),
+                ('player', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='district_totals', to='game.Player')),
             ],
             options={
                 'ordering': ['-defend_points_total', 'player__username'],
@@ -64,6 +64,11 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name='playerdistrictcontribution',
             constraint=models.UniqueConstraint(fields=('player', 'district'), name='unique_player_district_contribution'),
+        ),
+        migrations.AlterField(
+            model_name='districtcontributionstat',
+            name='supporter',
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='district_support_stats', to='game.Player'),
         ),
         migrations.RunPython(populate_home_district_refs, migrations.RunPython.noop),
     ]

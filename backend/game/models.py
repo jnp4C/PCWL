@@ -206,12 +206,12 @@ class PlayerDistrictContribution(models.Model):
     player = models.ForeignKey(
         Player,
         on_delete=models.CASCADE,
-        related_name="district_contributions",
+        related_name="district_totals",
     )
     district = models.ForeignKey(
         District,
         on_delete=models.CASCADE,
-        related_name="player_contributions",
+        related_name="player_totals",
     )
     defend_points_total = models.PositiveIntegerField(default=0)
     attack_points_total = models.PositiveIntegerField(default=0)
@@ -359,7 +359,7 @@ class DistrictContributionStat(models.Model):
     supporter = models.ForeignKey(
         Player,
         on_delete=models.CASCADE,
-        related_name="district_contributions",
+        related_name="district_support_stats",
     )
     contribution_points = models.PositiveIntegerField(default=0)
     contribution_checkins = models.PositiveIntegerField(default=0)
