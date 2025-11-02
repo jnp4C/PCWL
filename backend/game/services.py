@@ -4,6 +4,7 @@ from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from .models import (
@@ -103,6 +104,32 @@ def _get_or_create_district_record(code: Optional[str], name: Optional[str]) -> 
             setattr(district, field, value)
         district.save(update_fields=[*updates.keys(), "updated_at"])
     return district
+
+
+def _apply_district_activity(
+    code: Optional[str],
+    name: Optional[str],
+    points_delta: int,
+    *,
+    occurred_at: Optional[timezone.datetime] = None,
+) -> None:
+    """Persist aggregate district strength counters from a new check-in event."""
+    if points_delta is None:
+        return
+    district = _get_or_create_district_record(code, name)
+    if district is None:
+        return
+    when = occurred_at or timezone.now()
+    defended_delta = max(points_delta, 0)
+    attacked_delta = abs(points_delta) if points_delta < 0 else 0
+    District.objects.filter(pk=district.pk).update(
+        current_strength=F("current_strength") + points_delta,
+        defended_points_total=F("defended_points_total") + defended_delta,
+        attacked_points_total=F("attacked_points_total") + attacked_delta,
+        checkin_total=F("checkin_total") + 1,
+        last_activity_at=when,
+        updated_at=when,
+    )
 
 
 def _ensure_dict(value: Any) -> Dict[str, Any]:
@@ -833,6 +860,8 @@ def apply_checkin(
             metadata=payload_meta,
         )
 
+        _apply_district_activity(code, name, district_points_delta, occurred_at=now)
+
         _update_player_district_contribution(
             locked,
             district_code=code,
@@ -1014,6 +1043,8 @@ def apply_checkin(
                             "synchronized": True,
                         },
                     )
+
+                    _apply_district_activity(code, name, m_district_points, occurred_at=now)
 
                     # Update member stats and cooldown; do NOT consume their charge
                     m_locked.score += m_player_points

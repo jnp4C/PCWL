@@ -1,5 +1,3 @@
-from decimal import Decimal
-
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -661,35 +659,36 @@ class LeaderboardApiTests(TestCase):
                 }
             ],
         )
-        CheckIn.objects.create(
-            player=self.alpha,
+        self.alpha.home_district_code = "1100"
+        self.alpha.home_district_name = "Prague 1"
+        self.alpha.home_district = "Prague 1"
+        self.alpha.save(update_fields=["home_district_code", "home_district_name", "home_district"])
+
+        self.beta.home_district_code = "1200"
+        self.beta.home_district_name = "Prague 2"
+        self.beta.home_district = "Prague 2"
+        self.beta.save(update_fields=["home_district_code", "home_district_name", "home_district"])
+
+        apply_checkin(
+            self.alpha,
             district_code="1100",
             district_name="Prague 1",
-            action=CheckIn.Action.DEFEND,
             mode=CheckIn.Mode.LOCAL,
-            multiplier=Decimal("2.00"),
-            base_points=10,
-            points_awarded=20,
+            metadata={"source": "test"},
         )
-        CheckIn.objects.create(
-            player=self.alpha,
+        apply_checkin(
+            self.alpha,
             district_code="1200",
             district_name="Prague 2",
-            action=CheckIn.Action.ATTACK,
             mode=CheckIn.Mode.RANGED,
-            multiplier=Decimal("1.00"),
-            base_points=10,
-            points_awarded=10,
+            metadata={"source": "test"},
         )
-        CheckIn.objects.create(
-            player=self.beta,
+        apply_checkin(
+            self.beta,
             district_code="1200",
             district_name="Prague 2",
-            action=CheckIn.Action.DEFEND,
             mode=CheckIn.Mode.LOCAL,
-            multiplier=Decimal("1.00"),
-            base_points=10,
-            points_awarded=10,
+            metadata={"source": "test"},
         )
 
     def test_leaderboard_endpoint_returns_data(self):
@@ -706,9 +705,14 @@ class LeaderboardApiTests(TestCase):
             self.assertIn("status", entry)
             self.assertIn("recent_status", entry)
             self.assertIn("checkins", entry)
-            self.assertIn("base_strength", entry)
             self.assertIn("strength", entry)
-            self.assertIn("assigned_players", entry)
+            self.assertIn("defended", entry)
+            self.assertIn("attacked", entry)
+
+        prague_two = next(entry for entry in districts if entry["id"] == "1200")
+        self.assertEqual(prague_two["defended"], 10)
+        self.assertEqual(prague_two["attacked"], 10)
+        self.assertEqual(prague_two["checkins"], 2)
 
 
 class DistrictAnalyticsTests(TestCase):

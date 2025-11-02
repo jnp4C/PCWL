@@ -1324,29 +1324,28 @@ def _build_player_leaderboard(limit=50):
 def _build_district_leaderboard(limit=50):
     now = timezone.now()
     recent_cutoff = now - timedelta(hours=24)
-    recent_rows = list(
-        CheckIn.objects.filter(district_code__isnull=False, occurred_at__gte=recent_cutoff)
-        .values("district_code")
-        .annotate(
-            defended=Coalesce(
-                Sum(
-                    Case(
-                        When(action=CheckIn.Action.DEFEND, then=F("district_points_delta")),
-                        default=0,
-                    )
-                ),
-                0,
+    recent_rows = CheckIn.objects.filter(district_code__isnull=False, occurred_at__gte=recent_cutoff).values(
+        "district_code"
+    )
+    recent_rows = recent_rows.annotate(
+        defended=Coalesce(
+            Sum(
+                Case(
+                    When(action=CheckIn.Action.DEFEND, then=F("district_points_delta")),
+                    default=0,
+                )
             ),
-            attacked=Coalesce(
-                Sum(
-                    Case(
-                        When(action=CheckIn.Action.ATTACK, then=-F("district_points_delta")),
-                        default=0,
-                    )
-                ),
-                0,
+            0,
+        ),
+        attacked=Coalesce(
+            Sum(
+                Case(
+                    When(action=CheckIn.Action.ATTACK, then=-F("district_points_delta")),
+                    default=0,
+                )
             ),
-        )
+            0,
+        ),
     )
     recent_map = {}
     for row in recent_rows:
@@ -1354,51 +1353,53 @@ def _build_district_leaderboard(limit=50):
         if key:
             recent_map[key] = row
 
-    aggregate_rows = list(
-        CheckIn.objects.filter(district_code__isnull=False)
-        .values("district_code", "district_name")
-        .annotate(
-            defended=Coalesce(
-                Sum(
-                    Case(
-                        When(action=CheckIn.Action.DEFEND, then=F("district_points_delta")),
-                        default=0,
-                    )
-                ),
-                0,
-            ),
-            attacked=Coalesce(
-                Sum(
-                    Case(
-                        When(action=CheckIn.Action.ATTACK, then=-F("district_points_delta")),
-                        default=0,
-                    )
-                ),
-                0,
-            ),
-        )
+    districts = []
+    base_queryset = District.objects.filter(
+        Q(is_active=True)
+        | Q(checkin_total__gt=0)
+        | Q(defended_points_total__gt=0)
+        | Q(attacked_points_total__gt=0)
     )
-    aggregate_map = {}
-    district_codes: Set[str] = set()
-    for row in aggregate_rows:
-        district_id = (row.get("district_code") or "").strip()
-        if not district_id:
-            continue
-        aggregate_map[district_id] = row
-        district_codes.add(district_id)
+    district_map = {district.code: district for district in base_queryset if district.code}
+    district_codes: Set[str] = set(district_map.keys())
     district_codes.update(recent_map.keys())
-    active_codes = set(
-        District.objects.filter(is_active=True).values_list("code", flat=True)
-    )
-    district_codes.update(code for code in active_codes if code)
 
     if not district_codes:
         return []
 
-    district_map = {
-        district.code: district
-        for district in District.objects.filter(code__in=district_codes)
-    }
+    missing_codes = {code for code in district_codes if code not in district_map}
+    missing_totals = {}
+    if missing_codes:
+        total_rows = (
+            CheckIn.objects.filter(district_code__in=missing_codes)
+            .values("district_code", "district_name")
+            .annotate(
+                defended=Coalesce(
+                    Sum(
+                        Case(
+                            When(action=CheckIn.Action.DEFEND, then=F("district_points_delta")),
+                            default=0,
+                        )
+                    ),
+                    0,
+                ),
+                attacked=Coalesce(
+                    Sum(
+                        Case(
+                            When(action=CheckIn.Action.ATTACK, then=-F("district_points_delta")),
+                            default=0,
+                        )
+                    ),
+                    0,
+                ),
+                checkins=Count("id"),
+            )
+        )
+        for row in total_rows:
+            code = (row.get("district_code") or "").strip()
+            if code:
+                missing_totals[code] = row
+
     player_counts_map = {
         row["home_district_code"]: row["total"]
         for row in (
@@ -1408,24 +1409,41 @@ def _build_district_leaderboard(limit=50):
         )
     }
 
-    districts = []
     for district_code in district_codes:
-        row = aggregate_map.get(district_code, {})
-        defended = int(row.get("defended") or 0)
-        attacked = int(row.get("attacked") or 0)
-        change = defended - attacked
         district_obj = district_map.get(district_code)
+        fallback_row = missing_totals.get(district_code, {})
         base_strength = getattr(district_obj, "base_strength", DISTRICT_BASE_SCORE)
-        name = (row.get("district_name") or "").strip()
-        if not name and district_obj:
+        if district_obj:
+            defended = int(getattr(district_obj, "defended_points_total", 0) or 0)
+            attacked = int(getattr(district_obj, "attacked_points_total", 0) or 0)
+            checkins_total = int(getattr(district_obj, "checkin_total", 0) or 0)
+            strength = getattr(district_obj, "current_strength", None)
+        else:
+            defended = int(fallback_row.get("defended") or 0)
+            attacked = int(fallback_row.get("attacked") or 0)
+            checkins_total = int(fallback_row.get("checkins") or (defended + attacked))
+            strength = None
+        if strength is None:
+            strength = base_strength + defended - attacked
+        change = strength - base_strength
+        name = ""
+        if district_obj and district_obj.name:
             name = district_obj.name
+        elif fallback_row.get("district_name"):
+            name = (fallback_row.get("district_name") or "").strip()
         if not name:
             name = f"District {district_code}"
         recent_row = recent_map.get(district_code, {})
         recent_defended = int(recent_row.get("defended") or 0)
         recent_attacked = int(recent_row.get("attacked") or 0)
-        strength = base_strength + change
-        checkins_total = defended + attacked
+        recent_change = recent_defended - recent_attacked
+        status = _classify_district_state(defended, attacked, DISTRICT_SECURE_THRESHOLD)
+        recent_status = _classify_district_state(
+            recent_defended,
+            recent_attacked,
+            DISTRICT_RECENT_THRESHOLD,
+        )
+
         districts.append(
             {
                 "id": district_code,
@@ -1438,13 +1456,11 @@ def _build_district_leaderboard(limit=50):
                 "attacked": attacked,
                 "checkins": checkins_total,
                 "assigned_players": int(player_counts_map.get(district_code, 0)),
-                "status": _classify_district_state(defended, attacked, DISTRICT_SECURE_THRESHOLD),
-                "recent_change": recent_defended - recent_attacked,
-                "recent_status": _classify_district_state(
-                    recent_defended,
-                    recent_attacked,
-                    DISTRICT_RECENT_THRESHOLD,
-                ),
+                "status": status,
+                "recent_change": recent_change,
+                "recent_status": recent_status,
+                "recent_defended": recent_defended,
+                "recent_attacked": recent_attacked,
             }
         )
     districts.sort(key=lambda item: (-item["score"], -item["defended"], item["name"]))

@@ -66,24 +66,34 @@ function loadDistrictData() {
         }
         if (typeof entry === 'number') {
           const adjustment = Number(entry) || 0;
+          const defended = adjustment > 0 ? adjustment : 0;
+          const attacked = adjustment < 0 ? Math.abs(adjustment) : 0;
           return {
             id,
             name: null,
-            adjustment,
-            defended: adjustment > 0 ? adjustment : 0,
-            attacked: adjustment < 0 ? Math.abs(adjustment) : 0,
+            strength: DISTRICT_BASE_SCORE + adjustment,
+            defended,
+            attacked,
+            checkins: defended + attacked,
           };
         }
         if (!entry || typeof entry !== 'object') {
           return null;
         }
         const adjustment = Number(entry.adjustment) || 0;
+        const defended = Number(entry.defended) || (adjustment > 0 ? adjustment : 0);
+        const attacked = Number(entry.attacked) || (adjustment < 0 ? Math.abs(adjustment) : 0);
+        const strengthValue = Number(entry.strength);
+        const checkins = Number(entry.checkins) || defended + attacked;
         return {
           id,
           name: typeof entry.name === 'string' && entry.name.trim() ? entry.name.trim() : null,
-          adjustment,
-          defended: Number(entry.defended) || 0,
-          attacked: Number(entry.attacked) || 0,
+          strength: Number.isFinite(strengthValue)
+            ? strengthValue
+            : DISTRICT_BASE_SCORE + adjustment,
+          defended,
+          attacked,
+          checkins,
         };
       })
       .filter(Boolean);
@@ -199,31 +209,21 @@ function renderDistrictLeaderboard(districts) {
 
   const ranked = (districts || [])
     .map((district) => {
-      const defended = Number(district.defended) || 0;
-      const attacked = Number(district.attacked) || 0;
-      const change = Number.isFinite(district.change)
-        ? Number(district.change)
-        : defended - attacked;
-      const baseStrength = Number.isFinite(district.base_strength)
-        ? Number(district.base_strength)
-        : DISTRICT_BASE_SCORE;
       const strength = Number.isFinite(district.strength)
         ? Number(district.strength)
-        : (Number.isFinite(district.score) ? Number(district.score) : baseStrength + change);
-      const assignedPlayers = Number(district.assigned_players) || 0;
+        : (Number.isFinite(district.score) ? Number(district.score) : DISTRICT_BASE_SCORE);
+      const defended = Number(district.defended) || 0;
+      const attacked = Number(district.attacked) || 0;
       const checkins = Number.isFinite(district.checkins)
         ? Number(district.checkins)
         : defended + attacked;
       return {
         id: district.id,
         name: district.name || (district.id ? `District ${district.id}` : 'Unknown district'),
-        baseStrength,
         strength,
-        change,
         defended,
         attacked,
         checkins,
-        assignedPlayers,
       };
     })
     .sort((a, b) => {
@@ -250,51 +250,35 @@ function renderDistrictLeaderboard(districts) {
     nameCell.textContent = district.name;
     row.appendChild(nameCell);
 
-    const baseCell = document.createElement('td');
-    baseCell.className = 'numeric';
-    baseCell.textContent = integerFormatter.format(district.baseStrength);
-    row.appendChild(baseCell);
-
     const strengthCell = document.createElement('td');
     strengthCell.className = 'numeric';
     strengthCell.textContent = integerFormatter.format(district.strength);
     row.appendChild(strengthCell);
 
-    const changeCell = document.createElement('td');
-    changeCell.className = 'numeric';
-    changeCell.textContent =
-      district.change === 0 ? '0' : changeFormatter.format(district.change);
-    if (district.change > 0) {
-      changeCell.classList.add('positive');
-    } else if (district.change < 0) {
-      changeCell.classList.add('negative');
-    }
-    row.appendChild(changeCell);
-
     const defendedCell = document.createElement('td');
     defendedCell.className = 'numeric';
-    defendedCell.textContent = integerFormatter.format(district.defended);
+    if (district.defended > 0) {
+      defendedCell.classList.add('positive');
+      defendedCell.textContent = changeFormatter.format(district.defended);
+    } else {
+      defendedCell.textContent = '0';
+    }
     row.appendChild(defendedCell);
 
     const attackedCell = document.createElement('td');
     attackedCell.className = 'numeric';
     if (district.attacked > 0) {
       attackedCell.classList.add('negative');
+      attackedCell.textContent = changeFormatter.format(-district.attacked);
+    } else {
+      attackedCell.textContent = '0';
     }
-    attackedCell.textContent = district.attacked > 0
-      ? `-${integerFormatter.format(district.attacked)}`
-      : '0';
     row.appendChild(attackedCell);
 
     const checkinsCell = document.createElement('td');
     checkinsCell.className = 'numeric';
     checkinsCell.textContent = integerFormatter.format(district.checkins);
     row.appendChild(checkinsCell);
-
-    const assignedCell = document.createElement('td');
-    assignedCell.className = 'numeric';
-    assignedCell.textContent = integerFormatter.format(district.assignedPlayers);
-    row.appendChild(assignedCell);
 
     tbody.appendChild(row);
   });
@@ -315,14 +299,11 @@ function renderFallbackLeaderboards() {
   const fallbackDistricts = loadDistrictData().map((entry) => ({
     id: entry.id,
     name: entry.name || `District ${entry.id}`,
-    base_strength: DISTRICT_BASE_SCORE,
-    strength: DISTRICT_BASE_SCORE + (Number(entry.adjustment) || 0),
-    score: DISTRICT_BASE_SCORE + (Number(entry.adjustment) || 0),
-    change: Number(entry.adjustment) || 0,
+    strength: Number(entry.strength) || DISTRICT_BASE_SCORE,
+    score: Number(entry.strength) || DISTRICT_BASE_SCORE,
     defended: Number(entry.defended) || 0,
     attacked: Number(entry.attacked) || 0,
-    checkins: (Number(entry.defended) || 0) + (Number(entry.attacked) || 0),
-    assigned_players: Number(entry.assignedPlayers) || 0,
+    checkins: Number(entry.checkins) || (Number(entry.defended) || 0) + (Number(entry.attacked) || 0),
   }));
   renderDistrictLeaderboard(fallbackDistricts);
 }

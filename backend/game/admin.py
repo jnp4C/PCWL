@@ -47,7 +47,17 @@ class PlayerAdminForm(forms.ModelForm):
 
 @admin.register(District)
 class DistrictAdmin(admin.ModelAdmin):
-    list_display = ("code", "name", "base_strength", "is_active", "updated_at")
+    list_display = (
+        "code",
+        "name",
+        "current_strength",
+        "defended_points_total",
+        "attacked_points_total",
+        "checkin_total",
+        "base_strength",
+        "is_active",
+        "updated_at",
+    )
     list_filter = ("is_active",)
     search_fields = ("code", "name")
     ordering = ("name", "code")

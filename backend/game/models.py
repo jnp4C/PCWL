@@ -16,6 +16,23 @@ class District(models.Model):
         default=2000,
         help_text="Baseline strength score used when computing district leaderboards.",
     )
+    current_strength = models.IntegerField(
+        default=0,
+        help_text="Live strength score after applying all attack and defend activity.",
+    )
+    defended_points_total = models.PositiveIntegerField(
+        default=0,
+        help_text="Cumulative defend points contributed to this district.",
+    )
+    attacked_points_total = models.PositiveIntegerField(
+        default=0,
+        help_text="Cumulative attack points dealt against this district.",
+    )
+    checkin_total = models.PositiveIntegerField(
+        default=0,
+        help_text="Total number of check-ins recorded for this district.",
+    )
+    last_activity_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -25,6 +42,11 @@ class District(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.code})" if self.name else self.code
+
+    def save(self, *args, **kwargs):
+        if self.pk is None and self.base_strength and self.current_strength == 0:
+            self.current_strength = self.base_strength
+        super().save(*args, **kwargs)
 
 
 class Player(models.Model):
