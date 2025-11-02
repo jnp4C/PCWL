@@ -423,9 +423,18 @@
         <div class="friends-toolbar">
           <button type="button" id="friends-manage-button" class="secondary small sheet-action">Manage Friends</button>
         </div>
-        <p id="friends-empty" class="sheet-empty">Add friends to squad up and keep track of their progress.</p>
-        <div id="friends-list" class="friends-list" hidden></div>
-        <button type="button" id="friends-toggle-all" class="secondary small sheet-action friends-toggle" hidden>Show all friends</button>
+        <section id="friends-core-section" class="friends-section">
+          <h3 class="friends-section-title">Your friends</h3>
+          <p id="friends-empty" class="sheet-empty">Add friends to squad up and keep track of their progress.</p>
+          <div id="friends-list" class="friends-list" hidden></div>
+          <button type="button" id="friends-toggle-all" class="secondary small sheet-action friends-toggle" hidden>Show all friends</button>
+        </section>
+        <section id="friends-bubble-section" class="friends-section friends-bubble-section" aria-live="polite" aria-label="My bubble">
+          <h3 class="friends-section-title">My bubble</h3>
+          <p class="friends-section-subtitle">Friends-of-friends you may want to connect with.</p>
+          <p id="friends-bubble-empty" class="sheet-empty">Sign in to discover your bubble.</p>
+          <div id="friends-bubble-list" class="friends-list friends-bubble-list" hidden></div>
+        </section>
         <section id="friends-leaderboard" class="friends-leaderboard hidden" aria-live="polite" aria-label="Friend highlights">
           <h3 class="friend-leaderboard-heading">Squad Highlights</h3>
           <ul id="friends-leaderboard-list" class="friends-leaderboard-list"></ul>
