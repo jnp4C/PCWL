@@ -5,6 +5,7 @@ from django.urls import reverse
 
 from .models import (
     CheckIn,
+    District,
     DistrictContributionStat,
     DistrictEngagement,
     FriendLink,
@@ -182,6 +183,37 @@ class PlayerApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         player.refresh_from_db()
         self.assertEqual(player.map_marker_color, "#6366f1")
+
+    def test_home_district_update_creates_catalog_entry(self):
+        player = Player.objects.create(username="catalog-user")
+        self._login_player(player)
+        self.assertFalse(District.objects.filter(code="1100").exists())
+        payload = {
+            "home_district_code": "1100",
+            "home_district_name": "Prague 1",
+        }
+        url = reverse("player-detail", args=[player.id])
+        response = self.client.patch(url, payload, content_type="application/json")
+        self.assertEqual(response.status_code, 200)
+        player.refresh_from_db()
+        self.assertEqual(player.home_district_code, "1100")
+        self.assertEqual(player.home_district_name, "Prague 1")
+        district = District.objects.get(code="1100")
+        self.assertEqual(district.name, "Prague 1")
+        self.assertTrue(district.is_active)
+
+
+class DistrictCatalogTests(TestCase):
+    def test_catalog_endpoint_returns_known_districts(self):
+        District.objects.create(code="1100", name="Prague 1")
+        District.objects.create(code="1200", name="Prague 2", is_active=False)
+        response = self.client.get(reverse("district-catalog"))
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertIn("districts", body)
+        codes = {entry["code"] for entry in body["districts"]}
+        self.assertIn("1100", codes)
+        self.assertNotIn("1200", codes)
 
 
 class SessionAuthTests(TestCase):

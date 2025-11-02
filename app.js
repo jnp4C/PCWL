@@ -106,6 +106,7 @@ const friendsOverlay = document.getElementById('friends-overlay');
 const friendsCloseButton = document.getElementById('friends-close');
 const friendsContent = document.getElementById('friends-content');
 const friendsListContainer = document.getElementById('friends-list');
+const friendsToggleAllButton = document.getElementById('friends-toggle-all');
 const friendsEmptyState = document.getElementById('friends-empty');
 const friendsInviteButton = document.getElementById('friends-invite-button');
 const friendsManageButton = document.getElementById('friends-manage-button');
@@ -1227,12 +1228,64 @@ function getEntryCooldownInfo(profile, entry, now = Date.now()) {
   };
 }
 
+function ensureDistrictCatalogLoaded() {
+  if (districtCatalog || districtCatalogPromise) {
+    return districtCatalogPromise || Promise.resolve(districtCatalog);
+  }
+  if (!isApiAvailable()) {
+    districtCatalog = [];
+    districtCatalogMap = new Map();
+    return Promise.resolve(districtCatalog);
+  }
+  districtCatalogPromise = apiRequest('districts/catalog/')
+    .then((payload) => {
+      const list = payload && Array.isArray(payload.districts) ? payload.districts : [];
+      districtCatalog = list;
+      const map = new Map();
+      list.forEach((entry) => {
+        if (!entry || typeof entry !== 'object') {
+          return;
+        }
+        const code = entry.code ? safeId(entry.code) : null;
+        if (!code) {
+          return;
+        }
+        map.set(code, {
+          code,
+          name: typeof entry.name === 'string' && entry.name.trim() ? entry.name.trim() : `District ${code}`,
+          isActive: entry.is_active !== false,
+        });
+      });
+      districtCatalogMap = map;
+      return districtCatalog;
+    })
+    .catch((error) => {
+      console.warn('Failed to load district catalog from backend', error);
+      districtCatalog = [];
+      districtCatalogMap = new Map();
+      return districtCatalog;
+    })
+    .finally(() => {
+      districtCatalogPromise = null;
+    });
+  return districtCatalogPromise;
+}
+
+function isApiAvailable() {
+  if (isFileOrigin()) {
+    return false;
+  }
+  return typeof fetch === 'function';
+}
+
 function ensureDistrictDataLoaded() {
-  if (districtGeoJson || districtGeoJsonPromise || typeof fetch !== 'function') {
+  if (districtGeoJson || districtGeoJsonPromise) {
     return districtGeoJsonPromise || Promise.resolve(districtGeoJson);
   }
-  if (isFileOrigin()) {
-    console.warn('Skipping district data preload on file:// origin. Start a local server (e.g., python3 -m http.server) to enable data loading.');
+  if (!isApiAvailable()) {
+    if (isFileOrigin()) {
+      console.warn('Skipping district data preload on file:// origin. Start a local server (e.g., python3 -m http.server) to enable data loading.');
+    }
     return Promise.resolve(null);
   }
   districtGeoJsonPromise = loadStaticDataset('prague-districts')
@@ -2698,37 +2751,64 @@ function showActionContextMenu(lng, lat, point, options = {}) {
 }
 
 function buildHomeDistrictOptions() {
-  if (!districtGeoJson || !Array.isArray(districtGeoJson.features)) {
-    return [];
-  }
+  const catalogMap = districtCatalogMap instanceof Map ? districtCatalogMap : null;
   const seen = new Set();
   const options = [];
   const map = new Map();
-  districtGeoJson.features.forEach((feature, index) => {
-    let id = getDistrictId(feature);
-    if (!id) {
-      const props = feature.properties || {};
-      const fallbackId =
-        props.kod_mc ||
-        props.KOD_MC ||
-        props.kod_uzohmp ||
-        props.KOD_UZOHMP ||
-        props.objectid ||
-        props.OBJECTID ||
-        feature.id ||
-        `feature-${index}`;
-      id = safeId(fallbackId);
-    }
-    if (!id || seen.has(id)) {
-      return;
-    }
-    const rawName = getDistrictName(feature) || `District ${id}`;
-    const name = typeof rawName === 'string' ? rawName.trim() || `District ${id}` : `District ${id}`;
-    const option = { id, name, feature };
-    seen.add(id);
-    options.push(option);
-    map.set(id, option);
-  });
+  if (districtGeoJson && Array.isArray(districtGeoJson.features)) {
+    districtGeoJson.features.forEach((feature, index) => {
+      let id = getDistrictId(feature);
+      if (!id) {
+        const props = feature.properties || {};
+        const fallbackId =
+          props.kod_mc ||
+          props.KOD_MC ||
+          props.kod_uzohmp ||
+          props.KOD_UZOHMP ||
+          props.objectid ||
+          props.OBJECTID ||
+          feature.id ||
+          `feature-${index}`;
+        id = safeId(fallbackId);
+      }
+      if (!id || seen.has(id)) {
+        return;
+      }
+      const rawName = getDistrictName(feature) || `District ${id}`;
+      let name = typeof rawName === 'string' ? rawName.trim() || `District ${id}` : `District ${id}`;
+      const option = { id, name, feature };
+      if (catalogMap && catalogMap.has(id)) {
+        const catalogEntry = catalogMap.get(id);
+        if (catalogEntry && catalogEntry.isActive === false) {
+          seen.add(id);
+          return;
+        }
+        if (catalogEntry && catalogEntry.name) {
+          option.name = catalogEntry.name;
+        }
+        option.catalog = catalogEntry || null;
+      }
+      seen.add(id);
+      options.push(option);
+      map.set(id, option);
+    });
+  }
+  if (catalogMap && catalogMap.size) {
+    catalogMap.forEach((entry, code) => {
+      if (!entry || entry.isActive === false || seen.has(code)) {
+        return;
+      }
+      const option = {
+        id: code,
+        name: entry.name || `District ${code}`,
+        feature: null,
+        catalog: entry,
+      };
+      seen.add(code);
+      options.push(option);
+      map.set(code, option);
+    });
+  }
   options.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   homeDistrictOptionMap = map;
   return options;
@@ -2755,7 +2835,7 @@ function getHomeDistrictOptions() {
   if (homeDistrictOptions && homeDistrictOptions.length) {
     return Promise.resolve(homeDistrictOptions);
   }
-  return ensureDistrictDataLoaded().then(() => {
+  return Promise.all([ensureDistrictDataLoaded(), ensureDistrictCatalogLoaded()]).then(() => {
     homeDistrictOptions = buildHomeDistrictOptions();
     return homeDistrictOptions;
   });
@@ -2939,6 +3019,7 @@ async function confirmHomeDistrictSelection() {
   const option = homeDistrictOptionMap.get(homeDistrictModalSelectedId);
   const profile = ensurePlayerProfile(currentUser);
   const previousId = profile.homeDistrictId;
+  const previousName = profile.homeDistrictName;
 
   // Optimistically update local state
   profile.homeDistrictId = option.id;
@@ -2947,15 +3028,13 @@ async function confirmHomeDistrictSelection() {
   renderPlayerState();
 
   const changed = previousId !== option.id;
-  if (changed) {
-    updateStatus(`${option.name} is now your home district. Defend it to earn points!`);
-  } else {
-    updateStatus(`${option.name} is already your home district.`);
-  }
+  updateStatus(`Setting ${option.name} as your home district…`);
 
+  const canPersist = isSessionAuthenticated && Number.isFinite(Number(activePlayerBackendId));
   // Persist to backend so it survives reloads and appears in session/player payloads
+  let persisted = !canPersist;
   try {
-    if (isSessionAuthenticated && Number.isFinite(Number(activePlayerBackendId))) {
+    if (canPersist) {
       const updated = await apiRequest(`players/${activePlayerBackendId}/`, {
         method: 'PATCH',
         body: {
@@ -2968,10 +3047,30 @@ async function confirmHomeDistrictSelection() {
         savePlayers();
         renderPlayerState();
       }
+      persisted = true;
     }
   } catch (error) {
     console.warn('Failed to persist home district to backend', error);
-    // Soft warn but keep local change; backend will be retried next time user changes it.
+    persisted = false;
+    profile.homeDistrictId = previousId || null;
+    profile.homeDistrictName = previousName || null;
+    savePlayers();
+    renderPlayerState();
+    updateStatus('Unable to save your home district. Check your connection and try again.');
+  }
+
+  if (persisted) {
+    if (!canPersist) {
+      if (changed) {
+        updateStatus(`${option.name} is set for this session. Sign in to sync it across devices.`);
+      } else {
+        updateStatus(`${option.name} remains your home district on this device.`);
+      }
+    } else if (changed) {
+      updateStatus(`${option.name} is now your home district. Defend it to earn points!`);
+    } else {
+      updateStatus(`${option.name} is already your home district.`);
+    }
   }
 
   closeHomeDistrictModal();
@@ -3001,6 +3100,9 @@ const activeCooldowns = new Map();
 let cooldownTickerId = null;
 let districtGeoJson = null;
 let districtGeoJsonPromise = null;
+let districtCatalog = null;
+let districtCatalogMap = null;
+let districtCatalogPromise = null;
 let homeDistrictOptions = null;
 let homeDistrictOptionMap = new Map();
 let homeDistrictModalSelectedId = null;
@@ -3018,6 +3120,7 @@ let mobileContextMenuSuppressClickResetId = null;
 let mobileContextMenuHandlersBound = false;
 let recentCheckinsShowAll = false;
 let recentCheckinsLastTrigger = null;
+let friendsShowAll = false;
 let friendsLastTrigger = null;
 let friendProfileLastTrigger = null;
 let friendProfileActiveUsername = null;
@@ -6419,7 +6522,7 @@ function formatPartyStatus(activeState, pendingInvites = 0, firstPendingInvite =
         ? `${inviterLabel} invited you. Open the party drawer to respond.`
         : `${pendingInvites} party invites waiting.`;
     }
-    return 'No active party. Start one to boost shared check-ins.';
+    return 'No active party. Start one to boost shared check-ins. At least 2 players required for boost to apply.';
   }
   const expiresIn = formatPartyCountdown(activeState.expiresAt);
   const playerCount = Number.isFinite(activeState.size) && activeState.size > 0 ? activeState.size : activeState.members?.length || 1;
@@ -7773,6 +7876,12 @@ function updateFriendsDrawerContent() {
   }
 
   if (!isLoggedIn) {
+    friendsShowAll = false;
+    if (friendsToggleAllButton) {
+      friendsToggleAllButton.hidden = true;
+      friendsToggleAllButton.setAttribute('aria-pressed', 'false');
+      friendsToggleAllButton.setAttribute('aria-expanded', 'false');
+    }
     closeFriendsManagePanel();
     friendsEmptyState.hidden = false;
     friendsEmptyState.textContent = 'Sign in to see your friends list.';
@@ -7784,6 +7893,11 @@ function updateFriendsDrawerContent() {
   }
 
   if (friendsState.loading) {
+    if (friendsToggleAllButton) {
+      friendsToggleAllButton.hidden = true;
+      friendsToggleAllButton.setAttribute('aria-pressed', 'false');
+      friendsToggleAllButton.setAttribute('aria-expanded', 'false');
+    }
     friendsEmptyState.hidden = false;
     friendsEmptyState.textContent = 'Loading your friends…';
     friendsListContainer.hidden = true;
@@ -7794,6 +7908,11 @@ function updateFriendsDrawerContent() {
   }
 
   if (friendsState.error) {
+    if (friendsToggleAllButton) {
+      friendsToggleAllButton.hidden = true;
+      friendsToggleAllButton.setAttribute('aria-pressed', 'false');
+      friendsToggleAllButton.setAttribute('aria-expanded', 'false');
+    }
     friendsEmptyState.hidden = false;
     friendsEmptyState.textContent = friendsState.error;
     friendsListContainer.hidden = true;
@@ -7805,6 +7924,12 @@ function updateFriendsDrawerContent() {
 
   const friends = Array.isArray(friendsState.items) ? friendsState.items : [];
   if (!friends.length) {
+    friendsShowAll = false;
+    if (friendsToggleAllButton) {
+      friendsToggleAllButton.hidden = true;
+      friendsToggleAllButton.setAttribute('aria-pressed', 'false');
+      friendsToggleAllButton.setAttribute('aria-expanded', 'false');
+    }
     friendsEmptyState.hidden = false;
     friendsEmptyState.textContent = 'No friends linked yet. Use Manage Friends to add teammates.';
     friendsListContainer.hidden = true;
@@ -7814,15 +7939,48 @@ function updateFriendsDrawerContent() {
     return;
   }
 
-  friendsEmptyState.hidden = true;
-  friendsListContainer.hidden = false;
-  friendsListContainer.innerHTML = '';
-  friends.forEach((friend) => {
-    const card = renderFriendCard(friend);
-    if (card) {
-      friendsListContainer.appendChild(card);
+  const favoriteFriends = friends.filter((friend) => friend && friend.is_favorite);
+  const otherFriends = friends.filter((friend) => friend && !friend.is_favorite);
+  if (!otherFriends.length && friendsShowAll) {
+    friendsShowAll = false;
+  }
+
+  const visibleFriends = friendsShowAll ? friends : favoriteFriends;
+
+  if (friendsToggleAllButton) {
+    if (otherFriends.length) {
+      friendsToggleAllButton.hidden = false;
+      friendsToggleAllButton.textContent = friendsShowAll
+        ? 'Show favorites only'
+        : `Show all friends (${friends.length})`;
+      friendsToggleAllButton.setAttribute('aria-pressed', friendsShowAll ? 'true' : 'false');
+      friendsToggleAllButton.setAttribute('aria-expanded', friendsShowAll ? 'true' : 'false');
+    } else {
+      friendsToggleAllButton.hidden = true;
+      friendsToggleAllButton.setAttribute('aria-pressed', 'false');
+      friendsToggleAllButton.setAttribute('aria-expanded', 'false');
     }
-  });
+  }
+
+  friendsListContainer.innerHTML = '';
+  if (!visibleFriends.length) {
+    friendsListContainer.hidden = true;
+    friendsEmptyState.hidden = false;
+    if (!favoriteFriends.length && otherFriends.length && !friendsShowAll) {
+      friendsEmptyState.textContent = 'Star friends to pin them here. Choose "Show all friends" to browse everyone.';
+    } else {
+      friendsEmptyState.textContent = 'No friends linked yet. Use Manage Friends to add teammates.';
+    }
+  } else {
+    friendsEmptyState.hidden = true;
+    friendsListContainer.hidden = false;
+    visibleFriends.forEach((friend) => {
+      const card = renderFriendCard(friend);
+      if (card) {
+        friendsListContainer.appendChild(card);
+      }
+    });
+  }
   updateFriendsLeaderboardSection(friends);
   updatePartyUi(friends);
   if (friendProfileActiveUsername) {
@@ -10569,6 +10727,14 @@ if (friendSearchResults) {
 if (friendManageList) {
   friendManageList.addEventListener('click', (event) => {
     handleFriendManageAction(event);
+  });
+}
+
+if (friendsToggleAllButton) {
+  friendsToggleAllButton.addEventListener('click', () => {
+    friendsShowAll = !friendsShowAll;
+    updateFriendsDrawerContent();
+    friendsToggleAllButton.focus();
   });
 }
 

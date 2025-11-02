@@ -23,6 +23,7 @@ from rest_framework.views import APIView
 
 from .models import (
     CheckIn,
+    District,
     DistrictContributionStat,
     DistrictEngagement,
     FriendLink,
@@ -36,6 +37,7 @@ from .models import (
 from .serializers import (
     CheckInRequestSerializer,
     CheckInSerializer,
+    DistrictSerializer,
     FriendFavoriteSerializer,
     FriendLinkSerializer,
     FriendRequestSerializer,
@@ -486,6 +488,28 @@ class SessionCurrentView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class DistrictCatalogView(APIView):
+    """Expose the authoritative district catalog for clients and admins."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        queryset = District.objects.all()
+        include_inactive = request.query_params.get("include_inactive")
+        if not include_inactive:
+            queryset = queryset.filter(is_active=True)
+        search_term = request.query_params.get("q")
+        if search_term:
+            queryset = queryset.filter(Q(name__icontains=search_term) | Q(code__icontains=search_term))
+        queryset = queryset.order_by("name", "code")
+        serialized = DistrictSerializer(queryset, many=True, context={"request": request})
+        payload = {
+            "count": len(serialized.data),
+            "districts": serialized.data,
+        }
+        return Response(payload, status=status.HTTP_200_OK)
 
 
 class ChargeAttackView(PlayerScopedAPIView):

@@ -7,6 +7,7 @@ backend/.venv/
 backend/venv/
 backend/env/
 backend/ENV/
+venv311/
 
 # Python cache and artifacts
 __pycache__/

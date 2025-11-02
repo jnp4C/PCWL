@@ -29,11 +29,11 @@
   </button>
   <main class="app">
     <section id="welcome-screen" class="panel">
-      <img src="data/Prague_Civil_War_Live.png" alt="Prague Explorer logo" class="welcome-logo" />
+      <img src="data/Prague_Civil_War_Live.png" alt="PCWL" class="welcome-logo" />
       <form id="login-form" class="login-form" autocomplete="off">
         <label for="username-input">Username</label>
         <div class="login-row">
-          <input type="text" id="username-input" name="username" placeholder="e.g. PragueWalker" maxlength="32" required />
+          <input type="text" id="username-input" name="username" placeholder="e.g. PCWL" maxlength="32" required />
         </div>
         <label for="password-input">Password</label>
         <div class="login-row">
@@ -97,8 +97,6 @@
             <input type="checkbox" id="dev-skip-cooldown" />
             <span>Skip cooldown</span>
           </label>
-          <button type="button" id="dev-change-user" class="secondary small">Change User</button>
-          <button type="button" id="dev-clear-users" class="secondary small danger">Clear Users</button>
         </div>
         <div class="player-stats">
             <div class="stat">
@@ -427,6 +425,7 @@
         </div>
         <p id="friends-empty" class="sheet-empty">Add friends to squad up and keep track of their progress.</p>
         <div id="friends-list" class="friends-list" hidden></div>
+        <button type="button" id="friends-toggle-all" class="secondary small sheet-action friends-toggle" hidden>Show all friends</button>
         <section id="friends-leaderboard" class="friends-leaderboard hidden" aria-live="polite" aria-label="Friend highlights">
           <h3 class="friend-leaderboard-heading">Squad Highlights</h3>
           <ul id="friends-leaderboard-list" class="friends-leaderboard-list"></ul>

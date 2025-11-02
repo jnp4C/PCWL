@@ -5,6 +5,22 @@ from django.utils import timezone
 from django.utils.crypto import get_random_string
 
 
+class District(models.Model):
+    """Authoritative list of districts players can align with."""
+
+    code = models.CharField(max_length=64, unique=True)
+    name = models.CharField(max_length=120)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name", "code"]
+
+    def __str__(self):
+        return f"{self.name} ({self.code})" if self.name else self.code
+
+
 class Player(models.Model):
     """Basic player profile used for future multiplayer logic."""
 

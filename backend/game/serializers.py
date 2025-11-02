@@ -4,11 +4,17 @@ from typing import Any, Dict, List, Optional, Set
 
 from rest_framework import serializers
 
-from .models import CheckIn, FriendLink, FriendRequest, Player
+from .models import CheckIn, District, FriendLink, FriendRequest, Player
 
 
 DEFAULT_MAP_MARKER_COLOR = "#6366f1"
 HEX_COLOR_PATTERN = re.compile(r"^#(?:[0-9a-fA-F]{6})$")
+
+
+class DistrictSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = District
+        fields = ["code", "name", "is_active"]
 
 
 class PlayerSerializer(serializers.ModelSerializer):
@@ -53,6 +59,7 @@ class PlayerSerializer(serializers.ModelSerializer):
             "password": {"write_only": True},
             "home_district_code": {"required": False, "allow_blank": True},
             "home_district_name": {"required": False, "allow_blank": True},
+            "home_district": {"read_only": True},
             "attack_points": {"read_only": True},
             "defend_points": {"read_only": True},
             "checkin_history": {"read_only": True},
@@ -69,6 +76,7 @@ class PlayerSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         password = validated_data.pop("password", None)
+        validated_data = self._apply_district_defaults(validated_data)
         player = super().create(validated_data)
         player.ensure_auth_user(password=password)
         if player.home_district_name:
@@ -78,6 +86,7 @@ class PlayerSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         password = validated_data.pop("password", None)
+        validated_data = self._apply_district_defaults(validated_data)
         player = super().update(instance, validated_data)
         if password:
             player.ensure_auth_user(password=password)
@@ -85,6 +94,48 @@ class PlayerSerializer(serializers.ModelSerializer):
             player.home_district = player.home_district_name or ""
             player.save(update_fields=["home_district"])
         return player
+
+    def validate_home_district_code(self, value: Any) -> str:
+        if value in (None, ""):
+            return ""
+        code = str(value).strip()
+        return code
+
+    def _apply_district_defaults(self, validated_data: Dict[str, Any]) -> Dict[str, Any]:
+        data = dict(validated_data)
+        code = data.get("home_district_code")
+        name = data.get("home_district_name")
+        if isinstance(code, str):
+            code = code.strip()
+            data["home_district_code"] = code
+        if isinstance(name, str):
+            name = name.strip()
+            data["home_district_name"] = name
+        if code:
+            district = District.objects.filter(code=code).first()
+            if district is None:
+                district = District.objects.create(
+                    code=code,
+                    name=name or f"District {code}",
+                    is_active=True,
+                )
+            else:
+                updates = {}
+                if name and district.name != name:
+                    updates["name"] = name
+                if not district.is_active:
+                    updates["is_active"] = True
+                if updates:
+                    for field, value in updates.items():
+                        setattr(district, field, value)
+                    district.save(update_fields=[*updates.keys(), "updated_at"])
+            if not name:
+                data["home_district_name"] = district.name
+        if data.get("home_district_name"):
+            data.setdefault("home_district", data["home_district_name"])
+        elif "home_district_name" in data:
+            data["home_district"] = ""
+        return data
 
     def validate_checkin_history(self, value: Any) -> List[Dict[str, Any]]:
         if value in (None, ""):
