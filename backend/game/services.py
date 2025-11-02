@@ -753,14 +753,43 @@ def apply_checkin(
         player_points_decimal = base_points_decimal * total_player_multiplier
         district_points_decimal = base_points_decimal * total_district_multiplier
 
-        points_awarded = int(player_points_decimal.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
         district_points_delta = int(district_points_decimal.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
         if action == CheckIn.Action.ATTACK:
             district_points_delta = -abs(district_points_delta)
         else:
             district_points_delta = abs(district_points_delta)
-        if points_awarded <= 0:
+
+        total_district_delta = district_points_delta
+        total_damage_abs = abs(total_district_delta)
+        participant_count = 1
+        share_points: List[int] = [total_damage_abs]
+        if party and initiator_in_active and party_size > 1:
+            participant_count = party_size
+            base_share, remainder = divmod(total_damage_abs, participant_count)
+            share_points = [base_share] * participant_count
+            for index in range(remainder):
+                share_points[index] += 1
+        else:
+            share_points = [total_damage_abs]
+        signed_share_points = (
+            [-value for value in share_points] if total_district_delta < 0 else list(share_points)
+        )
+
+        points_awarded = share_points[0] if share_points else total_damage_abs
+        district_points_delta = signed_share_points[0] if signed_share_points else total_district_delta
+        if points_awarded <= 0 and total_damage_abs > 0:
             points_awarded = 1
+
+        if base_points_decimal > 0:
+            total_player_multiplier = (
+                Decimal(points_awarded) / base_points_decimal
+            ).quantize(Decimal("0.01"))
+            total_district_multiplier = (
+                Decimal(abs(district_points_delta)) / base_points_decimal
+            ).quantize(Decimal("0.01"))
+        else:
+            total_player_multiplier = Decimal("0")
+            total_district_multiplier = Decimal("0")
 
         payload_meta = metadata.copy() if isinstance(metadata, dict) else {}
         payload_meta["precision"] = precision
@@ -773,7 +802,7 @@ def apply_checkin(
                 pass
 
         if party:
-            payload_meta.setdefault("party", {})["size"] = party_size
+            payload_meta.setdefault("party", {})["size"] = participant_count
             payload_meta.setdefault("party", {})["code"] = party_code_value
             payload_meta["party"]["contribution"] = is_party_contribution
 
@@ -795,7 +824,7 @@ def apply_checkin(
             base_points=base_points_value,
             points_awarded=points_awarded,
             district_points_delta=district_points_delta,
-            party_size_snapshot=party_size if party else 1,
+            party_size_snapshot=participant_count,
             party_multiplier_snapshot=party_multiplier_snapshot,
             home_district_code_snapshot=home_snapshot_code,
             home_district_name_snapshot=home_snapshot_name,
@@ -891,7 +920,7 @@ def apply_checkin(
                 home_name=home_snapshot_name,
                 target_code=code,
                 target_name=name,
-                points_awarded=abs(district_points_delta),
+                points_awarded=total_damage_abs,
                 party_code=party_value or None,
                 occurred_at=now,
             )
@@ -935,30 +964,31 @@ def apply_checkin(
 
             if same_district_members:
                 # Precompute shared values for all others
-                others_base_points = POINTS_PER_CHECKIN
-                # Use party multipliers based on initiator context
+                others_base_points = base_points_value
                 party_mult_player_dec = party_multiplier_player
-                party_mult_district_dec = party_multiplier_district
                 others_is_contribution = bool(is_party_contribution)
                 party_code_for_others = party_value
                 home_code_snapshot = home_snapshot_code
                 home_name_snapshot = home_snapshot_name
+                participant_shares = share_points[1:]
+                participant_signed_shares = signed_share_points[1:]
 
-                for member in same_district_members:
+                for member_index, member in enumerate(same_district_members):
                     # Lock each member row for update to avoid races
                     m_locked = Player.objects.select_for_update().get(pk=member.pk)
                     m_now_ms = now_ms
-                    # Compute points for member: no charge and no local precision bonus
-                    m_total_player_multiplier = (Decimal(1) * Decimal(1) * party_mult_player_dec).quantize(Decimal("0.01"))
-                    m_total_district_multiplier = (Decimal(1) * Decimal(1) * party_mult_district_dec).quantize(Decimal("0.01"))
-                    m_player_points = int((Decimal(others_base_points) * m_total_player_multiplier).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
-                    m_district_points = int((Decimal(others_base_points) * m_total_district_multiplier).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
-                    if initiator_action == CheckIn.Action.ATTACK:
-                        m_district_points = -abs(m_district_points)
+                    share_value = participant_shares[member_index] if member_index < len(participant_shares) else 0
+                    share_signed = participant_signed_shares[member_index] if member_index < len(participant_signed_shares) else 0
+                    if share_value <= 0:
+                        share_value = 0
+                    if others_base_points > 0:
+                        m_total_player_multiplier = (
+                            Decimal(share_value) / Decimal(others_base_points)
+                        ).quantize(Decimal("0.01")) if share_value else Decimal("0")
                     else:
-                        m_district_points = abs(m_district_points)
-                    if m_player_points <= 0:
-                        m_player_points = 1
+                        m_total_player_multiplier = Decimal("0")
+                    m_player_points = share_value
+                    m_district_points = share_signed
 
                     # Create CheckIn for the member
                     m_checkin = CheckIn.objects.create(
@@ -972,7 +1002,7 @@ def apply_checkin(
                         base_points=others_base_points,
                         points_awarded=m_player_points,
                         district_points_delta=m_district_points,
-                        party_size_snapshot=party_size,
+                        party_size_snapshot=participant_count,
                         party_multiplier_snapshot=party_mult_player_dec.quantize(Decimal("0.01")),
                         home_district_code_snapshot=home_code_snapshot,
                         home_district_name_snapshot=home_name_snapshot,
@@ -1007,6 +1037,18 @@ def apply_checkin(
                         now_ms=m_now_ms,
                     )
                     _update_ratios(m_locked)
+
+                    if initiator_action == CheckIn.Action.DEFEND and m_player_points > 0:
+                        _update_player_district_contribution(
+                            m_locked,
+                            district_code=code,
+                            district_name=name,
+                            action=initiator_action,
+                            points_delta=m_district_points,
+                            home_snapshot_code=home_code_snapshot,
+                            home_snapshot_name=home_name_snapshot,
+                            occurred_at=now,
+                        )
 
                     # Persist member updates
                     m_locked.save(

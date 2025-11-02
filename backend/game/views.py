@@ -997,6 +997,25 @@ class FriendBubbleView(PlayerScopedAPIView):
 
     MAX_RESULTS = 30
 
+    def _format_direct_friend_suggestions(self, links: List[FriendLink]) -> List[Dict[str, Any]]:
+        suggestions: List[Dict[str, Any]] = []
+        for link in links[: self.MAX_RESULTS]:
+            friend = link.friend
+            if friend is None:
+                continue
+            suggestions.append(
+                {
+                    "username": friend.username,
+                    "display_name": friend.display_name or "",
+                    "home_district_name": friend.home_district_name or friend.home_district or "",
+                    "home_district_code": friend.home_district_code or "",
+                    "mutual_friend_count": 0,
+                    "mutual_friends": [],
+                    "party_affinity": None,
+                }
+            )
+        return suggestions
+
     def get(self, request):
         player = self.get_current_player(request)
 
@@ -1011,7 +1030,9 @@ class FriendBubbleView(PlayerScopedAPIView):
         }
         direct_friend_ids = set(direct_friend_map.keys())
         if not direct_friend_ids:
-            return Response({"bubble": []}, status=status.HTTP_200_OK)
+            fallback = self._format_direct_friend_suggestions(direct_links)
+            serializer = BubbleSuggestionSerializer(fallback, many=True)
+            return Response({"bubble": serializer.data, "source": "friends"}, status=status.HTTP_200_OK)
 
         candidate_links = (
             FriendLink.objects.select_related("player", "friend")
@@ -1039,7 +1060,9 @@ class FriendBubbleView(PlayerScopedAPIView):
                 entry["latest_link_at"] = link.updated_at
 
         if not candidate_map:
-            return Response({"bubble": []}, status=status.HTTP_200_OK)
+            fallback = self._format_direct_friend_suggestions(direct_links)
+            serializer = BubbleSuggestionSerializer(fallback, many=True)
+            return Response({"bubble": serializer.data, "source": "friends"}, status=status.HTTP_200_OK)
 
         candidate_ids = list(candidate_map.keys())
         bonds = {
@@ -1109,7 +1132,9 @@ class FriendBubbleView(PlayerScopedAPIView):
             )
 
         if not suggestions:
-            return Response({"bubble": []}, status=status.HTTP_200_OK)
+            fallback = self._format_direct_friend_suggestions(direct_links)
+            serializer = BubbleSuggestionSerializer(fallback, many=True)
+            return Response({"bubble": serializer.data, "source": "friends"}, status=status.HTTP_200_OK)
 
         def sort_key(item: Dict[str, Any]):
             meta = item["_sort"]

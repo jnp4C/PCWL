@@ -24,7 +24,11 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-  if (request.method !== 'GET' || request.cache === 'only-if-cached' && request.mode !== 'same-origin') {
+  if (
+    request.method !== 'GET' ||
+    (request.cache === 'only-if-cached' && request.mode !== 'same-origin') ||
+    !(request.url.startsWith('http://') || request.url.startsWith('https://'))
+  ) {
     return;
   }
   event.respondWith(
