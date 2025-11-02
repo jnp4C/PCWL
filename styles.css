@@ -1428,6 +1428,7 @@ body.dark .friend-profile-marker {
 .bubble-actions {
   display: flex;
   justify-content: flex-end;
+  margin-top: auto;
 }
 
 .bubble-actions .bubble-add-button {

@@ -3159,6 +3159,7 @@ let mobileContextMenuSuppressClickResetId = null;
 let mobileContextMenuHandlersBound = false;
 let recentCheckinsShowAll = false;
 let recentCheckinsLastTrigger = null;
+const FRIENDS_PREVIEW_LIMIT = 4;
 let friendsShowAll = false;
 let friendsLastTrigger = null;
 let friendProfileLastTrigger = null;
@@ -8070,22 +8071,32 @@ function updateFriendsDrawerContent() {
 
   const favoriteFriends = friends.filter((friend) => friend && Boolean(friend.is_favorite));
   const otherFriends = friends.filter((friend) => friend && !Boolean(friend.is_favorite));
-  if (!favoriteFriends.length && otherFriends.length && !friendsShowAll) {
-    friendsShowAll = true;
-  }
-  if (!otherFriends.length && friendsShowAll) {
+  const hasFavorites = favoriteFriends.length > 0;
+  const totalFriends = friends.length;
+  const needsToggle = hasFavorites ? otherFriends.length > 0 : totalFriends > FRIENDS_PREVIEW_LIMIT;
+
+  if (friendsShowAll && !needsToggle) {
     friendsShowAll = false;
   }
 
-  const visibleFriends = friendsShowAll ? friends : favoriteFriends;
+  let visibleFriends;
+  if (friendsShowAll) {
+    visibleFriends = friends;
+  } else if (hasFavorites) {
+    visibleFriends = favoriteFriends;
+  } else if (totalFriends > FRIENDS_PREVIEW_LIMIT) {
+    visibleFriends = friends.slice(0, FRIENDS_PREVIEW_LIMIT);
+  } else {
+    visibleFriends = friends;
+  }
 
   if (friendsToggleAllButton) {
-    if (otherFriends.length) {
+    if (needsToggle) {
       friendsToggleAllButton.hidden = false;
       friendsToggleAllButton.removeAttribute('hidden');
-      friendsToggleAllButton.textContent = friendsShowAll
-        ? 'Show favorites only'
-        : `Show all friends (${friends.length})`;
+      const expandedLabel = hasFavorites ? 'Show favorites only' : 'Show fewer friends';
+      const collapsedLabel = `Show all friends (${friends.length})`;
+      friendsToggleAllButton.textContent = friendsShowAll ? expandedLabel : collapsedLabel;
       friendsToggleAllButton.setAttribute('aria-pressed', friendsShowAll ? 'true' : 'false');
       friendsToggleAllButton.setAttribute('aria-expanded', friendsShowAll ? 'true' : 'false');
     } else {
@@ -8096,17 +8107,14 @@ function updateFriendsDrawerContent() {
     }
   }
 
+  const isPreviewing = !friendsShowAll && !hasFavorites && needsToggle;
+
   friendsListContainer.innerHTML = '';
   if (!visibleFriends.length) {
     friendsListContainer.hidden = true;
     friendsEmptyState.hidden = false;
-    if (!favoriteFriends.length && otherFriends.length && !friendsShowAll) {
-      friendsEmptyState.textContent = 'Star friends to pin them here. Choose "Show all friends" to browse everyone.';
-    } else {
-      friendsEmptyState.textContent = 'No friends linked yet. Use Manage Friends to add teammates.';
-    }
+    friendsEmptyState.textContent = 'No friends linked yet. Use Manage Friends to add teammates.';
   } else {
-    friendsEmptyState.hidden = true;
     friendsListContainer.hidden = false;
     visibleFriends.forEach((friend) => {
       const card = renderFriendCard(friend);
@@ -8114,6 +8122,13 @@ function updateFriendsDrawerContent() {
         friendsListContainer.appendChild(card);
       }
     });
+    if (isPreviewing) {
+      friendsEmptyState.hidden = false;
+      friendsEmptyState.textContent =
+        'Star friends to pin them here. Choose "Show all friends" to browse everyone.';
+    } else {
+      friendsEmptyState.hidden = true;
+    }
   }
   updateFriendsLeaderboardSection(friends);
   updatePartyUi(friends);
@@ -8447,8 +8462,10 @@ async function performFriendSearch(query) {
 
 async function addFriendByUsername(username) {
   if (!username || !isSessionAuthenticated || !currentUser) {
-    return;
+    return { success: false, status: 'unauthenticated' };
   }
+
+  let result = { success: false, status: 'noop' };
   try {
     const payload = await apiRequest('friends/', {
       method: 'POST',
@@ -8469,6 +8486,11 @@ async function addFriendByUsername(username) {
       }
       updateStatus(`You're now friends with @${addedUsername}.`);
       await refreshFriendRequests(true);
+      result = {
+        success: true,
+        status: 'friend',
+        friend: friendData,
+      };
     }
 
     if (requestData && typeof requestData === 'object' && requestData.status === 'pending') {
@@ -8481,6 +8503,13 @@ async function addFriendByUsername(username) {
       }
       await refreshFriendRequests(true);
       updateStatus(`Friend request sent to @${requestedUsername}.`);
+      result = result.success
+        ? { ...result, request: requestData }
+        : {
+            success: true,
+            status: 'requested',
+            request: requestData,
+          };
     }
   } catch (error) {
     if (error && error.data && typeof error.data.detail === 'string' && friendSearchFeedback) {
@@ -8497,11 +8526,14 @@ async function addFriendByUsername(username) {
       friendSearchFeedback.textContent = 'Unable to send friend request right now.';
     }
     console.warn('Failed to send friend request', error);
-    return;
+    return { success: false, status: 'error', error };
   }
+
   if (friendSearchInput && friendSearchInput.value.trim()) {
     performFriendSearch(friendSearchInput.value.trim());
   }
+
+  return result;
 }
 
 async function updateFriendFavorite(username, isFavorite) {
@@ -8569,7 +8601,7 @@ async function handleFriendSearchSubmit(event) {
   await performFriendSearch(friendSearchInput.value);
 }
 
-function handleFriendSearchAction(event) {
+async function handleFriendSearchAction(event) {
   const actionButton = event.target.closest('button[data-friend-action]');
   if (!actionButton) {
     return;
@@ -8582,17 +8614,65 @@ function handleFriendSearchAction(event) {
   if (action !== 'add') {
     return;
   }
+  const originalLabel = actionButton.textContent;
   actionButton.disabled = true;
-  addFriendByUsername(username)
-    .catch((error) => {
-      console.warn('Failed to process friend search action', error);
-      if (friendSearchFeedback) {
-        friendSearchFeedback.textContent = 'Unable to send friend request. Try again.';
-      }
-    })
-    .finally(() => {
-      actionButton.disabled = false;
-    });
+  actionButton.textContent = 'Sending…';
+  let result;
+  try {
+    result = await addFriendByUsername(username);
+  } catch (error) {
+    console.warn('Failed to process friend search action', error);
+    result = { success: false, status: 'error', error };
+  }
+  if (result && result.success) {
+    actionButton.textContent = result.status === 'friend' ? 'Added' : 'Request sent';
+    return;
+  }
+  actionButton.disabled = false;
+  actionButton.textContent = originalLabel;
+  if (friendSearchFeedback && (!result || result.status !== 'error')) {
+    friendSearchFeedback.textContent = 'Unable to send friend request. Try again.';
+  }
+}
+
+async function handleFriendsBubbleAction(event) {
+  const addButton = event.target.closest('.bubble-add-button');
+  if (!addButton) {
+    return;
+  }
+  const username = addButton.dataset.username;
+  if (!username) {
+    return;
+  }
+  if (!isSessionAuthenticated || !currentUser) {
+    updateStatus('Sign in to send friend requests.');
+    return;
+  }
+  if (addButton.disabled) {
+    return;
+  }
+  const originalLabel = addButton.textContent;
+  addButton.disabled = true;
+  addButton.textContent = 'Sending…';
+  let result;
+  try {
+    result = await addFriendByUsername(username);
+  } catch (error) {
+    console.warn('Failed to add friend from bubble', error);
+    result = { success: false, status: 'error', error };
+  }
+  if (result && result.success) {
+    addButton.textContent = result.status === 'friend' ? 'Added' : 'Request sent';
+    addButton.classList.remove('primary');
+    addButton.classList.add('secondary');
+    refreshFriendBubble(true).catch(() => null);
+    return;
+  }
+  addButton.disabled = false;
+  addButton.textContent = originalLabel;
+  if (!result || result.status !== 'error') {
+    updateStatus('Unable to send friend request. Try again.');
+  }
 }
 
 function handleFriendManageAction(event) {
@@ -11032,6 +11112,12 @@ if (friendsToggleAllButton) {
   });
 }
 
+if (friendsBubbleList) {
+  friendsBubbleList.addEventListener('click', (event) => {
+    handleFriendsBubbleAction(event);
+  });
+}
+
 if (friendsListContainer) {
   friendsListContainer.addEventListener('click', (event) => {
     const profileTrigger = event.target.closest('[data-friend-profile]');
@@ -11077,20 +11163,29 @@ if (friendRequestsPanel) {
 }
 
 if (friendSearchAddDirectButton) {
-  friendSearchAddDirectButton.addEventListener('click', () => {
+  friendSearchAddDirectButton.addEventListener('click', async () => {
     const username = friendSearchAddDirectButton.dataset.username;
     if (!username) {
       return;
     }
     friendSearchAddDirectButton.disabled = true;
-    addFriendByUsername(username)
-      .catch((error) => {
-        console.warn('Failed to add friend via quick action', error);
-        updateStatus('Unable to send friend request. Try again.');
-      })
-      .finally(() => {
-        friendSearchAddDirectButton.disabled = false;
-      });
+    const originalLabel = friendSearchAddDirectButton.textContent;
+    friendSearchAddDirectButton.textContent = 'Sending…';
+    let result;
+    try {
+      result = await addFriendByUsername(username);
+    } catch (error) {
+      console.warn('Failed to add friend via quick action', error);
+      result = { success: false, status: 'error', error };
+    }
+    if (result && result.success) {
+      friendSearchAddDirectButton.textContent =
+        result.status === 'friend' ? 'Added' : 'Request sent';
+      return;
+    }
+    friendSearchAddDirectButton.disabled = false;
+    friendSearchAddDirectButton.textContent = originalLabel;
+    updateStatus('Unable to send friend request. Try again.');
   });
 }
 

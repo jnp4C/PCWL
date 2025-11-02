@@ -55,6 +55,9 @@
           Don't have an account?
           <a class="account-link" href="{% url 'create-account' %}">Create one here</a>
         </p>
+        <div class="login-row login-help">
+          <button type="button" id="howto-open" class="secondary">How to</button>
+        </div>
       </form>
       <div id="known-players" class="known-players hidden">
         <h2>Jump back in</h2>
@@ -318,6 +321,51 @@
     </div>
   </section>
 
+  <div id="howto-overlay" class="sheet-overlay hidden" tabindex="-1" aria-hidden="true"></div>
+  <section id="howto-drawer" class="sheet-drawer" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="howto-title">
+    <div id="howto-content" class="sheet-content" tabindex="-1">
+      <header class="sheet-header">
+        <h2 id="howto-title">How to</h2>
+        <button type="button" id="howto-close" class="icon-button sheet-close" aria-label="Close help">
+          &times;
+        </button>
+      </header>
+      <div class="sheet-body">
+        <section class="drawer-block how-it-works">
+          <details open>
+            <summary class="how-summary">Quick guide to playing</summary>
+            <div class="how-content">
+              <h3>1) Set and represent your Home District</h3>
+              <ul>
+                <li>Set your home via the “Set Home” button (desktop) or in Character &amp; Settings → Home District.</li>
+                <li>Defending happens when you check in at your home district. If you are away, you can still defend home using Remote Defend.</li>
+                <li>Your home gains points when you defend and loses ground when others attack it. Keep it secure!</li>
+              </ul>
+              <h3>2) Friends and Parties</h3>
+              <ul>
+                <li>Open Friends to add players by username. You can favorite friends to keep them at the top.</li>
+                <li>Create a Party to play together. When at least two party members are in the same district, check-ins there can synchronize to everyone present.</li>
+                <li>Synced actions put nearby party members on cooldown labeled “Party attack”. Play together to multiply gains.</li>
+              </ul>
+              <h3>3) Attack or Defend</h3>
+              <ul>
+                <li>Use the Check In button for a quick action based on where you are: attack other districts you’re in, or defend your home when you’re there.</li>
+                <li>On desktop, Right‑click the map to target a district; on mobile, Long‑press the map. This opens the context to launch a ranged attack (at other districts) or a precise local action.</li>
+                <li>Remote Defend: If you’re away from home, choose your home district to defend it remotely.</li>
+              </ul>
+              <h3>4) Charge and Cooldowns</h3>
+              <ul>
+                <li>Tap “Charge Attack” to power up your next check‑in for extra points. It has its own cooldown.</li>
+                <li>Attacks, defends (local/remote), and charge have separate cooldowns. The strip at the top shows what’s cooling down and for how long.</li>
+              </ul>
+              <p class="how-tip">Tip: Enable geolocation for precise local actions, or use the map click/press to pick a district.</p>
+            </div>
+          </details>
+        </section>
+      </div>
+    </div>
+  </section>
+
   <div id="friends-overlay" class="sheet-overlay friends-overlay hidden" tabindex="-1" aria-hidden="true"></div>
   <section id="friends-drawer" class="sheet-drawer friends-drawer" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="friends-drawer-title">
     <div id="friends-content" class="sheet-content" tabindex="-1">
@@ -331,8 +379,12 @@
         <div class="friends-toolbar">
           <button type="button" id="friends-manage-button" class="secondary small sheet-action">Manage Friends</button>
         </div>
-        <p id="friends-empty" class="sheet-empty">Add friends to squad up and keep track of their progress.</p>
-        <div id="friends-list" class="friends-list" hidden></div>
+        <section id="friends-core-section" class="friends-section">
+          <h3 class="friends-section-title">Your friends</h3>
+          <p id="friends-empty" class="sheet-empty">Add friends to squad up and keep track of their progress.</p>
+          <div id="friends-list" class="friends-list" hidden></div>
+          <button type="button" id="friends-toggle-all" class="secondary small sheet-action friends-toggle" hidden>Show all friends</button>
+        </section>
         <section id="friends-leaderboard" class="friends-leaderboard hidden" aria-live="polite" aria-label="Friend highlights">
           <h3 class="friend-leaderboard-heading">Squad Highlights</h3>
           <ul id="friends-leaderboard-list" class="friends-leaderboard-list"></ul>
