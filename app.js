@@ -5072,6 +5072,103 @@ function ensureDistrictScoreEntry(districtId, districtName = null) {
   return entry;
 }
 
+function resetDistrictScores() {
+  districtScores = {};
+}
+
+function accumulateDistrictScore(districtId, districtName, delta) {
+  const entry = ensureDistrictScoreEntry(districtId, districtName);
+  if (!entry) {
+    return;
+  }
+  const rounded = Math.trunc(delta);
+  if (Number.isNaN(rounded) || rounded === 0) {
+    return;
+  }
+  entry.adjustment = normaliseNumber(entry.adjustment, 0) + rounded;
+  if (rounded > 0) {
+    entry.defended = normaliseNumber(entry.defended, 0) + rounded;
+  } else if (rounded < 0) {
+    entry.attacked = normaliseNumber(entry.attacked, 0) + Math.abs(rounded);
+  }
+}
+
+function resolveDistrictDeltaFromEntry(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return null;
+  }
+  const rawDelta = Number(
+    entry.districtPoints ??
+      entry.district_points ??
+      entry.districtPointsDelta ??
+      entry.district_points_delta,
+  );
+  if (Number.isFinite(rawDelta)) {
+    return rawDelta;
+  }
+  let magnitude = Number(entry.points);
+  if (!Number.isFinite(magnitude) || magnitude === 0) {
+    const base = entry && entry.ranged ? 10 : POINTS_PER_CHECKIN;
+    const multiplierValue = Number(entry.multiplier);
+    const resolvedMultiplier =
+      Number.isFinite(multiplierValue) && multiplierValue > 0 ? multiplierValue : 1;
+    magnitude = base * resolvedMultiplier;
+  }
+  if (!Number.isFinite(magnitude) || magnitude === 0) {
+    return null;
+  }
+  const type = typeof entry.type === 'string' ? entry.type.trim().toLowerCase() : '';
+  if (type === 'attack') {
+    return -Math.abs(magnitude);
+  }
+  if (type === 'defend') {
+    return Math.abs(magnitude);
+  }
+  return null;
+}
+
+function accumulateDistrictScoreFromEntry(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return;
+  }
+  const rawId =
+    entry.districtId ??
+    entry.district_id ??
+    entry.districtCode ??
+    entry.district_code ??
+    null;
+  const districtId = rawId ? safeId(rawId) : null;
+  if (!districtId) {
+    return;
+  }
+  const districtName =
+    (typeof entry.districtName === 'string' && entry.districtName.trim()
+      ? entry.districtName.trim()
+      : null) ||
+    (typeof entry.district_name === 'string' && entry.district_name.trim()
+      ? entry.district_name.trim()
+      : null);
+  const delta = resolveDistrictDeltaFromEntry(entry);
+  if (!Number.isFinite(delta) || delta === 0) {
+    return;
+  }
+  accumulateDistrictScore(districtId, districtName, delta);
+}
+
+function rebuildDistrictScores() {
+  resetDistrictScores();
+  if (!currentUser || !players[currentUser]) {
+    return;
+  }
+  const profile = ensurePlayerProfile(currentUser);
+  if (!profile || !Array.isArray(profile.checkins)) {
+    return;
+  }
+  profile.checkins.forEach((entry) => {
+    accumulateDistrictScoreFromEntry(entry);
+  });
+}
+
 function getDistrictStrength(districtId) {
   const id = districtId ? safeId(districtId) : null;
   if (!id) {
@@ -5383,6 +5480,12 @@ function renderPlayerState() {
   bindHowtoHandlersOnce();
   renderPartyBoostBox();
   const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+
+  if (profile) {
+    rebuildDistrictScores();
+  } else {
+    resetDistrictScores();
+  }
 
   if (profileImageUrlInput && profileImagePreview && profileImageSaveButton && profileImageClearButton) {
     initialiseProfileImageControls(profile);
