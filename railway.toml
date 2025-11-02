@@ -1,0 +1,5 @@
+[project]
+name = "pcwl"
+
+[deploy]
+predeploy = "python backend/manage.py migrate --noinput && python backend/manage.py collectstatic --noinput"
