@@ -587,18 +587,24 @@ function registerServiceWorker() {
     return;
   }
   const onLoad = () => {
-    navigator.serviceWorker
-      .register('/service-worker.js', { scope: '/' })
-      .then((registration) => {
-        if (registration && typeof registration.update === 'function') {
-          registration.update().catch((error) => {
-            console.warn('Service worker update failed', error);
-          });
-        }
-      })
-      .catch((error) => {
-        console.warn('Service worker registration failed', error);
-      });
+    try {
+      const swUrl = new URL('service-worker.js', window.location.href);
+      const scopeUrl = new URL('./', swUrl.href);
+      navigator.serviceWorker
+        .register(swUrl.href, { scope: scopeUrl.pathname })
+        .then((registration) => {
+          if (registration && typeof registration.update === 'function') {
+            registration.update().catch((error) => {
+              console.warn('Service worker update failed', error);
+            });
+          }
+        })
+        .catch((error) => {
+          console.warn('Service worker registration failed', error);
+        });
+    } catch (error) {
+      console.warn('Service worker registration skipped', error);
+    }
   };
   if (document.readyState === 'complete') {
     onLoad();
@@ -7909,6 +7915,7 @@ function updateFriendsDrawerContent() {
     friendsShowAll = false;
     if (friendsToggleAllButton) {
       friendsToggleAllButton.hidden = true;
+      friendsToggleAllButton.setAttribute('hidden', 'hidden');
       friendsToggleAllButton.setAttribute('aria-pressed', 'false');
       friendsToggleAllButton.setAttribute('aria-expanded', 'false');
     }
@@ -7925,6 +7932,7 @@ function updateFriendsDrawerContent() {
   if (friendsState.loading) {
     if (friendsToggleAllButton) {
       friendsToggleAllButton.hidden = true;
+      friendsToggleAllButton.setAttribute('hidden', 'hidden');
       friendsToggleAllButton.setAttribute('aria-pressed', 'false');
       friendsToggleAllButton.setAttribute('aria-expanded', 'false');
     }
@@ -7940,6 +7948,7 @@ function updateFriendsDrawerContent() {
   if (friendsState.error) {
     if (friendsToggleAllButton) {
       friendsToggleAllButton.hidden = true;
+      friendsToggleAllButton.setAttribute('hidden', 'hidden');
       friendsToggleAllButton.setAttribute('aria-pressed', 'false');
       friendsToggleAllButton.setAttribute('aria-expanded', 'false');
     }
@@ -7957,6 +7966,7 @@ function updateFriendsDrawerContent() {
     friendsShowAll = false;
     if (friendsToggleAllButton) {
       friendsToggleAllButton.hidden = true;
+      friendsToggleAllButton.setAttribute('hidden', 'hidden');
       friendsToggleAllButton.setAttribute('aria-pressed', 'false');
       friendsToggleAllButton.setAttribute('aria-expanded', 'false');
     }
@@ -7969,8 +7979,11 @@ function updateFriendsDrawerContent() {
     return;
   }
 
-  const favoriteFriends = friends.filter((friend) => friend && friend.is_favorite);
-  const otherFriends = friends.filter((friend) => friend && !friend.is_favorite);
+  const favoriteFriends = friends.filter((friend) => friend && Boolean(friend.is_favorite));
+  const otherFriends = friends.filter((friend) => friend && !Boolean(friend.is_favorite));
+  if (!favoriteFriends.length && otherFriends.length && !friendsShowAll) {
+    friendsShowAll = true;
+  }
   if (!otherFriends.length && friendsShowAll) {
     friendsShowAll = false;
   }
@@ -7980,6 +7993,7 @@ function updateFriendsDrawerContent() {
   if (friendsToggleAllButton) {
     if (otherFriends.length) {
       friendsToggleAllButton.hidden = false;
+      friendsToggleAllButton.removeAttribute('hidden');
       friendsToggleAllButton.textContent = friendsShowAll
         ? 'Show favorites only'
         : `Show all friends (${friends.length})`;
@@ -7987,6 +8001,7 @@ function updateFriendsDrawerContent() {
       friendsToggleAllButton.setAttribute('aria-expanded', friendsShowAll ? 'true' : 'false');
     } else {
       friendsToggleAllButton.hidden = true;
+      friendsToggleAllButton.setAttribute('hidden', 'hidden');
       friendsToggleAllButton.setAttribute('aria-pressed', 'false');
       friendsToggleAllButton.setAttribute('aria-expanded', 'false');
     }
