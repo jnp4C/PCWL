@@ -579,6 +579,36 @@ function isFileOrigin() {
   }
 }
 
+function registerServiceWorker() {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+    return;
+  }
+  if (!('serviceWorker' in navigator) || isFileOrigin()) {
+    return;
+  }
+  const onLoad = () => {
+    navigator.serviceWorker
+      .register('/service-worker.js', { scope: '/' })
+      .then((registration) => {
+        if (registration && typeof registration.update === 'function') {
+          registration.update().catch((error) => {
+            console.warn('Service worker update failed', error);
+          });
+        }
+      })
+      .catch((error) => {
+        console.warn('Service worker registration failed', error);
+      });
+  };
+  if (document.readyState === 'complete') {
+    onLoad();
+  } else {
+    window.addEventListener('load', onLoad, { once: true });
+  }
+}
+
+registerServiceWorker();
+
 function setGeolocationUiState(isAvailable) {
   if (findMeButton) {
     findMeButton.disabled = !isAvailable;
