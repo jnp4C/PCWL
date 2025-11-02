@@ -8056,6 +8056,19 @@ function updateFriendsDrawerContent() {
   const isLoggedIn = Boolean(isSessionAuthenticated && currentUser);
   const existingFriends = Array.isArray(friendsState.items) ? friendsState.items : [];
   const hasExistingFriends = existingFriends.length > 0;
+  if (
+    hasExistingFriends &&
+    !friendsBubbleState.loading &&
+    !friendsBubbleState.loaded &&
+    (!Array.isArray(friendsBubbleState.items) || !friendsBubbleState.items.length)
+  ) {
+    const fallback = buildFriendsBubbleFallback();
+    if (fallback.length) {
+      friendsBubbleState.items = fallback;
+      friendsBubbleState.source = 'friends';
+      friendsBubbleState.expanded = false;
+    }
+  }
 
   if (friendsManageButton) {
     friendsManageButton.disabled = !isLoggedIn;
