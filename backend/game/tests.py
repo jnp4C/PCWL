@@ -417,8 +417,8 @@ class PartyApiTests(TestCase):
         )
         checkin = result.checkin
         self.assertEqual(checkin.party_size_snapshot, 2)
-        self.assertEqual(checkin.district_points_delta, -80)
-        self.assertEqual(checkin.points_awarded, 80)
+        self.assertEqual(checkin.district_points_delta, -40)
+        self.assertEqual(checkin.points_awarded, 40)
         self.assertFalse(checkin.is_party_contribution)
 
     def test_party_contribution_scoring(self):
@@ -441,13 +441,13 @@ class PartyApiTests(TestCase):
         checkin = result.checkin
         self.assertTrue(checkin.is_party_contribution)
         self.assertEqual(checkin.party_size_snapshot, 2)
-        self.assertEqual(checkin.district_points_delta, 100)
-        self.assertEqual(checkin.points_awarded, 500)
+        self.assertEqual(checkin.district_points_delta, 50)
+        self.assertEqual(checkin.points_awarded, 50)
         stat = DistrictContributionStat.objects.get(district_code="1400", supporter=self.host)
-        self.assertEqual(stat.contribution_points, 100)
+        self.assertEqual(stat.contribution_points, 50)
         bond = PlayerPartyBond.objects.get(player=self.host, partner=self.friend)
         self.assertEqual(bond.shared_checkins, 1)
-        self.assertEqual(bond.shared_contribution_points, 100)
+        self.assertEqual(bond.shared_contribution_points, 50)
 
 
 class CheckInApiTests(TestCase):
