@@ -1,4 +1,4 @@
-const VERSION = 'pcwl-sw-v1';
+const VERSION = 'pcwl-sw-v2';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
