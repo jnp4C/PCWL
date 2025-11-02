@@ -1,7 +1,7 @@
 from django.contrib.auth import authenticate, login, logout
 from django.db import transaction
 from datetime import timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from django.db.models import Case, Count, F, Q, Sum, When
 from django.db.models.functions import Coalesce
@@ -35,6 +35,7 @@ from .models import (
     PlayerPartyBond,
 )
 from .serializers import (
+    BubbleSuggestionSerializer,
     CheckInRequestSerializer,
     CheckInSerializer,
     DistrictSerializer,
@@ -989,6 +990,145 @@ class FriendListView(PlayerScopedAPIView):
             context={"request": request, "current_player": player},
         ).data
         return Response({"friend_request": request_data}, status=status.HTTP_201_CREATED)
+
+
+class FriendBubbleView(PlayerScopedAPIView):
+    """Suggest friends-of-friends, prioritising party teammates."""
+
+    MAX_RESULTS = 30
+
+    def get(self, request):
+        player = self.get_current_player(request)
+
+        direct_links = list(
+            FriendLink.objects.select_related("friend")
+            .filter(player=player, friend__is_active=True)
+        )
+        direct_friend_map = {
+            link.friend_id: link.friend
+            for link in direct_links
+            if link.friend_id and link.friend is not None
+        }
+        direct_friend_ids = set(direct_friend_map.keys())
+        if not direct_friend_ids:
+            return Response({"bubble": []}, status=status.HTTP_200_OK)
+
+        candidate_links = (
+            FriendLink.objects.select_related("player", "friend")
+            .filter(player_id__in=direct_friend_ids, friend__is_active=True)
+            .exclude(friend_id=player.id)
+            .exclude(friend_id__in=direct_friend_ids)
+        )
+
+        candidate_map: Dict[int, Dict[str, Any]] = {}
+        for link in candidate_links:
+            candidate = link.friend
+            if candidate is None:
+                continue
+            entry = candidate_map.get(candidate.id)
+            if entry is None:
+                entry = {
+                    "player": candidate,
+                    "mutual_friend_ids": set(),
+                    "latest_link_at": link.updated_at,
+                }
+                candidate_map[candidate.id] = entry
+            entry["mutual_friend_ids"].add(link.player_id)
+            latest = entry.get("latest_link_at")
+            if latest is None or (link.updated_at and link.updated_at > latest):
+                entry["latest_link_at"] = link.updated_at
+
+        if not candidate_map:
+            return Response({"bubble": []}, status=status.HTTP_200_OK)
+
+        candidate_ids = list(candidate_map.keys())
+        bonds = {
+            bond.partner_id: bond
+            for bond in PlayerPartyBond.objects.filter(player=player, partner_id__in=candidate_ids)
+        }
+
+        suggestions: List[Dict[str, Any]] = []
+        for candidate_id, data in candidate_map.items():
+            candidate: Player = data["player"]  # type: ignore[assignment]
+            mutual_friend_ids: Set[int] = data["mutual_friend_ids"]  # type: ignore[assignment]
+            if not mutual_friend_ids:
+                continue
+
+            mutual_friends_payload: List[Dict[str, str]] = []
+            for mutual_id in sorted(mutual_friend_ids):
+                mutual_player = direct_friend_map.get(mutual_id)
+                if not mutual_player:
+                    continue
+                mutual_friends_payload.append(
+                    {
+                        "username": mutual_player.username,
+                        "display_name": mutual_player.display_name or "",
+                    }
+                )
+
+            if not mutual_friends_payload:
+                continue
+
+            bond = bonds.get(candidate_id)
+            encounters = int(bond.shared_checkins) if bond else 0
+            last_encounter_ms: Optional[int] = None
+            if bond and bond.last_shared_at:
+                last_encounter_ms = int(bond.last_shared_at.timestamp() * 1000)
+
+            latest_link_at = data.get("latest_link_at")
+            latest_link_ts = 0
+            if latest_link_at is not None:
+                try:
+                    latest_link_ts = int(latest_link_at.timestamp())
+                except Exception:
+                    latest_link_ts = 0
+
+            suggestions.append(
+                {
+                    "username": candidate.username,
+                    "display_name": candidate.display_name or "",
+                    "home_district_name": candidate.home_district_name or "",
+                    "home_district_code": candidate.home_district_code or "",
+                    "mutual_friend_count": len(mutual_friends_payload),
+                    "mutual_friends": mutual_friends_payload,
+                    "party_affinity": (
+                        {
+                            "encounters": encounters,
+                            "last_encounter_at": last_encounter_ms,
+                        }
+                        if encounters > 0
+                        else None
+                    ),
+                    "_sort": {
+                        "party_encounters": encounters,
+                        "party_last_ts": last_encounter_ms or 0,
+                        "mutual_count": len(mutual_friends_payload),
+                        "link_ts": latest_link_ts,
+                    },
+                }
+            )
+
+        if not suggestions:
+            return Response({"bubble": []}, status=status.HTTP_200_OK)
+
+        def sort_key(item: Dict[str, Any]):
+            meta = item["_sort"]
+            username_value = item.get("username")
+            username_key = username_value.lower() if isinstance(username_value, str) else ""
+            return (
+                -meta["party_encounters"],
+                -meta["mutual_count"],
+                -meta["party_last_ts"],
+                -meta["link_ts"],
+                username_key,
+            )
+
+        ordered = sorted(suggestions, key=sort_key)[: self.MAX_RESULTS]
+        for entry in ordered:
+            entry.pop("_sort", None)
+
+        serializer = BubbleSuggestionSerializer(ordered, many=True)
+        return Response({"bubble": serializer.data}, status=status.HTTP_200_OK)
 
 
 class FriendDetailView(PlayerScopedAPIView):

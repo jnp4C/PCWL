@@ -108,6 +108,9 @@ const friendsContent = document.getElementById('friends-content');
 const friendsListContainer = document.getElementById('friends-list');
 const friendsToggleAllButton = document.getElementById('friends-toggle-all');
 const friendsEmptyState = document.getElementById('friends-empty');
+const friendsBubbleSection = document.getElementById('friends-bubble-section');
+const friendsBubbleList = document.getElementById('friends-bubble-list');
+const friendsBubbleEmpty = document.getElementById('friends-bubble-empty');
 const friendsInviteButton = document.getElementById('friends-invite-button');
 const friendsManageButton = document.getElementById('friends-manage-button');
 const friendsManagePanel = document.getElementById('friends-manage-panel');
@@ -3168,6 +3171,20 @@ let friendsState = {
   error: null,
   items: [],
 };
+let friendsBubbleState = {
+  loading: false,
+  loaded: false,
+  error: null,
+  items: [],
+};
+function resetFriendsBubbleState() {
+  friendsBubbleState = {
+    loading: false,
+    loaded: false,
+    error: null,
+    items: [],
+  };
+}
 let partyState = {
   party: null,
   incoming: [],
@@ -4949,6 +4966,7 @@ function completeLogoutTransition() {
     error: null,
     items: [],
   };
+  resetFriendsBubbleState();
   friendRequestsState = {
     loading: false,
     loaded: false,
@@ -5290,6 +5308,7 @@ async function saveMarkerColor(profile, color) {
     updateStatus('Marker color updated. Friends will see this on your next shared check-in.');
     if (isSessionAuthenticated && currentUser) {
       refreshFriends(true).catch(() => null);
+      refreshFriendBubble(true).catch(() => null);
     }
   } catch (error) {
     console.warn('Failed to save map marker color', error);
@@ -7892,12 +7911,78 @@ function renderFriendSearchResults(results) {
   updateFriendSearchDirect(results, friendSearchInput ? friendSearchInput.value : '');
 }
 
+function updateFriendsBubbleSection({ isLoggedIn, hasFriends }) {
+  if (!friendsBubbleSection || !friendsBubbleList || !friendsBubbleEmpty) {
+    return;
+  }
+
+  if (!isLoggedIn) {
+    friendsBubbleEmpty.hidden = false;
+    friendsBubbleEmpty.textContent = 'Sign in to discover your bubble.';
+    friendsBubbleList.hidden = true;
+    friendsBubbleList.innerHTML = '';
+    return;
+  }
+
+  if (!hasFriends) {
+    friendsBubbleEmpty.hidden = false;
+    friendsBubbleEmpty.textContent = 'Add friends to unlock your bubble recommendations.';
+    friendsBubbleList.hidden = true;
+    friendsBubbleList.innerHTML = '';
+    return;
+  }
+
+  if (friendsBubbleState.loading) {
+    friendsBubbleEmpty.hidden = false;
+    friendsBubbleEmpty.textContent = 'Mapping your bubble…';
+    friendsBubbleList.hidden = true;
+    friendsBubbleList.innerHTML = '';
+    return;
+  }
+
+  if (friendsBubbleState.error) {
+    friendsBubbleEmpty.hidden = false;
+    friendsBubbleEmpty.textContent = friendsBubbleState.error;
+    friendsBubbleList.hidden = true;
+    friendsBubbleList.innerHTML = '';
+    return;
+  }
+
+  const suggestions = Array.isArray(friendsBubbleState.items) ? friendsBubbleState.items : [];
+  if (!suggestions.length) {
+    friendsBubbleEmpty.hidden = false;
+    friendsBubbleEmpty.textContent = 'Party up with teammates to surface friends-of-friends.';
+    friendsBubbleList.hidden = true;
+    friendsBubbleList.innerHTML = '';
+    return;
+  }
+
+  friendsBubbleEmpty.hidden = true;
+  friendsBubbleList.hidden = false;
+  friendsBubbleList.innerHTML = '';
+  let appended = false;
+  suggestions.forEach((suggestion) => {
+    const card = renderBubbleSuggestionCard(suggestion);
+    if (card) {
+      friendsBubbleList.appendChild(card);
+      appended = true;
+    }
+  });
+  if (!appended) {
+    friendsBubbleEmpty.hidden = false;
+    friendsBubbleEmpty.textContent = 'No bubble suggestions just yet.';
+    friendsBubbleList.hidden = true;
+  }
+}
+
 function updateFriendsDrawerContent() {
   if (!friendsListContainer || !friendsEmptyState) {
     return;
   }
 
   const isLoggedIn = Boolean(isSessionAuthenticated && currentUser);
+  const existingFriends = Array.isArray(friendsState.items) ? friendsState.items : [];
+  const hasExistingFriends = existingFriends.length > 0;
 
   if (friendsManageButton) {
     friendsManageButton.disabled = !isLoggedIn;
@@ -7926,6 +8011,7 @@ function updateFriendsDrawerContent() {
     friendsListContainer.innerHTML = '';
     updateFriendsLeaderboardSection([]);
     updatePartyUi([]);
+    updateFriendsBubbleSection({ isLoggedIn: false, hasFriends: false });
     return;
   }
 
@@ -7942,6 +8028,7 @@ function updateFriendsDrawerContent() {
     friendsListContainer.innerHTML = '';
     updateFriendsLeaderboardSection([]);
     updatePartyUi([]);
+    updateFriendsBubbleSection({ isLoggedIn: true, hasFriends: hasExistingFriends });
     return;
   }
 
@@ -7958,6 +8045,7 @@ function updateFriendsDrawerContent() {
     friendsListContainer.innerHTML = '';
     updateFriendsLeaderboardSection([]);
     updatePartyUi([]);
+    updateFriendsBubbleSection({ isLoggedIn: true, hasFriends: hasExistingFriends });
     return;
   }
 
@@ -7976,6 +8064,7 @@ function updateFriendsDrawerContent() {
     friendsListContainer.innerHTML = '';
     updateFriendsLeaderboardSection([]);
     updatePartyUi([]);
+    updateFriendsBubbleSection({ isLoggedIn: true, hasFriends: false });
     return;
   }
 
@@ -8028,6 +8117,7 @@ function updateFriendsDrawerContent() {
   }
   updateFriendsLeaderboardSection(friends);
   updatePartyUi(friends);
+  updateFriendsBubbleSection({ isLoggedIn: true, hasFriends: Boolean(friends.length) });
   if (friendProfileActiveUsername) {
     const activeFriend = findFriendByUsername(friendProfileActiveUsername);
     if (activeFriend) {
@@ -8042,6 +8132,99 @@ function updateFriendsDrawerContent() {
   }
 }
 
+function renderBubbleSuggestionCard(suggestion) {
+  if (!suggestion || typeof suggestion.username !== 'string') {
+    return null;
+  }
+  const username = suggestion.username.trim();
+  if (!username) {
+    return null;
+  }
+
+  const card = document.createElement('div');
+  card.className = 'friend-card bubble-card';
+  card.dataset.username = username;
+
+  const header = document.createElement('div');
+  header.className = 'bubble-header';
+  const usernameSpan = document.createElement('span');
+  usernameSpan.textContent = `@${username}`;
+  header.appendChild(usernameSpan);
+  const displayName =
+    typeof suggestion.display_name === 'string' && suggestion.display_name.trim()
+      ? suggestion.display_name.trim()
+      : '';
+  if (displayName) {
+    const display = document.createElement('span');
+    display.className = 'bubble-display';
+    display.textContent = displayName;
+    header.appendChild(display);
+  }
+  card.appendChild(header);
+
+  const homeName =
+    (typeof suggestion.home_district_name === 'string' && suggestion.home_district_name.trim()) ||
+    (typeof suggestion.home_district_code === 'string' && suggestion.home_district_code.trim()) ||
+    'Not set';
+  const homeMeta = document.createElement('div');
+  homeMeta.className = 'bubble-meta';
+  homeMeta.textContent = `Home district: ${homeName}`;
+  card.appendChild(homeMeta);
+
+  const mutualEntries = Array.isArray(suggestion.mutual_friends) ? suggestion.mutual_friends : [];
+  const mutualNames = mutualEntries
+    .map((entry) => {
+      if (!entry || typeof entry.username !== 'string') {
+        return null;
+      }
+      if (typeof entry.display_name === 'string' && entry.display_name.trim()) {
+        return entry.display_name.trim();
+      }
+      return `@${entry.username}`;
+    })
+    .filter(Boolean);
+  if (mutualNames.length) {
+    const preview = mutualNames.slice(0, 3);
+    const hasOverflow = typeof suggestion.mutual_friend_count === 'number'
+      ? suggestion.mutual_friend_count > preview.length
+      : mutualNames.length > preview.length;
+    const mutualMeta = document.createElement('div');
+    mutualMeta.className = 'bubble-meta';
+    mutualMeta.textContent = `Mutual friends: ${preview.join(', ')}${hasOverflow ? ', …' : ''}`;
+    card.appendChild(mutualMeta);
+  }
+
+  if (
+    suggestion.party_affinity &&
+    typeof suggestion.party_affinity === 'object' &&
+    Number.isFinite(Number(suggestion.party_affinity.encounters)) &&
+    suggestion.party_affinity.encounters > 0
+  ) {
+    const encounters = Number(suggestion.party_affinity.encounters);
+    const party = document.createElement('div');
+    party.className = 'bubble-party';
+    let label = `Partied together ${encounters} ${encounters === 1 ? 'time' : 'times'}`;
+    const lastEncounter = suggestion.party_affinity.last_encounter_at;
+    if (Number.isFinite(Number(lastEncounter)) && Number(lastEncounter) > 0) {
+      label += ` • Last ${formatTimeAgo(Number(lastEncounter))}`;
+    }
+    party.textContent = label;
+    card.appendChild(party);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'bubble-actions';
+  const addButton = document.createElement('button');
+  addButton.type = 'button';
+  addButton.className = 'primary small bubble-add-button';
+  addButton.dataset.username = username;
+  addButton.textContent = 'Add friend';
+  actions.appendChild(addButton);
+  card.appendChild(actions);
+
+  return card;
+}
+
 async function refreshFriends(force = false) {
   if (!isSessionAuthenticated || !currentUser) {
     friendsState = {
@@ -8050,6 +8233,7 @@ async function refreshFriends(force = false) {
       error: null,
       items: [],
     };
+    resetFriendsBubbleState();
     updateFriendsDrawerContent();
     updateFriendLocationsLayer();
     updatePartyUi(friendsState.items);
@@ -8059,6 +8243,9 @@ async function refreshFriends(force = false) {
     return;
   }
   if (!force && friendsState.loaded) {
+    if (!friendsBubbleState.loaded) {
+      refreshFriendBubble(false).catch(() => null);
+    }
     return;
   }
 
@@ -8073,6 +8260,7 @@ async function refreshFriends(force = false) {
     friendsState.loaded = true;
     friendsState.error = null;
     updateFriendLocationsLayer();
+    refreshFriendBubble(force).catch(() => null);
   } catch (error) {
     if (error && (error.status === 401 || error.status === 403)) {
       isSessionAuthenticated = false;
@@ -8083,13 +8271,17 @@ async function refreshFriends(force = false) {
         error: null,
         items: [],
       };
+      resetFriendsBubbleState();
       updateFriendsDrawerContent();
       updateFriendLocationsLayer();
+      updatePartyUi(friendsState.items);
       return;
     }
     console.warn('Failed to load friends', error);
     friendsState.error = 'Unable to load friends right now.';
     friendsState.loaded = false;
+    resetFriendsBubbleState();
+    friendsBubbleState.error = 'Unable to load bubble right now.';
   } finally {
     friendsState.loading = false;
     updateFriendsDrawerContent();
@@ -8097,6 +8289,60 @@ async function refreshFriends(force = false) {
     if (friendsManageOpen) {
       renderFriendManageList();
     }
+  }
+}
+
+async function refreshFriendBubble(force = false) {
+  const isLoggedIn = Boolean(isSessionAuthenticated && currentUser);
+  const hasFriends = Array.isArray(friendsState.items) && friendsState.items.length > 0;
+
+  if (!isLoggedIn) {
+    resetFriendsBubbleState();
+    updateFriendsBubbleSection({ isLoggedIn: false, hasFriends: false });
+    return;
+  }
+
+  if (!hasFriends) {
+    resetFriendsBubbleState();
+    updateFriendsBubbleSection({ isLoggedIn: true, hasFriends: false });
+    return;
+  }
+
+  if (friendsBubbleState.loading) {
+    return;
+  }
+  if (!force && friendsBubbleState.loaded) {
+    return;
+  }
+
+  friendsBubbleState.loading = true;
+  friendsBubbleState.error = null;
+  updateFriendsBubbleSection({ isLoggedIn: true, hasFriends });
+
+  try {
+    const response = await apiRequest('friends/bubble/');
+    const items = Array.isArray(response?.bubble) ? response.bubble : [];
+    friendsBubbleState.items = items;
+    friendsBubbleState.loaded = true;
+    friendsBubbleState.error = null;
+  } catch (error) {
+    if (error && (error.status === 401 || error.status === 403)) {
+      isSessionAuthenticated = false;
+      activePlayerBackendId = null;
+      resetFriendsBubbleState();
+      updateFriendsDrawerContent();
+      return;
+    }
+    console.warn('Failed to load friend bubble', error);
+    friendsBubbleState.loaded = false;
+    friendsBubbleState.error = 'Unable to load your bubble right now.';
+    friendsBubbleState.items = [];
+  } finally {
+    friendsBubbleState.loading = false;
+    updateFriendsBubbleSection({
+      isLoggedIn: Boolean(isSessionAuthenticated && currentUser),
+      hasFriends: Array.isArray(friendsState.items) && friendsState.items.length > 0,
+    });
   }
 }
 
@@ -8417,6 +8663,7 @@ async function handleFriendRequestAction(event) {
     if (friendData && typeof friendData === 'object') {
       upsertFriend(friendData);
       refreshFriends(true);
+      refreshFriendBubble(true).catch(() => null);
       updateFriendsDrawerContent();
       if (friendsManageOpen) {
         renderFriendManageList();
@@ -8463,6 +8710,7 @@ function openFriendsDrawer(trigger = null) {
   closeDistrictDrawer({ restoreFocus: false });
   updateFriendsDrawerContent();
   refreshFriends();
+  refreshFriendBubble();
   refreshFriendRequests();
   document.body.classList.add('friends-open');
   friendsDrawer.setAttribute('aria-hidden', 'false');
@@ -9481,6 +9729,7 @@ function completeAuthenticatedLogin(username, profile, options = {}) {
     setMobileDrawerState(false);
   }
   refreshFriends(true).catch(() => null);
+  refreshFriendBubble(true).catch(() => null);
 
   if (isSecureOrigin()) {
     startLiveLocationWatch();

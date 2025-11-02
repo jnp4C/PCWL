@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from .models import (
     CheckIn,
@@ -19,6 +20,7 @@ from .services import (
     apply_checkin,
     create_party,
     invite_player_to_party,
+    leave_party,
     respond_to_party_invitation,
 )
 
@@ -541,6 +543,82 @@ class FriendApiTests(TestCase):
         self.assertEqual(location["districtId"], "1100")
         self.assertAlmostEqual(location["lng"], 14.42076, places=5)
         self.assertAlmostEqual(location["lat"], 50.08804, places=5)
+
+    def test_friend_bubble_prioritises_party_allies(self):
+        wingman = Player.objects.create(
+            username="wingman",
+            home_district_code="1200",
+            home_district_name="Prague 2",
+            home_district="Prague 2",
+        )
+        FriendLink.objects.create(player=self.primary, friend=wingman)
+        FriendLink.objects.create(player=wingman, friend=self.primary)
+
+        shadow = Player.objects.create(
+            username="shadow",
+            display_name="Shadow",
+            home_district_code="1300",
+            home_district_name="Prague 3",
+            home_district="Prague 3",
+        )
+        FriendLink.objects.create(player=self.friend, friend=shadow)
+        FriendLink.objects.create(player=shadow, friend=self.friend)
+
+        rookie = Player.objects.create(
+            username="rookie",
+            home_district_code="1400",
+            home_district_name="Prague 4",
+            home_district="Prague 4",
+        )
+        FriendLink.objects.create(player=wingman, friend=rookie)
+        FriendLink.objects.create(player=rookie, friend=wingman)
+
+        now = timezone.now()
+        PlayerPartyBond.objects.create(
+            player=self.primary,
+            partner=shadow,
+            shared_checkins=3,
+            shared_attack_points=120,
+            shared_contribution_points=40,
+            last_shared_at=now,
+        )
+        PlayerPartyBond.objects.create(
+            player=shadow,
+            partner=self.primary,
+            shared_checkins=3,
+            shared_attack_points=120,
+            shared_contribution_points=40,
+            last_shared_at=now,
+        )
+
+        self._login_primary()
+        response = self.client.get(reverse("friend-bubble"))
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        bubble = payload.get("bubble", [])
+        self.assertGreaterEqual(len(bubble), 2)
+
+        first = bubble[0]
+        self.assertEqual(first["username"], "shadow")
+        self.assertEqual(first["home_district_name"], "Prague 3")
+        self.assertEqual(first["mutual_friend_count"], 1)
+        self.assertEqual(first["mutual_friends"][0]["username"], "ally")
+        self.assertIsInstance(first.get("party_affinity"), dict)
+        self.assertEqual(first["party_affinity"]["encounters"], 3)
+        self.assertIsInstance(first["party_affinity"]["last_encounter_at"], int)
+
+        second = bubble[1]
+        self.assertEqual(second["username"], "rookie")
+        self.assertEqual(second["mutual_friend_count"], 1)
+        self.assertEqual(second["mutual_friends"][0]["username"], "wingman")
+        self.assertIsNone(second["party_affinity"])
+
+    def test_friend_bubble_empty_without_candidates(self):
+        self._login_primary()
+        response = self.client.get(reverse("friend-bubble"))
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload.get("bubble"), [])
 
 
 class LeaderboardApiTests(TestCase):

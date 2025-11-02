@@ -1184,6 +1184,11 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   color: var(--color-text-muted);
 }
 
+.friends-bubble-section {
+  border-top: 1px solid var(--color-border-soft);
+  padding-top: 1rem;
+}
+
 .friends-bubble-list {
   gap: 0.85rem;
 }
@@ -1418,6 +1423,15 @@ body.dark .friend-profile-marker {
   font-size: 0.85rem;
   color: var(--color-button-primary);
   font-weight: 600;
+}
+
+.bubble-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.bubble-actions .bubble-add-button {
+  min-width: 8rem;
 }
 
 .friend-meta {
