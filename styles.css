@@ -947,9 +947,11 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   align-self: flex-start;
 }
 
-.friends-toolbar {
+.friends-controls {
   display: flex;
-  justify-content: flex-start;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
 }
 
 .friends-leaderboard {
