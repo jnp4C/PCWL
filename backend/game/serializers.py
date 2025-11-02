@@ -557,26 +557,6 @@ class FriendRequestSerializer(serializers.ModelSerializer):
         return bool(current and obj.from_player_id == current.id)
 
 
-class PartyAffinitySerializer(serializers.Serializer):
-    encounters = serializers.IntegerField()
-    last_encounter_at = serializers.IntegerField(allow_null=True)
-
-
-class BubbleMutualSerializer(serializers.Serializer):
-    username = serializers.CharField()
-    display_name = serializers.CharField(allow_blank=True)
-
-
-class BubbleSuggestionSerializer(serializers.Serializer):
-    username = serializers.CharField()
-    display_name = serializers.CharField(allow_blank=True)
-    home_district_name = serializers.CharField(allow_blank=True)
-    home_district_code = serializers.CharField(allow_blank=True)
-    mutual_friend_count = serializers.IntegerField()
-    mutual_friends = BubbleMutualSerializer(many=True)
-    party_affinity = PartyAffinitySerializer(allow_null=True)
-
-
 class PlayerSearchResultSerializer(serializers.ModelSerializer):
     is_friend = serializers.SerializerMethodField()
     incoming_request = serializers.SerializerMethodField()
