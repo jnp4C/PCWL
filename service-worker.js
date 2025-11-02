@@ -1,0 +1,48 @@
+const VERSION = 'pcwl-sw-v1';
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    (async () => {
+      await self.skipWaiting();
+    })(),
+  );
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    (async () => {
+      const cacheNames = await caches.keys();
+      await Promise.all(
+        cacheNames
+          .filter((name) => name !== VERSION)
+          .map((name) => caches.delete(name)),
+      );
+      await self.clients.claim();
+    })(),
+  );
+});
+
+self.addEventListener('fetch', (event) => {
+  const { request } = event;
+  if (request.method !== 'GET' || request.cache === 'only-if-cached' && request.mode !== 'same-origin') {
+    return;
+  }
+  event.respondWith(
+    (async () => {
+      const cache = await caches.open(VERSION);
+      const cached = await cache.match(request);
+      if (cached) {
+        return cached;
+      }
+      try {
+        const response = await fetch(request);
+        if (response && response.status === 200 && response.type === 'basic') {
+          cache.put(request, response.clone());
+        }
+        return response;
+      } catch (error) {
+        return cached || Response.error();
+      }
+    })(),
+  );
+});
