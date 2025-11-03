@@ -787,6 +787,53 @@ class LeaderboardApiTests(TestCase):
         self.assertEqual(prague_two["defended"], 10)
         self.assertEqual(prague_two["attacked"], 10)
         self.assertEqual(prague_two["checkins"], 2)
+        self.assertEqual(prague_two.get("rank"), 2)
+
+    def test_leaderboard_includes_large_damage_outside_top_strength(self):
+        District.objects.all().delete()
+        filler_codes = []
+        for index in range(60):
+            code = f"500{200 + index}"
+            filler_codes.append(code)
+            District.objects.create(
+                code=code,
+                name=f"Praha filler {index}",
+                base_strength=2000,
+                current_strength=2000,
+                is_active=True,
+            )
+
+        target_code = "500178"
+        target_name = "Praha 6"
+        if not District.objects.filter(code=target_code).exists():
+            District.objects.create(
+                code=target_code,
+                name=target_name,
+                base_strength=2000,
+                current_strength=2000,
+                is_active=True,
+            )
+
+        attacker = Player.objects.create(username="damage-dealer")
+        attacker.next_checkin_multiplier = 6
+        attacker.save(update_fields=["next_checkin_multiplier"])
+
+        apply_checkin(
+            attacker,
+            district_code=target_code,
+            district_name=target_name,
+            mode=CheckIn.Mode.LOCAL,
+            metadata={"source": "test"},
+        )
+
+        response = self.client.get(reverse("leaderboard-api"))
+        self.assertEqual(response.status_code, 200)
+        districts = response.json().get("districts", [])
+        self.assertTrue(any(entry["id"] == target_code for entry in districts))
+        damaged_entry = next(entry for entry in districts if entry["id"] == target_code)
+        self.assertLess(damaged_entry["score"], damaged_entry["base_strength"])
+        self.assertLess(damaged_entry["change"], 0)
+        self.assertGreater(damaged_entry.get("rank", 0), 0)
 
 
 class DistrictAnalyticsTests(TestCase):

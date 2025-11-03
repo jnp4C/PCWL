@@ -1477,8 +1477,57 @@ def _build_district_leaderboard(limit=50):
                 "recent_attacked": recent_attacked,
             }
         )
-    districts.sort(key=lambda item: (-item["score"], -item["defended"], item["name"]))
-    return districts[:limit]
+    districts_by_score = sorted(
+        districts,
+        key=lambda item: (-item["score"], -item["defended"], item["name"]),
+    )
+
+    for index, item in enumerate(districts_by_score, start=1):
+        item["rank"] = index
+
+    if limit <= 0:
+        return []
+
+    loss_limit = min(10, max(0, limit // 5))
+    supplemental_losses: List[Dict[str, Any]] = []
+    if loss_limit > 0:
+        losses_sorted = sorted(
+            districts,
+            key=lambda item: (item["score"], item["change"], item["name"]),
+        )
+        for loss in losses_sorted:
+            if loss["change"] >= 0:
+                continue
+            if loss["rank"] <= limit:
+                continue
+            supplemental_losses.append(loss)
+            if len(supplemental_losses) >= loss_limit:
+                break
+
+    primary_count = max(0, limit - len(supplemental_losses))
+    primary_slice = districts_by_score[:primary_count]
+
+    combined: List[Dict[str, Any]] = []
+    seen_ids: Set[str] = set()
+    for item in primary_slice:
+        combined.append(item)
+        seen_ids.add(item["id"])
+    for item in supplemental_losses:
+        if item["id"] in seen_ids:
+            continue
+        combined.append(item)
+        seen_ids.add(item["id"])
+
+    if len(combined) < limit:
+        for item in districts_by_score[primary_count:]:
+            if item["id"] in seen_ids:
+                continue
+            combined.append(item)
+            seen_ids.add(item["id"])
+            if len(combined) >= limit:
+                break
+
+    return combined
 
 
 class LeaderboardView(APIView):

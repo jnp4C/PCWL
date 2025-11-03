@@ -212,7 +212,10 @@ function renderPlayerLeaderboard(players) {
     const row = document.createElement('tr');
 
     const rankCell = document.createElement('td');
-    rankCell.textContent = String(index + 1);
+    const rankValue = Number.isFinite(Number(district.rank))
+      ? Number(district.rank)
+      : index + 1;
+    rankCell.textContent = String(rankValue);
     row.appendChild(rankCell);
 
     const nameCell = document.createElement('td');
