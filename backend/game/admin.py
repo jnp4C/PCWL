@@ -1,7 +1,14 @@
 from django import forms
 from django.contrib import admin
 
-from .models import District, Player, PlayerDistrictContribution
+from .models import (
+    District,
+    Party,
+    PartyInvitation,
+    PartyMembership,
+    Player,
+    PlayerDistrictContribution,
+)
 
 
 class PlayerAdminForm(forms.ModelForm):
@@ -84,3 +91,25 @@ class PlayerDistrictContributionAdmin(admin.ModelAdmin):
     )
     list_filter = ("district",)
     search_fields = ("player__username", "district__code", "district__name")
+
+
+@admin.register(Party)
+class PartyAdmin(admin.ModelAdmin):
+    list_display = ("code", "name", "leader", "status", "expires_at", "created_at")
+    list_filter = ("status",)
+    search_fields = ("code", "name", "leader__username")
+    ordering = ("-created_at",)
+
+
+@admin.register(PartyMembership)
+class PartyMembershipAdmin(admin.ModelAdmin):
+    list_display = ("party", "player", "is_leader", "joined_at", "left_at")
+    list_filter = ("is_leader", "joined_at")
+    search_fields = ("party__code", "party__name", "player__username")
+
+
+@admin.register(PartyInvitation)
+class PartyInvitationAdmin(admin.ModelAdmin):
+    list_display = ("party", "from_player", "to_player", "status", "created_at", "responded_at")
+    list_filter = ("status",)
+    search_fields = ("party__code", "party__name", "from_player__username", "to_player__username")

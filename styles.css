@@ -1065,6 +1065,25 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   margin-bottom: 0.4rem;
 }
 
+.friend-party-name-row {
+  display: flex;
+  flex: 1 1 100%;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.friend-party-name-input {
+  flex: 1 1 220px;
+  min-width: 160px;
+}
+
+.friend-party-name-display {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
 .friend-party-select {
   flex: 1 1 180px;
   min-width: 160px;

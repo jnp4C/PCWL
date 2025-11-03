@@ -264,6 +264,7 @@ class Party(models.Model):
         ENDED = "ended", "Ended"
 
     code = models.CharField(max_length=64, unique=True, editable=False)
+    name = models.CharField(max_length=64, blank=True, default="")
     leader = models.ForeignKey(
         Player,
         on_delete=models.CASCADE,
@@ -298,7 +299,10 @@ class Party(models.Model):
         return True
 
     def __str__(self):
-        return f"Party {self.code} (leader={self.leader.username})"
+        base = f"Party {self.code}"
+        if self.name:
+            base = f"{self.name} ({self.code})"
+        return f"{base} (leader={self.leader.username})"
 
 
 class PartyMembership(models.Model):

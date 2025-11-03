@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import timedelta
@@ -42,6 +43,8 @@ PARTY_ATTACK_BONUS_PER_PLAYER = Decimal("2")
 PARTY_CONTRIBUTION_DISTRICT_PER_PLAYER = Decimal("2.5")
 PARTY_CONTRIBUTION_PLAYER_MULTIPLIER = Decimal("5")
 MAX_PARTY_MEMBERS = 4
+PARTY_NAME_MIN_LENGTH = 3
+PARTY_NAME_MAX_LENGTH = 48
 
 
 @dataclass
@@ -79,6 +82,20 @@ def _normalise_district_name(value: Optional[str]) -> Optional[str]:
         return ""
     text = str(value).strip()
     return text[:120]
+
+
+def _normalise_party_name(value: Optional[str]) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    text = re.sub(r"\s+", " ", text)
+    if len(text) < PARTY_NAME_MIN_LENGTH:
+        raise PartyError(f"Party name must be at least {PARTY_NAME_MIN_LENGTH} characters.")
+    if len(text) > PARTY_NAME_MAX_LENGTH:
+        raise PartyError(f"Party name must be at most {PARTY_NAME_MAX_LENGTH} characters.")
+    return text
 
 
 def _get_or_create_district_record(code: Optional[str], name: Optional[str]) -> Optional[District]:
@@ -173,15 +190,24 @@ def _ensure_no_active_party(player: Player) -> None:
         raise PartyError("Player is already in an active party.")
 
 
-def create_party(leader: Player, duration: timedelta = DEFAULT_PARTY_DURATION) -> Party:
+def create_party(
+    leader: Player,
+    *,
+    name: Optional[str] = None,
+    duration: timedelta = DEFAULT_PARTY_DURATION,
+) -> Party:
     """Start a new party for the leader."""
     now = timezone.now()
     expires_at = now + duration
+    normalised_name = ""
+    if name is not None:
+        normalised_name = _normalise_party_name(name)
     with transaction.atomic():
         _ensure_no_active_party(leader)
         party = Party.objects.create(
             leader=leader,
             expires_at=expires_at,
+            name=normalised_name,
         )
         PartyMembership.objects.create(party=party, player=leader, is_leader=True, joined_at=now)
         return party
@@ -251,6 +277,25 @@ def respond_to_party_invitation(invitation: PartyInvitation, player: Player, acc
         invitation.responded_at = timezone.now()
         invitation.save(update_fields=["status", "responded_at"])
         return invitation
+
+
+def set_party_name(player: Player, name: Optional[str]) -> Party:
+    """Allow the active party leader to set or update the party name."""
+    with transaction.atomic():
+        membership = _get_active_party_membership(player, lock=True)
+        if not membership or not membership.is_leader:
+            raise PartyError("Only the party leader can name the party.")
+        party = membership.party
+        if not party.is_active():
+            raise PartyError("Party is no longer active.")
+        normalised_name = _normalise_party_name(name)
+        if not normalised_name:
+            raise PartyError("Party name cannot be empty.")
+        if party.name == normalised_name:
+            return party
+        party.name = normalised_name
+        party.save(update_fields=["name", "updated_at"])
+        return party
 
 
 def leave_party(player: Player) -> None:

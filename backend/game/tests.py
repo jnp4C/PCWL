@@ -372,17 +372,90 @@ class PartyApiTests(TestCase):
         self.assertEqual(response.status_code, 201)
         payload = response.json()
         self.assertIn("party", payload)
+        self.assertIn("name", payload["party"])
+        self.assertEqual(payload["party"]["name"], "")
         code = payload["party"]["code"]
         party = Party.objects.get(code=code)
+        self.assertEqual(party.name, "")
         self.assertTrue(PartyMembership.objects.filter(party=party, player=self.host, left_at__isnull=True).exists())
 
         leave_response = self.client.delete(reverse("party"))
         self.assertEqual(leave_response.status_code, 204)
         self.assertFalse(PartyMembership.objects.filter(player=self.host, left_at__isnull=True).exists())
 
-    def test_invite_and_accept_party(self):
+    def test_create_party_with_name(self):
+        self.client.force_login(self.host.user)
+        response = self.client.post(
+            reverse("party"),
+            {"name": "Guardians"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()["party"]
+        self.assertEqual(payload["name"], "Guardians")
+        party = Party.objects.get(code=payload["code"])
+        self.assertEqual(party.name, "Guardians")
+
+    def test_leader_can_set_party_name(self):
         self.client.force_login(self.host.user)
         self.client.post(reverse("party"))
+        patch_response = self.client.patch(
+            reverse("party"),
+            {"name": "Night Watch"},
+            content_type="application/json",
+        )
+        self.assertEqual(patch_response.status_code, 200)
+        payload = patch_response.json()["party"]
+        self.assertEqual(payload["name"], "Night Watch")
+        party = Party.objects.get(code=payload["code"])
+        self.assertEqual(party.name, "Night Watch")
+
+    def test_party_name_requires_min_length(self):
+        self.client.force_login(self.host.user)
+        self.client.post(reverse("party"))
+        patch_response = self.client.patch(
+            reverse("party"),
+            {"name": "go"},
+            content_type="application/json",
+        )
+        self.assertEqual(patch_response.status_code, 400)
+        detail = patch_response.json().get("detail")
+        self.assertTrue(detail)
+
+    def test_non_leader_cannot_set_party_name(self):
+        self.client.force_login(self.host.user)
+        self.client.post(reverse("party"))
+        # Invite friend and accept to join party as non-leader
+        invite_response = self.client.post(
+            reverse("party-invite"),
+            {"username": "party-friend"},
+            content_type="application/json",
+        )
+        invite_id = invite_response.json()["invitation"]["id"]
+        self.client.logout()
+        self.client.force_login(self.friend.user)
+        self.client.post(
+            reverse("party-invitation-detail", args=[invite_id]),
+            {"action": "accept"},
+            content_type="application/json",
+        )
+        patch_response = self.client.patch(
+            reverse("party"),
+            {"name": "Rebels"},
+            content_type="application/json",
+        )
+        self.assertEqual(patch_response.status_code, 400)
+        detail = patch_response.json().get("detail")
+        self.assertTrue(detail)
+
+    def test_invite_and_accept_party(self):
+        self.client.force_login(self.host.user)
+        creation = self.client.post(
+            reverse("party"),
+            {"name": "Storm Guard"},
+            content_type="application/json",
+        )
+        self.assertEqual(creation.status_code, 201)
         invite_response = self.client.post(
             reverse("party-invite"),
             {"username": "party-friend"},
@@ -390,6 +463,7 @@ class PartyApiTests(TestCase):
         )
         self.assertEqual(invite_response.status_code, 201)
         invite_id = invite_response.json()["invitation"]["id"]
+        self.assertEqual(invite_response.json()["invitation"]["party_name"], "Storm Guard")
 
         self.client.logout()
         self.client.force_login(self.friend.user)

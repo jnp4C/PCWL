@@ -52,6 +52,7 @@ from .services import (
     get_active_party,
     invite_player_to_party,
     leave_party,
+    set_party_name,
     PartyError,
     PartyInviteError,
     PARTY_ATTACK_BONUS_PER_PLAYER,
@@ -171,6 +172,7 @@ def _build_party_payload(party: Party, player: Player) -> Optional[Dict[str, Any
 
     return {
         "code": party.code,
+        "name": party.name or "",
         "leader": party.leader.username,
         "created_at": party.created_at,
         "expires_at": party.expires_at,
@@ -244,6 +246,7 @@ def _serialize_party_invitation(invitation: PartyInvitation) -> Dict[str, Any]:
     return {
         "id": invitation.id,
         "party_code": invitation.party.code,
+        "party_name": invitation.party.name or "",
         "from_username": invitation.from_player.username,
         "to_username": invitation.to_player.username,
         "status": invitation.status,
@@ -590,12 +593,23 @@ class PartyView(PlayerScopedAPIView):
 
     def post(self, request):
         player = self.get_current_player(request)
+        name = request.data.get("name") if hasattr(request, "data") else None
         try:
-            party = create_party(player)
+            party = create_party(player, name=name)
         except PartyError as exc:
             raise ValidationError({"detail": str(exc)})
         payload = _build_party_payload(party, player)
         return Response({"party": payload}, status=status.HTTP_201_CREATED)
+
+    def patch(self, request):
+        player = self.get_current_player(request)
+        name = request.data.get("name") if hasattr(request, "data") else None
+        try:
+            party = set_party_name(player, name)
+        except PartyError as exc:
+            raise ValidationError({"detail": str(exc)})
+        payload = _build_party_payload(party, player)
+        return Response({"party": payload}, status=status.HTTP_200_OK)
 
     def delete(self, request):
         player = self.get_current_player(request)
