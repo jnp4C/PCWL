@@ -1,7 +1,9 @@
 'use strict';
 
-const PLAYER_STORAGE_KEY = 'pragueExplorerPlayers';
-const DISTRICT_STORAGE_KEY = 'pragueExplorerDistrictScores';
+const PLAYER_STORAGE_KEY = 'pcwlPlayers';
+const LEGACY_PLAYER_STORAGE_KEYS = ['pragueExplorerPlayers'];
+const DISTRICT_STORAGE_KEY = 'pcwlDistrictScores';
+const LEGACY_DISTRICT_STORAGE_KEYS = ['pragueExplorerDistrictScores'];
 const DISTRICT_BASE_SCORE = 2000;
 const LEADERBOARD_API_URL = '/api/leaderboard/';
 
@@ -21,9 +23,31 @@ const decimalFormatter = new Intl.NumberFormat(undefined, {
 
 function loadPlayerData() {
   try {
-    const stored = window.localStorage.getItem(PLAYER_STORAGE_KEY);
+    if (typeof window === 'undefined' || !window.localStorage) {
+      return [];
+    }
+    let keyUsed = PLAYER_STORAGE_KEY;
+    let stored = window.localStorage.getItem(PLAYER_STORAGE_KEY);
+    if (!stored) {
+      for (const legacyKey of LEGACY_PLAYER_STORAGE_KEYS) {
+        const legacyValue = window.localStorage.getItem(legacyKey);
+        if (legacyValue) {
+          stored = legacyValue;
+          keyUsed = legacyKey;
+          break;
+        }
+      }
+    }
     if (!stored) {
       return [];
+    }
+    if (keyUsed !== PLAYER_STORAGE_KEY) {
+      try {
+        window.localStorage.setItem(PLAYER_STORAGE_KEY, stored);
+        window.localStorage.removeItem(keyUsed);
+      } catch (migrationError) {
+        // ignore write failures; legacy data is already loaded in-memory
+      }
     }
     const parsed = JSON.parse(stored);
     if (!parsed || typeof parsed !== 'object') {
@@ -51,9 +75,31 @@ function loadPlayerData() {
 
 function loadDistrictData() {
   try {
-    const stored = window.localStorage.getItem(DISTRICT_STORAGE_KEY);
+    if (typeof window === 'undefined' || !window.localStorage) {
+      return [];
+    }
+    let keyUsed = DISTRICT_STORAGE_KEY;
+    let stored = window.localStorage.getItem(DISTRICT_STORAGE_KEY);
+    if (!stored) {
+      for (const legacyKey of LEGACY_DISTRICT_STORAGE_KEYS) {
+        const legacyValue = window.localStorage.getItem(legacyKey);
+        if (legacyValue) {
+          stored = legacyValue;
+          keyUsed = legacyKey;
+          break;
+        }
+      }
+    }
     if (!stored) {
       return [];
+    }
+    if (keyUsed !== DISTRICT_STORAGE_KEY) {
+      try {
+        window.localStorage.setItem(DISTRICT_STORAGE_KEY, stored);
+        window.localStorage.removeItem(keyUsed);
+      } catch (migrationError) {
+        // ignore write failures; legacy data is already loaded in-memory
+      }
     }
     const parsed = JSON.parse(stored);
     if (!parsed || typeof parsed !== 'object') {

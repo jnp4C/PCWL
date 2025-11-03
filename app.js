@@ -256,7 +256,8 @@ const MAP_THEME_SETTINGS = {
 };
 
 const DISTRICT_BASE_SCORE = 2000;
-const DISTRICT_SCORES_STORAGE_KEY = 'pragueExplorerDistrictScores';
+const DISTRICT_SCORES_STORAGE_KEY = 'pcwlDistrictScores';
+const LEGACY_DISTRICT_SCORES_KEYS = ['pragueExplorerDistrictScores'];
 const POINTS_PER_CHECKIN = 10;
 const MAX_HISTORY_ITEMS = 15;
 const BACKGROUND_TRACKS = [
@@ -407,9 +408,16 @@ async function apiRequest(path, options = {}) {
 
 let activeTheme = 'light';
 if (typeof window !== 'undefined') {
-  if (window.__pragueExplorerTheme === 'dark') {
-    activeTheme = 'dark';
-  } else if (document.body && document.body.getAttribute('data-theme') === 'dark') {
+  const themeFromGlobals =
+    (typeof window.__pcwlTheme === 'string' && window.__pcwlTheme) ||
+    (typeof window.__pragueExplorerTheme === 'string' && window.__pragueExplorerTheme) ||
+    null;
+  const themeFromDom =
+    typeof document !== 'undefined' && document.body
+      ? document.body.getAttribute('data-theme')
+      : null;
+  const initialTheme = themeFromGlobals || themeFromDom;
+  if (initialTheme === 'dark') {
     activeTheme = 'dark';
   }
 }
@@ -3230,7 +3238,8 @@ let musicAwaitingUnlock = false;
 let musicPausedByVisibility = false;
 let musicLastPersistedAt = 0;
 
-const STORAGE_KEY = 'pragueExplorerPlayers';
+const STORAGE_KEY = 'pcwlPlayers';
+const LEGACY_PLAYER_STORAGE_KEYS = ['pragueExplorerPlayers'];
 const COOLDOWN_KEYS = {
   ATTACK: 'attack',
   DEFEND: 'defend',
@@ -3247,7 +3256,8 @@ const CHARGE_ATTACK_MULTIPLIER = 3;
 const MIN_PASSWORD_LENGTH = 4;
 const DEV_USERNAME = 'dev';
 const DEV_DEFAULT_PASSWORD = 'deve';
-const LAST_SIGNED_IN_USER_KEY = 'pragueExplorerLastUser';
+const LAST_SIGNED_IN_USER_KEY = 'pcwlLastUser';
+const LEGACY_LAST_SIGNED_IN_USER_KEYS = ['pragueExplorerLastUser'];
 const USERNAME_PATTERN = /^[A-Za-z0-9_]{3,32}$/;
 
 let isSessionAuthenticated = false;
@@ -3980,12 +3990,18 @@ function ensureMap(action) {
   }
 }
 
-document.addEventListener('prague-themechange', (event) => {
+const handleThemeChange = (event) => {
   const nextTheme = event && event.detail && event.detail.theme === 'dark' ? 'dark' : 'light';
+  if (nextTheme === activeTheme) {
+    return;
+  }
   activeTheme = nextTheme;
   ensureWelcomeLogoTheme(activeTheme);
   ensureMap(() => applyThemeToMap(activeTheme));
-});
+};
+
+document.addEventListener('pcwl-themechange', handleThemeChange);
+document.addEventListener('prague-themechange', handleThemeChange);
 
 ensureWelcomeLogoTheme(activeTheme);
 renderAppVersionBadge();
@@ -4794,10 +4810,21 @@ function handleMusicPageHide() {
 
 function setLastSignedInUser(username) {
   try {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      return;
+    }
     if (username) {
       window.localStorage.setItem(LAST_SIGNED_IN_USER_KEY, username);
+      for (const legacyKey of LEGACY_LAST_SIGNED_IN_USER_KEYS) {
+        if (legacyKey !== LAST_SIGNED_IN_USER_KEY) {
+          window.localStorage.removeItem(legacyKey);
+        }
+      }
     } else {
       window.localStorage.removeItem(LAST_SIGNED_IN_USER_KEY);
+      for (const legacyKey of LEGACY_LAST_SIGNED_IN_USER_KEYS) {
+        window.localStorage.removeItem(legacyKey);
+      }
     }
   } catch (error) {
     console.warn('Failed to persist last signed-in user', error);
@@ -4806,8 +4833,30 @@ function setLastSignedInUser(username) {
 
 function getLastSignedInUser() {
   try {
-    const stored = window.localStorage.getItem(LAST_SIGNED_IN_USER_KEY);
-    return typeof stored === 'string' && stored.trim() ? stored.trim() : null;
+    if (typeof window === 'undefined' || !window.localStorage) {
+      return null;
+    }
+    let keyUsed = LAST_SIGNED_IN_USER_KEY;
+    let stored = window.localStorage.getItem(LAST_SIGNED_IN_USER_KEY);
+    if (!stored) {
+      for (const legacyKey of LEGACY_LAST_SIGNED_IN_USER_KEYS) {
+        const legacyValue = window.localStorage.getItem(legacyKey);
+        if (legacyValue) {
+          stored = legacyValue;
+          keyUsed = legacyKey;
+          break;
+        }
+      }
+    }
+    const value = typeof stored === 'string' && stored.trim() ? stored.trim() : null;
+    if (keyUsed !== LAST_SIGNED_IN_USER_KEY) {
+      if (value) {
+        setLastSignedInUser(value);
+      } else {
+        window.localStorage.removeItem(keyUsed);
+      }
+    }
+    return value;
   } catch (error) {
     console.warn('Failed to read last signed-in user from storage', error);
     return null;
@@ -4987,6 +5036,7 @@ function completeLogoutTransition() {
   clearFriendLocationMarkers();
   updateFriendLocationsLayer();
   renderFriendRequestsSection();
+  resetDistrictScores();
   closeFriendsManagePanel();
   updateFriendsDrawerContent();
   renderPartyInvitations();
@@ -5042,27 +5092,104 @@ async function initialisePlayers() {
 
 function loadDistrictScores() {
   districtScores = {};
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+  try {
+    let keyUsed = DISTRICT_SCORES_STORAGE_KEY;
+    let stored = window.localStorage.getItem(DISTRICT_SCORES_STORAGE_KEY);
+    if (!stored) {
+      for (const legacyKey of LEGACY_DISTRICT_SCORES_KEYS) {
+        const legacyValue = window.localStorage.getItem(legacyKey);
+        if (legacyValue) {
+          stored = legacyValue;
+          keyUsed = legacyKey;
+          break;
+        }
+      }
+    }
+    if (!stored) {
+      return;
+    }
+    const parsed = JSON.parse(stored);
+    if (!parsed || typeof parsed !== 'object') {
+      return;
+    }
+    Object.entries(parsed).forEach(([id, value]) => {
+      if (!id) {
+        return;
+      }
+      if (typeof value === 'number') {
+        districtScores[id] = {
+          adjustment: normaliseNumber(value, 0),
+          defended: value > 0 ? normaliseNumber(value, 0) : 0,
+          attacked: value < 0 ? Math.abs(normaliseNumber(value, 0)) : 0,
+          name: null,
+        };
+        return;
+      }
+      if (value && typeof value === 'object') {
+        districtScores[id] = {
+          adjustment: normaliseNumber(value.adjustment, 0),
+          defended: normaliseNumber(value.defended, 0),
+          attacked: normaliseNumber(value.attacked, 0),
+          name:
+            typeof value.name === 'string' && value.name.trim() ? value.name.trim() : null,
+        };
+      }
+    });
+    if (keyUsed !== DISTRICT_SCORES_STORAGE_KEY) {
+      saveDistrictScores();
+    }
+  } catch (error) {
+    console.warn('Failed to load district scores from storage', error);
+    districtScores = {};
+  }
 }
 
-function saveDistrictScores() {}
+function saveDistrictScores() {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(
+      DISTRICT_SCORES_STORAGE_KEY,
+      JSON.stringify(districtScores),
+    );
+    for (const legacyKey of LEGACY_DISTRICT_SCORES_KEYS) {
+      if (legacyKey !== DISTRICT_SCORES_STORAGE_KEY) {
+        window.localStorage.removeItem(legacyKey);
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to save district scores to storage', error);
+  }
+}
 
-function ensureDistrictScoreEntry(districtId, districtName = null) {
+function ensureDistrictScoreEntry(districtId, districtName = null, table = null) {
   const id = districtId ? safeId(districtId) : null;
   if (!id) {
     return null;
   }
-  if (!districtScores || typeof districtScores !== 'object') {
-    districtScores = {};
+
+  let target = table;
+  if (!target) {
+    if (!districtScores || typeof districtScores !== 'object') {
+      districtScores = {};
+    }
+    target = districtScores;
   }
-  if (!districtScores[id] || typeof districtScores[id] !== 'object') {
-    districtScores[id] = {
+
+  if (!target[id] || typeof target[id] !== 'object') {
+    target[id] = {
       adjustment: 0,
       defended: 0,
       attacked: 0,
       name: null,
     };
   }
-  const entry = districtScores[id];
+
+  const entry = target[id];
   entry.adjustment = normaliseNumber(entry.adjustment, 0);
   entry.defended = normaliseNumber(entry.defended, 0);
   entry.attacked = normaliseNumber(entry.attacked, 0);
@@ -5074,15 +5201,20 @@ function ensureDistrictScoreEntry(districtId, districtName = null) {
 
 function resetDistrictScores() {
   districtScores = {};
+  saveDistrictScores();
 }
 
-function accumulateDistrictScore(districtId, districtName, delta) {
-  const entry = ensureDistrictScoreEntry(districtId, districtName);
-  if (!entry) {
+function accumulateDistrictScore(districtId, districtName, delta, table = null) {
+  if (!Number.isFinite(delta)) {
     return;
   }
   const rounded = Math.trunc(delta);
   if (Number.isNaN(rounded) || rounded === 0) {
+    return;
+  }
+
+  const entry = ensureDistrictScoreEntry(districtId, districtName, table);
+  if (!entry) {
     return;
   }
   entry.adjustment = normaliseNumber(entry.adjustment, 0) + rounded;
@@ -5090,6 +5222,10 @@ function accumulateDistrictScore(districtId, districtName, delta) {
     entry.defended = normaliseNumber(entry.defended, 0) + rounded;
   } else if (rounded < 0) {
     entry.attacked = normaliseNumber(entry.attacked, 0) + Math.abs(rounded);
+  }
+
+  if (!table) {
+    saveDistrictScores();
   }
 }
 
@@ -5127,7 +5263,7 @@ function resolveDistrictDeltaFromEntry(entry) {
   return null;
 }
 
-function accumulateDistrictScoreFromEntry(entry) {
+function accumulateDistrictScoreFromEntry(entry, table = null) {
   if (!entry || typeof entry !== 'object') {
     return;
   }
@@ -5152,21 +5288,21 @@ function accumulateDistrictScoreFromEntry(entry) {
   if (!Number.isFinite(delta) || delta === 0) {
     return;
   }
-  accumulateDistrictScore(districtId, districtName, delta);
+  accumulateDistrictScore(districtId, districtName, delta, table);
 }
 
-function rebuildDistrictScores() {
-  resetDistrictScores();
-  if (!currentUser || !players[currentUser]) {
-    return;
+function rebuildDistrictScores(profile = null) {
+  const sourceProfile =
+    profile ||
+    (currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null);
+  const nextScores = {};
+  if (sourceProfile && Array.isArray(sourceProfile.checkins)) {
+    sourceProfile.checkins.forEach((entry) => {
+      accumulateDistrictScoreFromEntry(entry, nextScores);
+    });
   }
-  const profile = ensurePlayerProfile(currentUser);
-  if (!profile || !Array.isArray(profile.checkins)) {
-    return;
-  }
-  profile.checkins.forEach((entry) => {
-    accumulateDistrictScoreFromEntry(entry);
-  });
+  districtScores = nextScores;
+  saveDistrictScores();
 }
 
 function getDistrictStrength(districtId) {
@@ -5179,7 +5315,12 @@ function getDistrictStrength(districtId) {
   return DISTRICT_BASE_SCORE + adjustment;
 }
 
-function applyDistrictScoreDelta() {}
+function applyDistrictScoreDelta(districtId, delta, districtName = null) {
+  if (!districtId || !Number.isFinite(delta)) {
+    return;
+  }
+  accumulateDistrictScore(districtId, districtName, delta);
+}
 
 function renderKnownPlayers() {
   const names = Object.keys(players).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
@@ -5482,9 +5623,7 @@ function renderPlayerState() {
   const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
 
   if (profile) {
-    rebuildDistrictScores();
-  } else {
-    resetDistrictScores();
+    rebuildDistrictScores(profile);
   }
 
   if (profileImageUrlInput && profileImagePreview && profileImageSaveButton && profileImageClearButton) {
