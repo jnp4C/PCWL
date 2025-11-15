@@ -295,6 +295,7 @@ function renderDistrictLeaderboard(districts) {
         defended,
         attacked,
         checkins,
+        rank: Number(district.rank),
       };
     })
     .sort((a, b) => {
@@ -305,8 +306,7 @@ function renderDistrictLeaderboard(districts) {
         return b.defended - a.defended;
       }
       return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
-    })
-    .slice(0, 50);
+    });
 
   tbody.innerHTML = '';
 
@@ -314,7 +314,9 @@ function renderDistrictLeaderboard(districts) {
     const row = document.createElement('tr');
 
     const rankCell = document.createElement('td');
-    rankCell.textContent = String(index + 1);
+    const rankValue =
+      Number.isFinite(district.rank) && district.rank > 0 ? district.rank : index + 1;
+    rankCell.textContent = String(rankValue);
     row.appendChild(rankCell);
 
     const nameCell = document.createElement('td');
