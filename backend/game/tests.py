@@ -789,6 +789,36 @@ class LeaderboardApiTests(TestCase):
         self.assertEqual(prague_two["checkins"], 2)
         self.assertEqual(prague_two.get("rank"), 2)
 
+    def test_player_leaderboard_uses_live_scores_with_ranks(self):
+        Player.objects.create(
+            username="champion",
+            score=1500,
+            attack_points=900,
+            defend_points=450,
+            checkins=12,
+            home_district_code="1300",
+            home_district_name="Prague 3",
+        )
+
+        response = self.client.get(reverse("leaderboard-api"))
+        self.assertEqual(response.status_code, 200)
+        players = response.json().get("players", [])
+        self.assertGreaterEqual(len(players), 3)
+
+        top_entry = players[0]
+        self.assertEqual(top_entry["username"], "champion")
+        self.assertEqual(top_entry["rank"], 1)
+        self.assertEqual(top_entry["score"], 1500)
+        self.assertEqual(top_entry["attack_points"], 900)
+        self.assertEqual(top_entry["defend_points"], 450)
+
+        alpha_entry = next(entry for entry in players if entry["username"] == "alpha")
+        beta_entry = next(entry for entry in players if entry["username"] == "beta")
+        self.assertIn("rank", alpha_entry)
+        self.assertIn("rank", beta_entry)
+        self.assertGreater(alpha_entry["rank"], 0)
+        self.assertGreater(beta_entry["rank"], alpha_entry["rank"])
+
     def test_leaderboard_includes_large_damage_outside_top_strength(self):
         District.objects.all().delete()
         filler_codes = []

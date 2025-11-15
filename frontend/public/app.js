@@ -7357,11 +7357,13 @@ function renderPartyInvitations() {
   }
   const incoming = Array.isArray(partyState.incoming) ? partyState.incoming : [];
   const outgoing = Array.isArray(partyState.outgoing) ? partyState.outgoing : [];
+  const joinRequests = Array.isArray(partyState.joinRequests) ? partyState.joinRequests : [];
   const pendingOutgoing = outgoing.filter(
     (invite) => invite && invite.status === 'pending' && invite.toUsername,
   );
   const hasIncoming = incoming.length > 0;
-  if (!hasIncoming && pendingOutgoing.length === 0) {
+  const hasJoinRequests = joinRequests.length > 0;
+  if (!hasIncoming && pendingOutgoing.length === 0 && !hasJoinRequests) {
     friendsPartyInvitationsPanel.classList.add('hidden');
     if (friendsPartyInviteIncomingList) {
       friendsPartyInviteIncomingList.innerHTML = '';
@@ -7369,6 +7371,10 @@ function renderPartyInvitations() {
     if (friendsPartyInviteOutgoing) {
       friendsPartyInviteOutgoing.textContent = '';
       friendsPartyInviteOutgoing.classList.add('hidden');
+    }
+    if (friendsPartyJoinRequestsList) {
+      friendsPartyJoinRequestsList.innerHTML = '';
+      friendsPartyJoinRequestsList.classList.add('hidden');
     }
     return;
   }
@@ -7432,6 +7438,68 @@ function renderPartyInvitations() {
       friendsPartyInviteOutgoing.classList.add('hidden');
     }
   }
+  if (!hasJoinRequests && friendsPartyJoinRequestsList) {
+    friendsPartyJoinRequestsList.innerHTML = '';
+    friendsPartyJoinRequestsList.classList.add('hidden');
+  }
+  updatePartyJoinRequestsUi();
+}
+
+function updatePartyJoinRequestsUi() {
+  if (!friendsPartyJoinRequestsList) {
+    return;
+  }
+  const joinRequests = Array.isArray(partyState.joinRequests) ? partyState.joinRequests : [];
+  friendsPartyJoinRequestsList.innerHTML = '';
+  if (!joinRequests.length) {
+    friendsPartyJoinRequestsList.classList.add('hidden');
+    return;
+  }
+  friendsPartyJoinRequestsList.classList.remove('hidden');
+  joinRequests.forEach((request) => {
+    if (!request) {
+      return;
+    }
+    const item = document.createElement('li');
+    item.className = 'friend-party-invite-item';
+    item.dataset.joinRequestId = String(request.id);
+
+    const label = document.createElement('div');
+    label.className = 'friend-party-invite-label';
+    const requester = request.fromUsername ? `@${request.fromUsername}` : 'A friend';
+    const partyName = request.partyName ? request.partyName : '';
+    label.textContent = partyName
+      ? `${requester} wants to join ${partyName}.`
+      : `${requester} wants to join your party.`;
+    item.appendChild(label);
+
+    if (request.createdAt) {
+      const meta = document.createElement('div');
+      meta.className = 'friend-party-invite-meta';
+      meta.textContent = `Sent ${formatTimeAgo(request.createdAt)}`;
+      item.appendChild(meta);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'friend-party-invite-actions';
+
+    const acceptButton = document.createElement('button');
+    acceptButton.type = 'button';
+    acceptButton.className = 'primary small';
+    acceptButton.dataset.partyJoinAccept = String(request.id);
+    acceptButton.textContent = 'Approve';
+    actions.appendChild(acceptButton);
+
+    const declineButton = document.createElement('button');
+    declineButton.type = 'button';
+    declineButton.className = 'secondary small';
+    declineButton.dataset.partyJoinDecline = String(request.id);
+    declineButton.textContent = 'Decline';
+    actions.appendChild(declineButton);
+
+    item.appendChild(actions);
+    friendsPartyJoinRequestsList.appendChild(item);
+  });
 }
 
 async function refreshPartyState(showErrors = false, { silent = true } = {}) {
@@ -7723,6 +7791,26 @@ async function handlePartyInviteResponse(invitationId, accept) {
   } finally {
     removePartyInviteNotice(numericId);
     renderCooldownStrip();
+    await refreshPartyState(false, { silent: true });
+  }
+}
+
+async function handlePartyJoinRequestResponse(requestId, accept) {
+  const numericId = Number(requestId);
+  if (!Number.isFinite(numericId) || !isSessionAuthenticated || !currentUser) {
+    return;
+  }
+  try {
+    await apiRequest(`party/join-requests/${numericId}/`, {
+      method: 'POST',
+      body: { action: accept ? 'accept' : 'decline' },
+    });
+    updateStatus(accept ? 'Player added to your party.' : 'Join request declined.');
+  } catch (error) {
+    const detail = error?.data?.detail || error?.message || 'Unable to update join request.';
+    updateStatus(detail);
+    console.warn('Failed to respond to party join request', error);
+  } finally {
     await refreshPartyState(false, { silent: true });
   }
 }
@@ -12111,6 +12199,22 @@ if (friendsPartyInviteIncomingList) {
     if (declineTarget) {
       event.preventDefault();
       handlePartyInviteResponse(declineTarget.dataset.partyInviteDecline, false);
+    }
+  });
+}
+
+if (friendsPartyJoinRequestsList) {
+  friendsPartyJoinRequestsList.addEventListener('click', (event) => {
+    const acceptTarget = event.target.closest('[data-party-join-accept]');
+    if (acceptTarget) {
+      event.preventDefault();
+      handlePartyJoinRequestResponse(acceptTarget.dataset.partyJoinAccept, true);
+      return;
+    }
+    const declineTarget = event.target.closest('[data-party-join-decline]');
+    if (declineTarget) {
+      event.preventDefault();
+      handlePartyJoinRequestResponse(declineTarget.dataset.partyJoinDecline, false);
     }
   });
 }

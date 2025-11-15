@@ -188,9 +188,12 @@ function renderPlayerLeaderboard(players) {
     .filter((entry) => entry && entry.username)
     .map((entry) => ({
       username: entry.username,
+      displayName: typeof entry.display_name === 'string' ? entry.display_name : entry.displayName,
       points: Number(entry.score ?? entry.points) || 0,
       attackPoints: Number(entry.attack_points ?? entry.attackPoints) || 0,
       defendPoints: Number(entry.defend_points ?? entry.defendPoints) || 0,
+      checkins: Number(entry.checkins) || 0,
+      rank: Number(entry.rank),
     }))
     .sort((a, b) => {
       if (b.points !== a.points) {
@@ -212,14 +215,31 @@ function renderPlayerLeaderboard(players) {
     const row = document.createElement('tr');
 
     const rankCell = document.createElement('td');
-    const rankValue = Number.isFinite(Number(district.rank))
-      ? Number(district.rank)
-      : index + 1;
+    const rankValue =
+      Number.isFinite(player.rank) && player.rank > 0 ? player.rank : index + 1;
     rankCell.textContent = String(rankValue);
     row.appendChild(rankCell);
 
     const nameCell = document.createElement('td');
-    nameCell.textContent = player.username;
+    const nameWrapper = document.createElement('span');
+    nameWrapper.className = 'leaderboard-player-name';
+
+    const displayLabel = document.createElement('span');
+    displayLabel.className = 'leaderboard-player-label';
+    const safeDisplay = typeof player.displayName === 'string' ? player.displayName.trim() : '';
+    displayLabel.textContent = safeDisplay || player.username;
+    nameWrapper.appendChild(displayLabel);
+
+    const shouldShowHandle =
+      safeDisplay && safeDisplay.toLowerCase() !== player.username.toLowerCase();
+    if (shouldShowHandle) {
+      const usernameLabel = document.createElement('span');
+      usernameLabel.className = 'leaderboard-player-handle';
+      usernameLabel.textContent = `@${player.username}`;
+      nameWrapper.appendChild(usernameLabel);
+    }
+
+    nameCell.appendChild(nameWrapper);
     row.appendChild(nameCell);
 
     const pointsCell = document.createElement('td');

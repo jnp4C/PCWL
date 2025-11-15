@@ -1553,13 +1553,16 @@ class FriendRequestDetailView(PlayerScopedAPIView):
         return Response({"friend_request": request_data}, status=status.HTTP_200_OK)
 
 
-def _build_player_leaderboard(limit=50):
-    players = (
+def _build_player_leaderboard(limit=100):
+    queryset = (
         Player.objects.filter(is_active=True)
-        .order_by("-score", "-defend_points", "username")[:limit]
+        .order_by("-score", "-attack_points", "-defend_points", "username")
     )
-    payload = []
-    for player in players:
+    if limit and limit > 0:
+        queryset = queryset[:limit]
+
+    payload: List[Dict[str, Any]] = []
+    for index, player in enumerate(queryset, start=1):
         payload.append(
             {
                 "username": player.username,
@@ -1570,6 +1573,7 @@ def _build_player_leaderboard(limit=50):
                 "checkins": player.checkins,
                 "home_district_code": player.home_district_code,
                 "home_district_name": player.home_district_name,
+                "rank": index,
             }
         )
     return payload

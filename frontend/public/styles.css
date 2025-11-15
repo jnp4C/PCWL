@@ -2970,32 +2970,77 @@ button.secondary:hover,
   margin: 0;
 }
 
+.leaderboard-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.6rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: linear-gradient(120deg, #f59e0b, #ec4899);
+  color: #fff;
+  font-weight: 700;
+}
+
+.leaderboard-section-note {
+  margin: 0 0 0.85rem;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
 .leaderboard-table-wrapper {
   position: relative;
   width: 100%;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-  touch-action: pan-x;
+  touch-action: pan-x pan-y;
   cursor: grab;
   border-radius: 14px;
   box-shadow: 0 12px 28px rgba(76, 29, 149, 0.08);
   background: color-mix(in srgb, var(--color-panel-bg) 88%, transparent);
-  max-height: 440px;
+  max-height: 520px;
 }
 
 .leaderboard-table-wrapper:active {
   cursor: grabbing;
 }
 
+.leaderboard-table-wrapper:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-button-primary) 55%, transparent);
+  outline-offset: 2px;
+}
+
 .leaderboard-table-wrapper::-webkit-scrollbar {
   height: 6px;
+  width: 6px;
 }
 
 .leaderboard-table-wrapper::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--color-button-secondary) 55%, transparent);
   border-radius: 999px;
+}
+
+.leaderboard-player-name {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.leaderboard-player-label {
+  font-weight: 600;
+}
+
+.leaderboard-player-handle {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 .leaderboard-table {

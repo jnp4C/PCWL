@@ -40,6 +40,20 @@ DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() in {"1", "true", "yes", "
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", ["localhost", "127.0.0.1"])
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+DEFAULT_CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; "
+    "script-src 'self' 'wasm-unsafe-eval' 'inline-speculation-rules' https://apis.google.com; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; "
+    "font-src 'self' data:; "
+    "connect-src 'self' http://localhost:* http://127.0.0.1:*; "
+    "worker-src 'self' blob:; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "frame-ancestors 'self'; "
+    "frame-src https://apis.google.com;"
+)
+CONTENT_SECURITY_POLICY = os.environ.get("DJANGO_CONTENT_SECURITY_POLICY", DEFAULT_CONTENT_SECURITY_POLICY)
 
 # Applications
 INSTALLED_APPS = [
@@ -61,6 +75,8 @@ MIDDLEWARE = [
 
 if HAS_WHITENOISE:
     MIDDLEWARE.append("whitenoise.middleware.WhiteNoiseMiddleware")
+
+MIDDLEWARE.append("pcwl_backend.middleware.ContentSecurityPolicyMiddleware")
 
 MIDDLEWARE += [
     "django.contrib.sessions.middleware.SessionMiddleware",
