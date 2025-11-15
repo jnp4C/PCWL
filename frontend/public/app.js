@@ -3562,6 +3562,7 @@ let pendingCheckinFlushInFlight = false;
 const districtStrengthState = {
   byId: new Map(),
   maxStrength: 0,
+  minStrength: DISTRICT_BASE_SCORE,
   lastUpdatedAt: 0,
   appliedIds: new Set(),
 };
@@ -5823,24 +5824,45 @@ function getDistrictStrengthInfo(districtId) {
   return districtStrengthState.byId.get(id) || null;
 }
 
-function calculateDistrictFillColor(strength, maxStrength, isWinner) {
-  if (isWinner && maxStrength > 0) {
+function calculateDistrictFillColor(strength, maxStrength, minStrength, isWinner) {
+  if (isWinner && maxStrength > DISTRICT_BASE_SCORE) {
     return DISTRICT_FILL_COLOR_WINNER;
   }
-  if (!Number.isFinite(strength) || strength <= 0 || !Number.isFinite(maxStrength) || maxStrength <= 0) {
-    return blendHexColors(DISTRICT_FILL_COLOR_LOW, DISTRICT_FILL_COLOR_MID, 0.25);
+  const normalizedStrength = Number.isFinite(strength) ? strength : DISTRICT_BASE_SCORE;
+  const positiveMax = Number.isFinite(maxStrength) ? Math.max(DISTRICT_BASE_SCORE, maxStrength) : DISTRICT_BASE_SCORE;
+  const negativeMin = Number.isFinite(minStrength) ? Math.min(DISTRICT_BASE_SCORE, minStrength) : DISTRICT_BASE_SCORE;
+
+  if (normalizedStrength >= DISTRICT_BASE_SCORE) {
+    if (positiveMax <= DISTRICT_BASE_SCORE) {
+      return DISTRICT_FILL_COLOR_MID;
+    }
+    const ratio = Math.min(
+      1,
+      (normalizedStrength - DISTRICT_BASE_SCORE) /
+        Math.max(1, positiveMax - DISTRICT_BASE_SCORE),
+    );
+    if (ratio <= 0) {
+      return DISTRICT_FILL_COLOR_MID;
+    }
+    return blendHexColors(DISTRICT_FILL_COLOR_MID, DISTRICT_FILL_COLOR_HIGH, ratio);
   }
-  const ratio = Math.max(0, Math.min(1, strength / maxStrength));
-  if (ratio <= 0) {
-    return DISTRICT_FILL_COLOR_LOW;
+
+  if (normalizedStrength < DISTRICT_BASE_SCORE) {
+    if (negativeMin >= DISTRICT_BASE_SCORE) {
+      return DISTRICT_FILL_COLOR_MID;
+    }
+    const ratio = Math.min(
+      1,
+      (DISTRICT_BASE_SCORE - normalizedStrength) /
+        Math.max(1, DISTRICT_BASE_SCORE - negativeMin),
+    );
+    if (ratio <= 0) {
+      return DISTRICT_FILL_COLOR_MID;
+    }
+    return blendHexColors(DISTRICT_FILL_COLOR_MID, DISTRICT_FILL_COLOR_LOW, ratio);
   }
-  if (ratio >= 1) {
-    return DISTRICT_FILL_COLOR_HIGH;
-  }
-  if (ratio < 0.5) {
-    return blendHexColors(DISTRICT_FILL_COLOR_LOW, DISTRICT_FILL_COLOR_MID, ratio / 0.5);
-  }
-  return blendHexColors(DISTRICT_FILL_COLOR_MID, DISTRICT_FILL_COLOR_HIGH, (ratio - 0.5) / 0.5);
+
+  return DISTRICT_FILL_COLOR_MID;
 }
 
 function scheduleDistrictFeatureStateUpdate() {
@@ -5911,7 +5933,12 @@ function updateDistrictFeatureStates() {
       }
       seenIds.add(id);
       const strength = Number(info?.strength) || 0;
-      const fillColor = calculateDistrictFillColor(strength, maxStrength, winnerIds.has(id));
+        const fillColor = calculateDistrictFillColor(
+          strength,
+          maxStrength,
+          districtStrengthState.minStrength,
+          winnerIds.has(id),
+        );
       try {
         map.setFeatureState(
           { source: 'prague-districts', sourceLayer: DISTRICT_SOURCE_LAYER, id },
@@ -5954,7 +5981,8 @@ async function refreshDistrictStrengthsFromServer() {
     .then((payload) => {
       const districts = Array.isArray(payload?.districts) ? payload.districts : [];
       const map = new Map();
-      let maxStrength = 0;
+      let maxStrength = DISTRICT_BASE_SCORE;
+      let minStrength = DISTRICT_BASE_SCORE;
       districts.forEach((entry) => {
         const id = entry && entry.id ? safeId(entry.id) : null;
         if (!id) {
@@ -5989,9 +6017,13 @@ async function refreshDistrictStrengthsFromServer() {
         if (strengthValue > maxStrength) {
           maxStrength = strengthValue;
         }
+        if (strengthValue < minStrength) {
+          minStrength = strengthValue;
+        }
       });
       districtStrengthState.byId = map;
       districtStrengthState.maxStrength = maxStrength;
+      districtStrengthState.minStrength = minStrength;
       districtStrengthState.lastUpdatedAt = Date.now();
       scheduleDistrictFeatureStateUpdate();
     })
