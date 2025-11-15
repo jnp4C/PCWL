@@ -3253,6 +3253,56 @@ button.secondary:hover,
   }
 }
 
+@media (max-width: 600px) {
+  .leaderboard-table thead {
+    display: none;
+  }
+
+  .leaderboard-table tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .leaderboard-table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.35rem 0.75rem;
+    padding: 0.85rem 1rem;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--color-panel-bg) 95%, transparent);
+    box-shadow: 0 10px 20px rgba(18, 19, 52, 0.08);
+  }
+
+  .leaderboard-table th,
+  .leaderboard-table td {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    border: none;
+    padding: 0;
+  }
+
+  .leaderboard-table td::before {
+    content: attr(data-label);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    margin-bottom: 0.2rem;
+  }
+
+  .leaderboard-table td.numeric {
+    align-items: flex-end;
+    text-align: right;
+  }
+
+  .leaderboard-table td.numeric::before {
+    align-self: flex-start;
+    color: var(--color-text-muted);
+  }
+}
+
 @media (max-width: 480px) {
   .leaderboard-bar .score h1 {
     font-size: 1.6rem;

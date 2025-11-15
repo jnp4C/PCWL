@@ -213,16 +213,30 @@ function renderPlayerLeaderboard(players) {
 
   tbody.innerHTML = '';
 
+  const appendCell = (row, { text = '', html = null, className = '', label = '' }) => {
+    const cell = document.createElement('td');
+    if (className) {
+      cell.className = className;
+    }
+    if (label) {
+      cell.dataset.label = label;
+    }
+    if (html !== null) {
+      cell.innerHTML = html;
+    } else {
+      cell.textContent = text;
+    }
+    row.appendChild(cell);
+    return cell;
+  };
+
   ranked.forEach((player, index) => {
     const row = document.createElement('tr');
 
-    const rankCell = document.createElement('td');
     const rankValue =
       Number.isFinite(player.rank) && player.rank > 0 ? player.rank : index + 1;
-    rankCell.textContent = String(rankValue);
-    row.appendChild(rankCell);
+    appendCell(row, { text: String(rankValue), label: '#' });
 
-    const nameCell = document.createElement('td');
     const nameWrapper = document.createElement('span');
     nameWrapper.className = 'leaderboard-player-name';
 
@@ -241,28 +255,28 @@ function renderPlayerLeaderboard(players) {
       nameWrapper.appendChild(usernameLabel);
     }
 
-    nameCell.appendChild(nameWrapper);
-    row.appendChild(nameCell);
+    appendCell(row, { html: nameWrapper.outerHTML, label: 'Player' });
 
-    const pointsCell = document.createElement('td');
-    pointsCell.className = 'numeric';
-    pointsCell.textContent = integerFormatter.format(player.points);
-    row.appendChild(pointsCell);
-
-    const attackCell = document.createElement('td');
-    attackCell.className = 'numeric';
-    attackCell.textContent = integerFormatter.format(player.attackPoints);
-    row.appendChild(attackCell);
-
-    const defendCell = document.createElement('td');
-    defendCell.className = 'numeric';
-    defendCell.textContent = integerFormatter.format(player.defendPoints);
-    row.appendChild(defendCell);
-
-    const ratioCell = document.createElement('td');
-    ratioCell.className = 'numeric';
-    ratioCell.textContent = formatRatio(player.attackPoints, player.defendPoints);
-    row.appendChild(ratioCell);
+    appendCell(row, {
+      className: 'numeric',
+      text: integerFormatter.format(player.points),
+      label: 'Points',
+    });
+    appendCell(row, {
+      className: 'numeric',
+      text: integerFormatter.format(player.attackPoints),
+      label: 'Attack',
+    });
+    appendCell(row, {
+      className: 'numeric',
+      text: integerFormatter.format(player.defendPoints),
+      label: 'Defend',
+    });
+    appendCell(row, {
+      className: 'numeric',
+      text: formatRatio(player.attackPoints, player.defendPoints),
+      label: 'A : D Ratio',
+    });
 
     tbody.appendChild(row);
   });
@@ -310,48 +324,59 @@ function renderDistrictLeaderboard(districts) {
 
   tbody.innerHTML = '';
 
+  const appendCell = (row, { text = '', className = '', label = '' }) => {
+    const cell = document.createElement('td');
+    if (className) {
+      cell.className = className;
+    }
+    if (label) {
+      cell.dataset.label = label;
+    }
+    cell.textContent = text;
+    row.appendChild(cell);
+    return cell;
+  };
+
   ranked.forEach((district, index) => {
     const row = document.createElement('tr');
 
-    const rankCell = document.createElement('td');
     const rankValue =
       Number.isFinite(district.rank) && district.rank > 0 ? district.rank : index + 1;
-    rankCell.textContent = String(rankValue);
-    row.appendChild(rankCell);
+    appendCell(row, { text: String(rankValue), label: '#' });
 
-    const nameCell = document.createElement('td');
-    nameCell.textContent = district.name;
-    row.appendChild(nameCell);
+    appendCell(row, { text: district.name, label: 'District' });
 
-    const strengthCell = document.createElement('td');
-    strengthCell.className = 'numeric';
-    strengthCell.textContent = integerFormatter.format(district.strength);
-    row.appendChild(strengthCell);
+    appendCell(row, {
+      className: 'numeric',
+      text: integerFormatter.format(district.strength),
+      label: 'Strength',
+    });
 
-    const defendedCell = document.createElement('td');
-    defendedCell.className = 'numeric';
+    const defendedValue = district.defended > 0 ? changeFormatter.format(district.defended) : '0';
+    const defendedCell = appendCell(row, {
+      className: 'numeric',
+      text: defendedValue,
+      label: 'Defended',
+    });
     if (district.defended > 0) {
       defendedCell.classList.add('positive');
-      defendedCell.textContent = changeFormatter.format(district.defended);
-    } else {
-      defendedCell.textContent = '0';
     }
-    row.appendChild(defendedCell);
 
-    const attackedCell = document.createElement('td');
-    attackedCell.className = 'numeric';
+    const attackedValue = district.attacked > 0 ? changeFormatter.format(-district.attacked) : '0';
+    const attackedCell = appendCell(row, {
+      className: 'numeric',
+      text: attackedValue,
+      label: 'Attacked',
+    });
     if (district.attacked > 0) {
       attackedCell.classList.add('negative');
-      attackedCell.textContent = changeFormatter.format(-district.attacked);
-    } else {
-      attackedCell.textContent = '0';
     }
-    row.appendChild(attackedCell);
 
-    const checkinsCell = document.createElement('td');
-    checkinsCell.className = 'numeric';
-    checkinsCell.textContent = integerFormatter.format(district.checkins);
-    row.appendChild(checkinsCell);
+    appendCell(row, {
+      className: 'numeric',
+      text: integerFormatter.format(district.checkins),
+      label: 'Check-ins',
+    });
 
     tbody.appendChild(row);
   });
