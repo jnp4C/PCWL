@@ -1484,6 +1484,23 @@ body.dark .friend-profile-marker {
   font-weight: 600;
 }
 
+.friend-card.bubble-card .bubble-live-party {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.friend-card.bubble-card .bubble-live-party-label {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--color-button-primary);
+}
+
+.friend-card.bubble-card .bubble-live-party-meta {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
 .friend-card.bubble-card .bubble-party-meta {
   display: flex;
   flex-direction: column;

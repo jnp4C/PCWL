@@ -306,6 +306,7 @@ const PARTY_OUTGOING_NOTICE_STORAGE_KEY = 'partyOutgoingInviteLastSentAt';
 const PARTY_OUTGOING_NOTICE_NAME_STORAGE_KEY = 'partyOutgoingInviteLastTo';
 const PARTY_OUTGOING_NOTICE_PARTY_NAME_STORAGE_KEY = 'partyOutgoingInviteLastPartyName';
 const PARTY_STATE_STORAGE_KEY = 'partyStateSnapshot';
+const PARTY_NAME_DRAFT_STORAGE_KEY = 'partyNameDraft';
 const PENDING_CHECKINS_STORAGE_KEY = 'pcwlPendingCheckins';
 const MAX_PENDING_CHECKINS = 20;
 
@@ -3499,6 +3500,32 @@ function clearPartyStateSnapshot() {
   }
   try {
     window.localStorage.removeItem(PARTY_STATE_STORAGE_KEY);
+  } catch (_) {}
+}
+
+function loadPartyDraftName() {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return '';
+  }
+  try {
+    const stored = window.localStorage.getItem(PARTY_NAME_DRAFT_STORAGE_KEY);
+    return typeof stored === 'string' ? stored.trim() : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function persistPartyDraftName(value) {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  try {
+    if (trimmed) {
+      window.localStorage.setItem(PARTY_NAME_DRAFT_STORAGE_KEY, trimmed);
+    } else {
+      window.localStorage.removeItem(PARTY_NAME_DRAFT_STORAGE_KEY);
+    }
   } catch (_) {}
 }
 
@@ -7825,6 +7852,10 @@ function refreshPartyNameControls(activeParty, profile) {
   friendsPartyNameSaveButton.classList.add('hidden');
   friendsPartyNameSaveButton.disabled = true;
   friendsPartyNameSaveButton.title = 'Start a party to save this name.';
+  const storedDraft = loadPartyDraftName();
+  if (!inputFocused) {
+    friendsPartyNameInput.value = storedDraft;
+  }
 }
 
 function renderPartyPanelChip(now = Date.now()) {
@@ -8406,6 +8437,7 @@ async function savePartyName() {
       method: 'PATCH',
       body: { name: trimmed },
     });
+    persistPartyDraftName(trimmed);
     updateStatus(`Party name saved as ${trimmed}.`);
   } catch (error) {
     const detail = error?.data?.detail || error?.message || 'Unable to save party name.';
@@ -9720,6 +9752,43 @@ function renderBubbleSuggestionCard(suggestion) {
     }
     party.textContent = label;
     card.appendChild(party);
+  }
+
+  const activeParty = suggestion.activeParty;
+  if (activeParty && typeof activeParty.code === 'string' && activeParty.code.trim()) {
+    const partyRow = document.createElement('div');
+    partyRow.className = 'bubble-party bubble-live-party';
+    const nameLabel = document.createElement('span');
+    nameLabel.className = 'bubble-live-party-label';
+    const displayName =
+      typeof activeParty.name === 'string' && activeParty.name.trim()
+        ? activeParty.name.trim()
+        : `Party ${activeParty.code}`;
+    nameLabel.textContent = displayName;
+    partyRow.appendChild(nameLabel);
+
+    const metaParts = [];
+    if (activeParty.leader) {
+      metaParts.push(`Leader @${activeParty.leader}`);
+    }
+    const expiresSeconds = Number(activeParty.expiresAt);
+    const expiresMs = Number.isFinite(expiresSeconds) ? expiresSeconds * 1000 : null;
+    let countdownLabel = '';
+    if (expiresMs) {
+      countdownLabel = formatPartyCountdown(expiresMs);
+    } else if (Number.isFinite(Number(activeParty.secondsRemaining))) {
+      countdownLabel = formatPartyCountdown(Date.now() + Number(activeParty.secondsRemaining) * 1000);
+    }
+    if (countdownLabel) {
+      metaParts.push(`${countdownLabel} left`);
+    }
+    if (metaParts.length) {
+      const meta = document.createElement('span');
+      meta.className = 'bubble-live-party-meta';
+      meta.textContent = metaParts.join(' • ');
+      partyRow.appendChild(meta);
+    }
+    card.appendChild(partyRow);
   }
 
   if (suggestion.bubble_source === 'friends') {
@@ -12924,6 +12993,7 @@ if (friendSearchAddDirectButton) {
 
 if (friendsPartyNameInput) {
   friendsPartyNameInput.addEventListener('input', () => {
+    persistPartyDraftName(friendsPartyNameInput.value);
     const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
     refreshPartyNameControls(getActivePartyState(), profile);
   });
