@@ -3530,14 +3530,6 @@ function persistPartyDraftName(value) {
   } catch (_) {}
 }
 
-try {
-  const cachedPartyState = loadPartyStateSnapshot();
-  if (cachedPartyState) {
-    applyPartyStateFromServer(cachedPartyState, { silent: true, fromCache: true });
-  }
-} catch (error) {
-  console.warn('Failed to restore cached party state', error);
-}
 const activePartyInviteNotices = new Map();
 let activeOutgoingInviteNotice = null;
 const seenPartyInviteIds = new Set();
@@ -3549,6 +3541,15 @@ let friendRequestsState = {
   outgoing: [],
 };
 let friendsManageOpen = false;
+
+try {
+  const cachedPartyState = loadPartyStateSnapshot();
+  if (cachedPartyState) {
+    applyPartyStateFromServer(cachedPartyState, { silent: true, fromCache: true });
+  }
+} catch (error) {
+  console.warn('Failed to restore cached party state', error);
+}
 let districtLastTrigger = null;
 let characterLastTrigger = null;
 let lastHoverFeature = null;
