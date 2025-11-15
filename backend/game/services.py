@@ -13,8 +13,10 @@ from .models import (
     District,
     DistrictContributionStat,
     DistrictEngagement,
+    FriendLink,
     Party,
     PartyInvitation,
+    PartyJoinRequest,
     PartyMembership,
     Player,
     PlayerDistrictContribution,
@@ -190,6 +192,12 @@ def _ensure_no_active_party(player: Player) -> None:
         raise PartyError("Player is already in an active party.")
 
 
+def _are_direct_friends(player_a: Player, player_b: Player) -> bool:
+    return FriendLink.objects.filter(player=player_a, friend=player_b).exists() or FriendLink.objects.filter(
+        player=player_b, friend=player_a
+    ).exists()
+
+
 def create_party(
     leader: Player,
     *,
@@ -277,6 +285,86 @@ def respond_to_party_invitation(invitation: PartyInvitation, player: Player, acc
         invitation.responded_at = timezone.now()
         invitation.save(update_fields=["status", "responded_at"])
         return invitation
+
+
+def request_party_join(requester: Player, leader: Player) -> PartyJoinRequest:
+    """Allow a player to request joining a friend's active party."""
+    if requester.id == leader.id:
+        raise PartyError("You are already leading this party.")
+    with transaction.atomic():
+        if not _are_direct_friends(requester, leader):
+            raise PartyError("You can only request to join a friend's party.")
+        leader_membership = _get_active_party_membership(leader, lock=True)
+        if not leader_membership or not leader_membership.is_leader:
+            raise PartyError("This player is not leading an active party.")
+        party = leader_membership.party
+        if not party.is_active():
+            _end_party(party)
+            raise PartyError("Party is no longer active.")
+        if _get_active_party_membership(requester, lock=True):
+            raise PartyError("You are already in a party.")
+        active_count = party.memberships.filter(left_at__isnull=True).count()
+        if active_count >= MAX_PARTY_MEMBERS:
+            raise PartyInviteError("Party is already full.")
+        if PartyInvitation.objects.filter(
+            party=party,
+            to_player=requester,
+            status=PartyInvitation.Status.PENDING,
+        ).exists():
+            raise PartyInviteError("Leader already invited you to this party.")
+        existing = PartyJoinRequest.objects.filter(
+            party=party,
+            from_player=requester,
+            status=PartyJoinRequest.Status.PENDING,
+        ).first()
+        if existing:
+            return existing
+        join_request = PartyJoinRequest.objects.create(
+            party=party,
+            from_player=requester,
+        )
+        return join_request
+
+
+def respond_to_party_join_request(join_request: PartyJoinRequest, leader: Player, accept: bool) -> PartyJoinRequest:
+    """Leader accepts or declines a pending join request."""
+    with transaction.atomic():
+        join_request = (
+            PartyJoinRequest.objects.select_for_update()
+            .select_related("party", "party__leader", "from_player")
+            .get(pk=join_request.pk)
+        )
+        party = join_request.party
+        if party.leader_id != leader.id:
+            raise PartyError("Only the party leader can manage join requests.")
+        if join_request.status != PartyJoinRequest.Status.PENDING:
+            raise PartyInviteError("Join request has already been processed.")
+        if not accept:
+            join_request.status = PartyJoinRequest.Status.DECLINED
+            join_request.responded_at = timezone.now()
+            join_request.save(update_fields=["status", "responded_at"])
+            return join_request
+        membership = _get_active_party_membership(join_request.from_player, lock=True)
+        if membership:
+            raise PartyError("Player is already in another party.")
+        if not party.is_active():
+            _end_party(party)
+            join_request.status = PartyJoinRequest.Status.CANCELLED
+            join_request.responded_at = timezone.now()
+            join_request.save(update_fields=["status", "responded_at"])
+            raise PartyInviteError("Party is no longer active.")
+        active_count = party.memberships.filter(left_at__isnull=True).count()
+        if active_count >= MAX_PARTY_MEMBERS:
+            raise PartyInviteError("Party is already full.")
+        PartyMembership.objects.create(
+            party=party,
+            player=join_request.from_player,
+            joined_at=timezone.now(),
+        )
+        join_request.status = PartyJoinRequest.Status.ACCEPTED
+        join_request.responded_at = timezone.now()
+        join_request.save(update_fields=["status", "responded_at"])
+        return join_request
 
 
 def set_party_name(player: Player, name: Optional[str]) -> Party:

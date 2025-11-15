@@ -30,6 +30,7 @@ from .models import (
     FriendRequest,
     Party,
     PartyInvitation,
+    PartyJoinRequest,
     PartyMembership,
     Player,
     PlayerPartyBond,
@@ -53,8 +54,11 @@ from .services import (
     invite_player_to_party,
     leave_party,
     set_party_name,
+    request_party_join,
+    respond_to_party_join_request,
     PartyError,
     PartyInviteError,
+    MAX_PARTY_MEMBERS,
     PARTY_ATTACK_BONUS_PER_PLAYER,
     PARTY_CONTRIBUTION_DISTRICT_PER_PLAYER,
     PARTY_CONTRIBUTION_PLAYER_MULTIPLIER,
@@ -95,6 +99,130 @@ def _serialize_party_member(player: Player, *, is_leader: bool, is_self: bool) -
         "is_leader": is_leader,
         "is_self": is_self,
     }
+
+
+def _build_party_preview_for_viewer(
+    party: Party,
+    leader_id: int,
+    viewer: Player,
+    *,
+    member_count: int,
+    viewer_party_id: Optional[int],
+    pending_join_party_ids: Set[int],
+    pending_invite_party_ids: Set[int],
+    is_requestable: bool,
+) -> Dict[str, Any]:
+    now = timezone.now()
+    seconds_remaining = None
+    expires_at_ts = None
+    if party.expires_at:
+        seconds_remaining = max(0, int((party.expires_at - now).total_seconds()))
+        expires_at_ts = int(party.expires_at.timestamp())
+
+    join_status = "available"
+    can_request = True
+    if leader_id == viewer.id:
+        join_status = "self"
+        can_request = False
+    elif viewer_party_id == party.id:
+        join_status = "already_member"
+        can_request = False
+    elif viewer_party_id and viewer_party_id != party.id:
+        join_status = "viewer_in_party"
+        can_request = False
+    elif member_count >= MAX_PARTY_MEMBERS:
+        join_status = "full"
+        can_request = False
+    elif party.id in pending_join_party_ids:
+        join_status = "pending"
+        can_request = False
+    elif party.id in pending_invite_party_ids:
+        join_status = "invited"
+        can_request = False
+    elif not is_requestable:
+        join_status = "not_friend"
+        can_request = False
+
+    return {
+        "code": party.code,
+        "name": party.name or "",
+        "leader": party.leader.username if party.leader_id else "",
+        "size": member_count,
+        "seconds_remaining": seconds_remaining,
+        "expires_at": expires_at_ts,
+        "is_leader": True,
+        "is_full": member_count >= MAX_PARTY_MEMBERS,
+        "can_request": can_request,
+        "join_status": join_status,
+    }
+
+
+def _gather_party_previews(
+    viewer: Player,
+    candidate_ids: Set[int],
+    *,
+    requestable_ids: Optional[Set[int]] = None,
+) -> Dict[int, Dict[str, Any]]:
+    if not candidate_ids:
+        return {}
+    requestable_ids = requestable_ids or set()
+    leader_memberships = (
+        PartyMembership.objects.select_related("party", "party__leader")
+        .filter(player_id__in=candidate_ids, is_leader=True, left_at__isnull=True)
+    )
+    party_ids = {membership.party_id for membership in leader_memberships if membership.party_id}
+    if not party_ids:
+        return {}
+
+    member_counts = {
+        row["party_id"]: row["total"]
+        for row in (
+            PartyMembership.objects.filter(party_id__in=party_ids, left_at__isnull=True)
+            .values("party_id")
+            .annotate(total=Count("id"))
+        )
+    }
+    pending_join_party_ids = {
+        jr.party_id
+        for jr in PartyJoinRequest.objects.filter(
+            from_player=viewer,
+            party_id__in=party_ids,
+            status=PartyJoinRequest.Status.PENDING,
+        )
+    }
+    pending_invite_party_ids = {
+        inv.party_id
+        for inv in PartyInvitation.objects.filter(
+            to_player=viewer,
+            party_id__in=party_ids,
+            status=PartyInvitation.Status.PENDING,
+        )
+    }
+    viewer_membership = (
+        PartyMembership.objects.select_related("party")
+        .filter(player=viewer, left_at__isnull=True)
+        .first()
+    )
+    viewer_party_id = viewer_membership.party_id if viewer_membership else None
+
+    previews: Dict[int, Dict[str, Any]] = {}
+    for membership in leader_memberships:
+        party = membership.party
+        if not party or party.leader_id != membership.player_id:
+            continue
+        member_count = member_counts.get(party.id, 1)
+        is_requestable = membership.player_id in requestable_ids
+        previews[membership.player_id] = _build_party_preview_for_viewer(
+            party,
+            membership.player_id,
+            viewer,
+            member_count=member_count,
+            viewer_party_id=viewer_party_id,
+            pending_join_party_ids=pending_join_party_ids,
+            pending_invite_party_ids=pending_invite_party_ids,
+            is_requestable=is_requestable,
+        )
+    return previews
 
 
 def _build_party_payload(party: Party, player: Player) -> Optional[Dict[str, Any]]:
@@ -256,6 +384,20 @@ def _serialize_party_invitation(invitation: PartyInvitation) -> Dict[str, Any]:
     }
 
 
+def _serialize_party_join_request(join_request: PartyJoinRequest) -> Dict[str, Any]:
+    from_player = join_request.from_player
+    return {
+        "id": join_request.id,
+        "party_code": join_request.party.code,
+        "party_name": join_request.party.name or "",
+        "from_username": from_player.username,
+        "display_name": from_player.display_name or "",
+        "status": join_request.status,
+        "created_at": join_request.created_at,
+        "responded_at": join_request.responded_at,
+    }
+
+
 def _auto_migrate_if_allowed():
     """Attempt to auto-apply migrations in development if enabled.
 
@@ -383,7 +525,7 @@ class SessionLoginView(APIView):
                     return Response(
                         {
                             "detail": "Database is not ready. Please apply migrations.",
-                            "action": "run ./scripts/migrate.sh or python manage.py migrate",
+                            "action": "run ./tools/migrate.sh or python manage.py migrate",
                         },
                         status=status.HTTP_503_SERVICE_UNAVAILABLE,
                     )
@@ -391,7 +533,7 @@ class SessionLoginView(APIView):
                 return Response(
                     {
                         "detail": "Server database is not up to date. Please apply migrations.",
-                        "action": "run ./scripts/migrate.sh or python manage.py migrate",
+                        "action": "run ./tools/migrate.sh or python manage.py migrate",
                     },
                     status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
@@ -441,7 +583,7 @@ class SessionCurrentView(APIView):
                         {
                             "authenticated": False,
                             "detail": "Database is not ready. Please apply migrations.",
-                            "action": "run ./scripts/migrate.sh or python manage.py migrate",
+                            "action": "run ./tools/migrate.sh or python manage.py migrate",
                         },
                         status=status.HTTP_503_SERVICE_UNAVAILABLE,
                     )
@@ -450,7 +592,7 @@ class SessionCurrentView(APIView):
                     {
                         "authenticated": False,
                         "detail": "Server database is not up to date. Please apply migrations.",
-                        "action": "run ./scripts/migrate.sh or python manage.py migrate",
+                        "action": "run ./tools/migrate.sh or python manage.py migrate",
                     },
                     status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
@@ -460,17 +602,28 @@ class SessionCurrentView(APIView):
         incoming_invites: List[Dict[str, Any]] = []
         outgoing_invites: List[Dict[str, Any]] = []
         insights = {"best_partner": None, "top_contributors": []}
+        join_requests: List[Dict[str, Any]] = []
         if player:
             party = get_active_party(player)
             if party:
                 party_payload = _build_party_payload(party, player)
                 if party_payload and party_payload.get("is_leader"):
+                    join_requests = [
+                        _serialize_party_join_request(request_obj)
+                        for request_obj in PartyJoinRequest.objects.select_related("from_player")
+                        .filter(party=party, status=PartyJoinRequest.Status.PENDING)
+                        .order_by("-created_at")
+                    ]
+                    party_payload["join_requests"] = join_requests
                     outgoing_invites = [
                         _serialize_party_invitation(invitation)
                         for invitation in PartyInvitation.objects.select_related("to_player")
                         .filter(party=party, status=PartyInvitation.Status.PENDING)
                         .order_by("-created_at")
                     ]
+            else:
+                if party_payload is not None and "join_requests" not in party_payload:
+                    party_payload["join_requests"] = []
             insights = _build_party_insights(player)
             incoming_invites = [
                 _serialize_party_invitation(invitation)
@@ -567,6 +720,16 @@ class PartyView(PlayerScopedAPIView):
         party = get_active_party(player)
         party_payload = _build_party_payload(party, player) if party else None
         insights = _build_party_insights(player)
+        join_requests: List[Dict[str, Any]] = []
+        if party and party_payload:
+            if party_payload.get("is_leader"):
+                join_requests = [
+                    _serialize_party_join_request(request_obj)
+                    for request_obj in PartyJoinRequest.objects.select_related("from_player")
+                    .filter(party=party, status=PartyJoinRequest.Status.PENDING)
+                    .order_by("-created_at")
+                ]
+            party_payload["join_requests"] = join_requests
         incoming = [
             _serialize_party_invitation(invitation)
             for invitation in PartyInvitation.objects.select_related("from_player", "party")
@@ -599,6 +762,8 @@ class PartyView(PlayerScopedAPIView):
         except PartyError as exc:
             raise ValidationError({"detail": str(exc)})
         payload = _build_party_payload(party, player)
+        if payload is not None and "join_requests" not in payload:
+            payload["join_requests"] = []
         return Response({"party": payload}, status=status.HTTP_201_CREATED)
 
     def patch(self, request):
@@ -609,6 +774,8 @@ class PartyView(PlayerScopedAPIView):
         except PartyError as exc:
             raise ValidationError({"detail": str(exc)})
         payload = _build_party_payload(party, player)
+        if payload is not None and "join_requests" not in payload:
+            payload["join_requests"] = []
         return Response({"party": payload}, status=status.HTTP_200_OK)
 
     def delete(self, request):
@@ -668,6 +835,60 @@ class PartyInvitationDetailView(PlayerScopedAPIView):
         invitation.status = PartyInvitation.Status.CANCELLED
         invitation.responded_at = timezone.now()
         invitation.save(update_fields=["status", "responded_at"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PartyJoinRequestView(PlayerScopedAPIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        player = self.get_current_player(request)
+        username = str(request.data.get("username", "")).strip()
+        if not username:
+            raise ValidationError({"detail": "Username is required."})
+        target = Player.objects.filter(username__iexact=username).first()
+        if target is None:
+            return Response({"detail": "Player not found."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            join_request = request_party_join(player, target)
+        except (PartyError, PartyInviteError) as exc:
+            raise ValidationError({"detail": str(exc)})
+        payload = _serialize_party_join_request(join_request)
+        return Response({"join_request": payload}, status=status.HTTP_201_CREATED)
+
+
+class PartyJoinRequestDetailView(PlayerScopedAPIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        player = self.get_current_player(request)
+        action = str(request.data.get("action", "")).strip().lower()
+        if action not in {"accept", "decline"}:
+            raise ValidationError({"detail": "Unsupported action."})
+        try:
+            join_request = PartyJoinRequest.objects.select_related("party", "from_player").get(pk=pk)
+        except PartyJoinRequest.DoesNotExist:
+            return Response({"detail": "Join request not found."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            join_request = respond_to_party_join_request(join_request, player, accept=action == "accept")
+        except (PartyError, PartyInviteError) as exc:
+            raise ValidationError({"detail": str(exc)})
+        payload = _serialize_party_join_request(join_request)
+        return Response({"join_request": payload}, status=status.HTTP_200_OK)
+
+    def delete(self, request, pk):
+        player = self.get_current_player(request)
+        try:
+            join_request = PartyJoinRequest.objects.select_related("party", "from_player").get(pk=pk)
+        except PartyJoinRequest.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        if join_request.party.leader_id != player.id:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        if join_request.status != PartyJoinRequest.Status.PENDING:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        join_request.status = PartyJoinRequest.Status.DECLINED
+        join_request.responded_at = timezone.now()
+        join_request.save(update_fields=["status", "responded_at"])
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -952,7 +1173,17 @@ class FriendListView(PlayerScopedAPIView):
             .filter(player=player)
             .order_by("-is_favorite", "friend__username")
         )
-        serializer = FriendLinkSerializer(friend_links, many=True, context={"request": request})
+        friend_ids: Set[int] = {link.friend_id for link in friend_links if link.friend_id}
+        party_previews = _gather_party_previews(player, friend_ids, requestable_ids=friend_ids)
+        serializer = FriendLinkSerializer(
+            friend_links,
+            many=True,
+            context={
+                "request": request,
+                "current_player": player,
+                "party_previews": party_previews,
+            },
+        )
         return Response({"friends": serializer.data}, status=status.HTTP_200_OK)
 
     def post(self, request):
@@ -1011,7 +1242,11 @@ class FriendBubbleView(PlayerScopedAPIView):
 
     MAX_RESULTS = 30
 
-    def _format_direct_friend_suggestions(self, links: List[FriendLink]) -> List[Dict[str, Any]]:
+    def _format_direct_friend_suggestions(
+        self,
+        links: List[FriendLink],
+        party_previews: Dict[int, Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
         suggestions: List[Dict[str, Any]] = []
         for link in links[: self.MAX_RESULTS]:
             friend = link.friend
@@ -1026,6 +1261,7 @@ class FriendBubbleView(PlayerScopedAPIView):
                     "mutual_friend_count": 0,
                     "mutual_friends": [],
                     "party_affinity": None,
+                    "active_party": party_previews.get(friend.id),
                 }
             )
         return suggestions
@@ -1044,7 +1280,7 @@ class FriendBubbleView(PlayerScopedAPIView):
         }
         direct_friend_ids = set(direct_friend_map.keys())
         if not direct_friend_ids:
-            fallback = self._format_direct_friend_suggestions(direct_links)
+            fallback = self._format_direct_friend_suggestions(direct_links, {})
             serializer = BubbleSuggestionSerializer(fallback, many=True)
             return Response({"bubble": serializer.data, "source": "friends"}, status=status.HTTP_200_OK)
 
@@ -1073,8 +1309,11 @@ class FriendBubbleView(PlayerScopedAPIView):
             if latest is None or (link.updated_at and link.updated_at > latest):
                 entry["latest_link_at"] = link.updated_at
 
+        all_candidate_ids: Set[int] = set(candidate_map.keys()) | direct_friend_ids
+        party_previews = _gather_party_previews(player, all_candidate_ids, requestable_ids=direct_friend_ids)
+
         if not candidate_map:
-            fallback = self._format_direct_friend_suggestions(direct_links)
+            fallback = self._format_direct_friend_suggestions(direct_links, party_previews)
             serializer = BubbleSuggestionSerializer(fallback, many=True)
             return Response({"bubble": serializer.data, "source": "friends"}, status=status.HTTP_200_OK)
 
@@ -1136,6 +1375,7 @@ class FriendBubbleView(PlayerScopedAPIView):
                         if encounters > 0
                         else None
                     ),
+                    "active_party": party_previews.get(candidate_id),
                     "_sort": {
                         "party_encounters": encounters,
                         "party_last_ts": last_encounter_ms or 0,
@@ -1146,7 +1386,7 @@ class FriendBubbleView(PlayerScopedAPIView):
             )
 
         if not suggestions:
-            fallback = self._format_direct_friend_suggestions(direct_links)
+            fallback = self._format_direct_friend_suggestions(direct_links, party_previews)
             serializer = BubbleSuggestionSerializer(fallback, many=True)
             return Response({"bubble": serializer.data, "source": "friends"}, status=status.HTTP_200_OK)
 
@@ -1575,7 +1815,7 @@ def migration_status(request):
         return Response(
             {
                 "detail": "Database unavailable or not initialized. Please apply migrations.",
-                "action": "run ./scripts/setup.sh (first time), then ./scripts/migrate.sh or python manage.py migrate",
+                "action": "run ./tools/setup.sh (first time), then ./tools/migrate.sh or python manage.py migrate",
             },
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )

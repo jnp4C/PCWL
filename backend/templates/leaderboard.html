@@ -4,7 +4,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'inline-speculation-rules' https://apis.google.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://localhost:* http://127.0.0.1:*; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; frame-src https://apis.google.com;" />
+  <meta name="theme-color" content="#b39ddb" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="PCWL" />
   <title>Prague Explorer – Leaderboard</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='48' fill='%234c1d95'/%3E%3Ctext x='50' y='58' font-size='48' text-anchor='middle' fill='white' font-family='Segoe UI, Tahoma, sans-serif'%3EP%3C/text%3E%3C/svg%3E" />
+  <link rel="manifest" href="{% static 'manifest.webmanifest.json' %}" />
+  <link rel="apple-touch-icon" href="{% static 'icons/icon-180.png' %}" />
   <link rel="stylesheet" href="{% static 'styles.css' %}" />
   <script>
     window.__STATIC_URL__ = "{% get_static_prefix %}";
@@ -85,7 +94,7 @@
       </div>
     </section>
   </main>
-  <script src="{% static 'scripts/theme-toggle.js' %}"></script>
-  <script type="module" src="{% static 'scripts/leaderboard.js' %}"></script>
+  <script src="{% static 'js/theme-toggle.js' %}"></script>
+  <script type="module" src="{% static 'js/leaderboard.js' %}"></script>
 </body>
 </html>

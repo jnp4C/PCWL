@@ -2,7 +2,8 @@ import json
 import subprocess
 from pathlib import Path
 
-data_path = Path('/Users/jonaspalecek/Desktop/APPTEST/data')
+repo_root = Path(__file__).resolve().parents[1]
+data_path = repo_root / 'frontend' / 'public' / 'data'
 districts = data_path / 'prague-districts.geojson'
 dissolved = data_path / 'prague-districts-dissolve.geojson'
 outline = data_path / 'prague-boundary.geojson'

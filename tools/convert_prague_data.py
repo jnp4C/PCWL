@@ -3,7 +3,7 @@
 convert_prague_data.py
 ----------------------
 
-Helper script that reprojects the raw Prague GIS assets you dropped into `data/`
+Helper script that reprojects the raw Prague GIS assets under `frontend/public/data/`
 from S-JTSK / Křovák coordinates (EPSG:5514) to WGS‑84 (EPSG:4326) and writes
 Leaflet-friendly outputs.
 
@@ -12,8 +12,8 @@ Prerequisites:
     be installed and on PATH.
 
 Usage examples:
-  python3 scripts/convert_prague_data.py
-  python3 scripts/convert_prague_data.py --output data/build-cache
+  python3 tools/convert_prague_data.py
+  python3 tools/convert_prague_data.py --output frontend/public/exports
 
 The script will:
   • Convert building polygons and points to GeoJSON
@@ -29,7 +29,8 @@ from typing import List
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT / "data"
+PUBLIC_DIR = ROOT / "frontend" / "public"
+DATA_DIR = PUBLIC_DIR / "data"
 
 POLY_SRC = DATA_DIR / "DTMP_CUR_TMBUDOVA_B" / "TMBUDOVA_B.shp"
 POINT_SRC = DATA_DIR / "DTMP_CUR_TMBUDOVA_P" / "TMBUDOVA_P.shp"
@@ -39,6 +40,8 @@ POLY_OUT = DATA_DIR / "prague-buildings.geojson"
 POINT_OUT = DATA_DIR / "prague-building-points.geojson"
 RASTER_TIF_OUT = DATA_DIR / "prague-relief-abs.tif"
 RASTER_PNG_OUT = DATA_DIR / "prague-relief-abs.png"
+
+DEFAULT_BUILD_DIR = PUBLIC_DIR / "exports"
 
 
 def require_tool(name: str) -> None:
@@ -115,8 +118,8 @@ def main() -> None:
     parser.add_argument(
         "--output",
         type=Path,
-        default=None,
-        help="Optional directory to copy results into (defaults to skipping the copy step).",
+        default=DEFAULT_BUILD_DIR,
+        help="Optional directory to copy results into (default: frontend/public/exports)",
     )
     args = parser.parse_args()
 
@@ -125,15 +128,13 @@ def main() -> None:
 
     convert_buildings()
     convert_raster()
-    if args.output:
-        copy_to_build(args.output)
+    copy_to_build(args.output)
 
     print("\nDone. Updated files:")
     print(f"  • {POLY_OUT.relative_to(ROOT)}")
     print(f"  • {POINT_OUT.relative_to(ROOT)}")
     print(f"  • {RASTER_TIF_OUT.relative_to(ROOT)} / {RASTER_PNG_OUT.relative_to(ROOT)} (+ .pgw)")
-    if args.output:
-        print(f"  • Copies in {args.output.relative_to(ROOT)}")
+    print(f"  • Copies in {args.output.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

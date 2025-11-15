@@ -296,6 +296,7 @@ class FriendLinkSerializer(serializers.ModelSerializer):
     recent_checkins = serializers.SerializerMethodField()
     last_known_location = serializers.SerializerMethodField()
     map_marker_color = serializers.SerializerMethodField()
+    active_party = serializers.SerializerMethodField()
 
     class Meta:
         model = FriendLink
@@ -316,6 +317,7 @@ class FriendLinkSerializer(serializers.ModelSerializer):
             "recent_checkins",
             "last_known_location",
             "map_marker_color",
+            "active_party",
             "is_favorite",
             "created_at",
             "updated_at",
@@ -337,6 +339,7 @@ class FriendLinkSerializer(serializers.ModelSerializer):
             "recent_checkins",
             "last_known_location",
             "map_marker_color",
+            "active_party",
             "created_at",
             "updated_at",
         ]
@@ -434,6 +437,13 @@ class FriendLinkSerializer(serializers.ModelSerializer):
         if not HEX_COLOR_PATTERN.match(color):
             return DEFAULT_MAP_MARKER_COLOR
         return color.lower()
+
+    def get_active_party(self, obj: FriendLink) -> Optional[Dict[str, Any]]:
+        previews: Dict[int, Dict[str, Any]] = self.context.get("party_previews", {})
+        friend_id = obj.friend_id
+        if friend_id is None:
+            return None
+        return previews.get(friend_id)
 
 
 class FriendFavoriteSerializer(serializers.Serializer):
@@ -569,6 +579,19 @@ class PartyAffinitySerializer(serializers.Serializer):
     last_encounter_at = serializers.IntegerField(allow_null=True)
 
 
+class PartyPreviewSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    name = serializers.CharField(allow_blank=True)
+    leader = serializers.CharField(allow_blank=True)
+    size = serializers.IntegerField()
+    seconds_remaining = serializers.IntegerField(allow_null=True)
+    expires_at = serializers.IntegerField(allow_null=True)
+    is_leader = serializers.BooleanField()
+    is_full = serializers.BooleanField()
+    can_request = serializers.BooleanField()
+    join_status = serializers.CharField()
+
+
 class BubbleMutualSerializer(serializers.Serializer):
     username = serializers.CharField()
     display_name = serializers.CharField(allow_blank=True)
@@ -582,6 +605,7 @@ class BubbleSuggestionSerializer(serializers.Serializer):
     mutual_friend_count = serializers.IntegerField()
     mutual_friends = BubbleMutualSerializer(many=True)
     party_affinity = PartyAffinitySerializer(allow_null=True)
+    active_party = PartyPreviewSerializer(allow_null=True)
 
 
 class PlayerSearchResultSerializer(serializers.ModelSerializer):

@@ -1175,6 +1175,21 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   color: var(--color-text-strong);
 }
 
+.friend-party-invite-list.join-requests {
+  border-top: 1px solid rgba(255, 208, 120, 0.35);
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+}
+
+.friend-party-invite-item.join-request-item {
+  background: rgba(142, 215, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(142, 215, 255, 0.32);
+}
+
+.friend-party-invite-item.join-request-item .friend-party-invite-label {
+  color: var(--color-text-strong);
+}
+
 .music-track-label {
   margin: 0.4rem 0;
   font-size: 0.85rem;
@@ -1451,6 +1466,23 @@ body.dark .friend-profile-marker {
   font-size: 0.85rem;
   color: var(--color-button-primary);
   font-weight: 600;
+}
+
+.friend-card.bubble-card .bubble-party-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.friend-card.bubble-card .bubble-join-status {
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.friend-card.bubble-card .bubble-join-button {
+  margin-top: 0.25rem;
 }
 
 .friend-card.bubble-card .bubble-shared-note {

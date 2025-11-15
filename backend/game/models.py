@@ -290,6 +290,10 @@ class Party(models.Model):
             self.status = self.Status.ENDED
             self.ended_at = when
             self.save(update_fields=["status", "ended_at", "updated_at"])
+            self.join_requests.filter(status=PartyJoinRequest.Status.PENDING).update(  # type: ignore[name-defined]
+                status=PartyJoinRequest.Status.CANCELLED,
+                responded_at=when,
+            )
 
     def is_active(self):
         if self.status != self.Status.ACTIVE:
@@ -376,6 +380,43 @@ class PartyInvitation(models.Model):
 
     def __str__(self):
         return f"Invite {self.party.code} -> {self.to_player.username} ({self.status})"
+
+
+class PartyJoinRequest(models.Model):
+    """Friend-initiated request to join an existing party."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        ACCEPTED = "accepted", "Accepted"
+        DECLINED = "declined", "Declined"
+        CANCELLED = "cancelled", "Cancelled"
+
+    party = models.ForeignKey(
+        Party,
+        on_delete=models.CASCADE,
+        related_name="join_requests",
+    )
+    from_player = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="party_join_requests",
+    )
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["party", "from_player"],
+                condition=models.Q(status="pending"),
+                name="unique_active_party_join_request",
+            )
+        ]
+
+    def __str__(self):
+        return f"JoinRequest {self.from_player.username} -> {self.party.code} ({self.status})"
 
 
 class DistrictContributionStat(models.Model):

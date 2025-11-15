@@ -5,16 +5,78 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="a5509026-cec2-41ec-8272-bef0294f008e" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app.js" beforeDir="false" afterPath="$PROJECT_DIR$/app.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app.js" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/audio/kostej-mlha-01-moje-slunce.m4a" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/audio/kostej-mlha-02-jeste-jednou-se-vratime.m4a" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/audio/kostej-mlha-03-posledni-exemplar.m4a" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/audio/kostej-mlha-04-mlha.m4a" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/audio/kostej-mlha-05-ven.m4a" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/audio/kostej-mlha-06-termoclanek.m4a" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/audio/kostej-mlha-07-alkoholova-kumpanie.m4a" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/audio/kostej-mlha-08-ssri.m4a" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/audio/kostej-mlha-09-heppy.m4a" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/leaflet/images/layers-2x.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/leaflet/images/layers.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/leaflet/images/marker-icon-2x.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/leaflet/images/marker-icon.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/leaflet/images/marker-shadow.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/leaflet/leaflet.css" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/leaflet/leaflet.js" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/maplibre/maplibre-gl.css" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/assets/maplibre/maplibre-gl.js" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/game/admin.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/game/admin.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/game/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/game/models.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/game/serializers.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/game/serializers.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/game/tests.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/game/tests.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/game/services.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/game/services.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/game/urls.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/game/urls.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/backend/game/views.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/game/views.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/pcwl_backend/settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/pcwl_backend/settings.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/templates/home.html" beforeDir="false" afterPath="$PROJECT_DIR$/backend/templates/home.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/Prague_Civil_War_Live.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/attack_hitmarker.gif" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/checkin.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/defend_hitmarker.gif" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/giphy-2060961323.gif" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/prague-basemap.geojson" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/prague-boundary.geojson" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/prague-boundary.topo.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/prague-building-polygons.geojson" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/prague-building-polygons.topo.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/prague-cycling-routes.geojson" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/prague-cycling-routes.topo.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/prague-districts.geojson" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/prague-districts.topo.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/prague-parks.geojson" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/prague-parks.topo.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/prague-streets.geojson" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/prague-streets.topo.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/tree.gif" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/urban-planning.geojson" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/urban-planning.topo.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/icons/icon-180.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/icons/icon-192.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/icons/icon-512.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/icons/maskable-icon.png" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/index.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/manifest.webmanifest.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/basemap_template.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/build_outline.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/convert_prague_data.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/create-account.js" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/error-reporter.js" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/generate_prague_basemap.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/install_docker.ps1" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/install_docker.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/leaderboard.js" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/migrate.sh" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/migrate.sh" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/run.sh" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/run.sh" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/setup.sh" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/setup.sh" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/theme-toggle.js" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scripts/topojson-client.min.js" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/service-worker.js" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/styles.css" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -35,33 +97,33 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;JavaScript Debug.index.html.executor&quot;: &quot;Run&quot;,
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;Node.js.app.js.executor&quot;: &quot;Run&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;SHELLCHECK.PATH&quot;: &quot;/Users/jonaspalecek/Library/Application Support/JetBrains/IntelliJIdea2025.2/plugins/Shell Script/shellcheck&quot;,
-    &quot;Shell Script.PlayerProfileManagement.sh.executor&quot;: &quot;Run&quot;,
-    &quot;Shell Script.run.sh.executor&quot;: &quot;Run&quot;,
-    &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;deploy__ui.02.a&quot;,
-    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
-    &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;/Users/jonaspalecek/Documents/GitHub/PCWL&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;run.code.analysis.last.selected.profile&quot;: &quot;pProject Default&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;ml.llm.LLMConfigurable&quot;,
-    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "JavaScript Debug.index.html.executor": "Run",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "Node.js.app.js.executor": "Run",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "SHELLCHECK.PATH": "/Users/jonaspalecek/Library/Application Support/JetBrains/IntelliJIdea2025.2/plugins/Shell Script/shellcheck",
+    "Shell Script.PlayerProfileManagement.sh.executor": "Run",
+    "Shell Script.run.sh.executor": "Run",
+    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
+    "git-widget-placeholder": "deploy__ui.02.a",
+    "junie.onboarding.icon.badge.shown": "true",
+    "kotlin-language-version-configured": "true",
+    "last_opened_file_path": "/Users/jonaspalecek/Documents/GitHub/PCWL",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "run.code.analysis.last.selected.profile": "pProject Default",
+    "settings.editor.selected.configurable": "reference.settingsdialog.IDE.editor.colors.Console Colors",
+    "to.speed.mode.migration.done": "true",
+    "vue.rearranger.settings.migration": "true"
   }
-}</component>
+}]]></component>
   <component name="RunManager" selected="Shell Script.run.sh">
     <configuration name="index.html" type="JavascriptDebugType" temporary="true" nameIsGenerated="true" uri="http://localhost:63342/PCWL/index.html" useBuiltInWebServerPort="true">
       <method v="2" />
@@ -84,10 +146,10 @@
     <configuration name="run.sh" type="ShConfigurationType" temporary="true">
       <option name="SCRIPT_TEXT" value="" />
       <option name="INDEPENDENT_SCRIPT_PATH" value="true" />
-      <option name="SCRIPT_PATH" value="$PROJECT_DIR$/scripts/run.sh" />
+      <option name="SCRIPT_PATH" value="$PROJECT_DIR$/tools/run.sh" />
       <option name="SCRIPT_OPTIONS" value="" />
       <option name="INDEPENDENT_SCRIPT_WORKING_DIRECTORY" value="true" />
-      <option name="SCRIPT_WORKING_DIRECTORY" value="$PROJECT_DIR$/scripts" />
+      <option name="SCRIPT_WORKING_DIRECTORY" value="$PROJECT_DIR$/tools" />
       <option name="INDEPENDENT_INTERPRETER_PATH" value="true" />
       <option name="INTERPRETER_PATH" value="/usr/bin/env" />
       <option name="INTERPRETER_OPTIONS" value="bash" />
@@ -127,6 +189,7 @@
       <workItem from="1761405743707" duration="25200000" />
       <workItem from="1761575215969" duration="1741000" />
       <workItem from="1761830241156" duration="13007000" />
+      <workItem from="1763217233236" duration="2404000" />
     </task>
     <task id="LOCAL-00001" summary="added ios add to home support">
       <option name="closed" value="true" />

@@ -30,7 +30,9 @@ def env_list(name, default=None):
 
 # Paths
 BASE_DIR = Path(__file__).resolve().parent.parent
-FRONTEND_DIR = BASE_DIR.parent
+REPO_ROOT = BASE_DIR.parent
+FRONTEND_DIR = REPO_ROOT / "frontend"
+FRONTEND_PUBLIC_DIR = FRONTEND_DIR / "public"
 
 # Security
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-change-me")
@@ -74,7 +76,7 @@ ROOT_URLCONF = "pcwl_backend.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [BASE_DIR / "templates", FRONTEND_DIR],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -148,12 +150,9 @@ USE_TZ = True
 # Static assets
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [
-    FRONTEND_DIR / "assets",
-    FRONTEND_DIR / "scripts",
-    FRONTEND_DIR / "data",
-    FRONTEND_DIR,
+    FRONTEND_PUBLIC_DIR,
 ]
-STATIC_ROOT = (FRONTEND_DIR / "_pcwl_staticfiles").resolve()
+STATIC_ROOT = (REPO_ROOT / "_pcwl_staticfiles").resolve()
 if HAS_WHITENOISE:
     STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 else:

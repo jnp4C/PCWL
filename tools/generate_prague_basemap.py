@@ -2,8 +2,8 @@
 import json
 from pathlib import Path
 
-root = Path(__file__).resolve().parents[1]
-data_dir = root / 'data'
+repo_root = Path(__file__).resolve().parents[1]
+data_dir = repo_root / 'frontend' / 'public' / 'data'
 output = data_dir / 'prague-basemap.geojson'
 
 features = [{

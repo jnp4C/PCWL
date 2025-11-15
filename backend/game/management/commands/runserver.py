@@ -30,7 +30,7 @@ class Command(RunserverCommand):
             self.stderr.write(
                 self.style.WARNING(
                     f"[PCWL] Warning: auto-migrate failed: {exc}.\n"
-                    "[PCWL] You can run migrations manually: bash scripts/migrate.sh or cd backend && python manage.py migrate"
+                    "[PCWL] You can run migrations manually: bash tools/migrate.sh or cd backend && python manage.py migrate"
                 )
             )
         # Proceed with the normal runserver behavior

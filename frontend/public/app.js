@@ -141,6 +141,7 @@ const friendsPartyChip = document.getElementById('friends-party-chip');
 const friendsPartyInvitationsPanel = document.getElementById('friends-party-invitations');
 const friendsPartyInviteIncomingList = document.getElementById('friends-party-invite-incoming');
 const friendsPartyInviteOutgoing = document.getElementById('friends-party-invite-outgoing');
+const friendsPartyJoinRequestsList = document.getElementById('friends-party-join-requests');
 const friendsPartyNameDisplay = document.getElementById('friends-party-name-display');
 const friendsPartyNameRow = document.getElementById('friends-party-name-row');
 const friendsPartyNameInput = document.getElementById('friends-party-name');
@@ -3222,6 +3223,7 @@ let partyState = {
   party: null,
   incoming: [],
   outgoing: [],
+  joinRequests: [],
   insights: null,
 };
 const activePartyInviteNotices = new Map();
@@ -4046,6 +4048,7 @@ function resetPartyState() {
     party: null,
     incoming: [],
     outgoing: [],
+    joinRequests: [],
     insights: null,
   };
   activePartyInviteNotices.clear();
@@ -4152,6 +4155,9 @@ function sanitizePartyPayload(raw) {
         ? raw.active_district_name.trim()
         : '',
     activeDistrictCount: Number.isFinite(Number(raw.active_district_count)) ? Number(raw.active_district_count) : 0,
+    joinRequests: Array.isArray(raw.join_requests)
+      ? raw.join_requests.map(sanitizePartyJoinRequest).filter(Boolean)
+      : [],
   };
 }
 
@@ -4177,6 +4183,98 @@ function sanitizePartyInvitation(raw) {
     respondedAt: parseServerTimestamp(raw.responded_at),
     partyExpiresAt: parseServerTimestamp(raw.party_expires_at),
   };
+}
+
+function sanitizePartyJoinRequest(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const id = Number(raw.id);
+  if (!Number.isFinite(id)) {
+    return null;
+  }
+  return {
+    id,
+    fromUsername: typeof raw.from_username === 'string' ? raw.from_username : '',
+    displayName:
+      typeof raw.display_name === 'string' && raw.display_name.trim()
+        ? raw.display_name.trim()
+        : '',
+    status: typeof raw.status === 'string' ? raw.status : 'pending',
+    createdAt: parseServerTimestamp(raw.created_at),
+    respondedAt: parseServerTimestamp(raw.responded_at),
+    partyCode: typeof raw.party_code === 'string' ? raw.party_code : '',
+    partyName:
+      typeof raw.party_name === 'string' && raw.party_name.trim()
+        ? raw.party_name.trim()
+        : '',
+  };
+}
+
+function sanitizePartyPreview(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const code = typeof raw.code === 'string' ? raw.code : '';
+  if (!code) {
+    return null;
+  }
+  const sizeNumber = Number(raw.size);
+  const secondsRemainingNumber = Number(raw.seconds_remaining);
+  const expiresAtNumber = Number(raw.expires_at);
+  return {
+    code,
+    name: typeof raw.name === 'string' ? raw.name : '',
+    leader: typeof raw.leader === 'string' ? raw.leader : '',
+    size: Number.isFinite(sizeNumber) ? sizeNumber : 0,
+    secondsRemaining: Number.isFinite(secondsRemainingNumber) ? secondsRemainingNumber : null,
+    expiresAt: Number.isFinite(expiresAtNumber) ? expiresAtNumber : null,
+    isLeader: Boolean(raw.is_leader),
+    isFull: Boolean(raw.is_full),
+    canRequest: Boolean(raw.can_request),
+    joinStatus: typeof raw.join_status === 'string' ? raw.join_status : 'available',
+  };
+}
+
+function sanitizeBubbleSuggestion(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const username = typeof raw.username === 'string' ? raw.username.trim() : '';
+  if (!username) {
+    return null;
+  }
+  const clone = { ...raw };
+  clone.username = username;
+  if (typeof clone.display_name === 'string') {
+    clone.display_name = clone.display_name.trim();
+  }
+  if (typeof clone.home_district_name === 'string') {
+    clone.home_district_name = clone.home_district_name.trim();
+  }
+  if (typeof clone.home_district_code === 'string') {
+    clone.home_district_code = clone.home_district_code.trim();
+  }
+  clone.activeParty = sanitizePartyPreview(clone.active_party || clone.activeParty);
+  if (Array.isArray(clone.mutual_friends)) {
+    clone.mutual_friends = clone.mutual_friends
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object') {
+          return null;
+        }
+        const user = typeof entry.username === 'string' ? entry.username.trim() : '';
+        if (!user) {
+          return null;
+        }
+        const display = typeof entry.display_name === 'string' ? entry.display_name.trim() : '';
+        return {
+          username: user,
+          display_name: display,
+        };
+      })
+      .filter(Boolean);
+  }
+  return clone;
 }
 
 function sanitizePartyInsights(raw) {
@@ -4279,7 +4377,7 @@ function removePartyInviteNotice(invitationId) {
 }
 
 function applyPartyStateFromServer(snapshot = {}, options = {}) {
-  const { party, incoming, outgoing, insights } = snapshot;
+  const { party, incoming, outgoing, join_requests, insights } = snapshot;
   const { silent = false } = options;
   const normalizedParty = sanitizePartyPayload(party);
   const incomingInvites = Array.isArray(incoming)
@@ -4288,10 +4386,14 @@ function applyPartyStateFromServer(snapshot = {}, options = {}) {
   const outgoingInvites = Array.isArray(outgoing)
     ? outgoing.map(sanitizePartyInvitation).filter(Boolean)
     : [];
+  const joinRequests = Array.isArray(join_requests)
+    ? join_requests.map(sanitizePartyJoinRequest).filter((req) => req && req.status === 'pending')
+    : [];
   partyState = {
     party: normalizedParty,
     incoming: incomingInvites,
     outgoing: outgoingInvites,
+    joinRequests,
     insights: sanitizePartyInsights(insights),
   };
   // Restore or clear outgoing invite 60s notice based on pending outgoing and last sent time
@@ -4336,6 +4438,7 @@ function applyPartyStateFromServer(snapshot = {}, options = {}) {
       }
     }
   });
+  updatePartyJoinRequestsUi();
   updatePartyUi(friendsState.items);
   renderPartyInvitations();
   renderPartyPanelChip();
@@ -4984,8 +5087,8 @@ async function restoreSessionFromServer() {
     if (error && error.status === 503) {
       // Backend DB schema is outdated; surface a non-fatal hint and continue without a session.
       const serverDetail = error.data && typeof error.data.detail === 'string' ? error.data.detail : 'Server database is not up to date. Please apply migrations.';
-      const action = error.data && typeof error.data.action === 'string' ? error.data.action : 'run ./scripts/migrate.sh or python manage.py migrate';
-      updateStatus(`${serverDetail} — To fix locally: ./scripts/setup.sh (first time), then ${action}.`);
+      const action = error.data && typeof error.data.action === 'string' ? error.data.action : 'run ./tools/migrate.sh or python manage.py migrate';
+      updateStatus(`${serverDetail} — To fix locally: ./tools/setup.sh (first time), then ${action}.`);
       isSessionAuthenticated = false;
       activePlayerBackendId = null;
       resetPartyState();
@@ -5102,7 +5205,7 @@ async function checkMigrationStatus() {
       migrationsPending = true;
       const unapplied = Array.isArray(status.unapplied) ? status.unapplied : [];
       const details = unapplied.length ? `Unapplied: ${unapplied.join(', ')}` : 'Migrations pending.';
-      updateStatus(`${details} — To fix locally: ./scripts/setup.sh (first time), then ./scripts/migrate.sh or python manage.py migrate.`);
+      updateStatus(`${details} — To fix locally: ./tools/setup.sh (first time), then ./tools/migrate.sh or python manage.py migrate.`);
     }
   } catch (e) {
     // Ignore; server may be older without the endpoint or temporarily unavailable
@@ -10458,9 +10561,9 @@ async function handleLogin(event) {
       } else if (error.status === 503) {
         // Backend reports DB schema is outdated (e.g., missing migrations). Surface clear guidance.
         const serverDetail = error.data && typeof error.data.detail === 'string' ? error.data.detail : null;
-        const action = error.data && typeof error.data.action === 'string' ? error.data.action : 'run ./scripts/migrate.sh or python manage.py migrate';
+        const action = error.data && typeof error.data.action === 'string' ? error.data.action : 'run ./tools/migrate.sh or python manage.py migrate';
         message = serverDetail || 'Server database is not up to date. Please apply migrations.';
-        message += ` — To fix locally: ./scripts/setup.sh (first time), then ${action}.`;
+        message += ` — To fix locally: ./tools/setup.sh (first time), then ${action}.`;
       } else if (error.status === 400 && error.data && typeof error.data === 'object') {
         if (Array.isArray(error.data.non_field_errors) && error.data.non_field_errors.length) {
           message = error.data.non_field_errors[0];

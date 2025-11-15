@@ -5,6 +5,7 @@ from .models import (
     District,
     Party,
     PartyInvitation,
+    PartyJoinRequest,
     PartyMembership,
     Player,
     PlayerDistrictContribution,
@@ -113,3 +114,10 @@ class PartyInvitationAdmin(admin.ModelAdmin):
     list_display = ("party", "from_player", "to_player", "status", "created_at", "responded_at")
     list_filter = ("status",)
     search_fields = ("party__code", "party__name", "from_player__username", "to_player__username")
+
+
+@admin.register(PartyJoinRequest)
+class PartyJoinRequestAdmin(admin.ModelAdmin):
+    list_display = ("party", "from_player", "status", "created_at", "responded_at")
+    list_filter = ("status",)
+    search_fields = ("party__code", "party__name", "from_player__username")
