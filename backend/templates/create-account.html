@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'inline-speculation-rules' https://apis.google.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://localhost:* http://127.0.0.1:*; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; frame-src https://apis.google.com;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'inline-speculation-rules' https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://localhost:* http://127.0.0.1:*; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; frame-src https://apis.google.com;" />
   <meta name="theme-color" content="#b39ddb" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -15,14 +15,13 @@
   <link rel="manifest" href="{% static 'manifest.webmanifest.json' %}" />
   <link rel="apple-touch-icon" href="{% static 'icons/icon-180.png' %}" />
   <link rel="stylesheet" href="{% static 'styles.css' %}" />
-  <script>
-    window.__STATIC_URL__ = "{% get_static_prefix %}";
-    window.__APP_HOME_URL__ = "{% url 'home' %}";
-    window.__APP_VERSION__ = "{{ APP_VERSION }}";
-    window.__APP_SNAPSHOT__ = "{{ APP_SNAPSHOT }}";
-  </script>
 </head>
-<body>
+<body
+  data-static-url="{% get_static_prefix %}"
+  data-app-home-url="{% url 'home' %}"
+  data-app-version="{{ APP_VERSION }}"
+  data-app-snapshot="{{ APP_SNAPSHOT }}"
+>
   <main class="app">
     <section class="panel account-panel">
       <button type="button" class="secondary back-link" id="back-to-login" data-home-url="{% url 'home' %}">← Back to login</button>

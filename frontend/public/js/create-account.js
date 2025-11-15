@@ -11,7 +11,14 @@
   const backButton = document.getElementById('back-to-login');
   const messageBox = document.getElementById('account-message');
   const submitButton = form ? form.querySelector('button[type="submit"]') : null;
-  const homeUrl = (backButton && backButton.dataset.homeUrl) || window.__APP_HOME_URL__ || '/';
+  const templateDataset =
+    typeof document !== 'undefined' && document.body && document.body.dataset
+      ? document.body.dataset
+      : null;
+  const homeUrl =
+    (backButton && backButton.dataset.homeUrl) ||
+    (templateDataset && templateDataset.appHomeUrl) ||
+    '/';
 
   if (backButton) {
     backButton.addEventListener('click', () => {

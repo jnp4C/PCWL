@@ -78,6 +78,27 @@ const profileImagePreview = document.getElementById('profile-image-preview');
 const profileImageSaveButton = document.getElementById('profile-image-save');
 const profileImageClearButton = document.getElementById('profile-image-clear');
 const profileImageFeedback = document.getElementById('profile-image-feedback');
+
+const templateDataset =
+  typeof document !== 'undefined' && document.body && document.body.dataset
+    ? document.body.dataset
+    : null;
+
+function readTemplateValue(datasetKey, windowKey) {
+  if (templateDataset && datasetKey && templateDataset[datasetKey]) {
+    const value = String(templateDataset[datasetKey]).trim();
+    if (value) {
+      return value;
+    }
+  }
+  if (typeof window !== 'undefined' && windowKey && window[windowKey]) {
+    const value = String(window[windowKey]).trim();
+    if (value) {
+      return value;
+    }
+  }
+  return null;
+}
 const markerColorInput = document.getElementById('marker-color-input');
 const markerColorResetButton = document.getElementById('marker-color-reset');
 const markerColorFeedback = document.getElementById('marker-color-feedback');
@@ -178,14 +199,8 @@ if (currentUserTag) {
 }
 updateCharacterDrawerContent(null);
 
-const APP_VERSION =
-  typeof window !== 'undefined' && window.__APP_VERSION__
-    ? String(window.__APP_VERSION__).trim()
-    : 'dev';
-const APP_SNAPSHOT =
-  typeof window !== 'undefined' && window.__APP_SNAPSHOT__
-    ? String(window.__APP_SNAPSHOT__).trim()
-    : 'app.js';
+const APP_VERSION = readTemplateValue('appVersion', '__APP_VERSION__') || 'dev';
+const APP_SNAPSHOT = readTemplateValue('appSnapshot', '__APP_SNAPSHOT__') || 'app.js';
 
 if (typeof document !== 'undefined' && document.body) {
   document.body.classList.add('welcome-active');
@@ -204,10 +219,7 @@ const MAP_STYLE = {
   layers: [],
 };
 
-const STATIC_PREFIX =
-  typeof window !== 'undefined' && window.__STATIC_URL__
-    ? window.__STATIC_URL__
-    : '';
+const STATIC_PREFIX = readTemplateValue('staticUrl', '__STATIC_URL__') || '';
 const DATA_PREFIX = `${STATIC_PREFIX}data/`;
 const EMPTY_GEOJSON = { type: 'FeatureCollection', features: [] };
 const STATIC_DATASETS = {
