@@ -7672,6 +7672,9 @@ async function sendPartyInvite(username, { suppressStatus = false } = {}) {
         : `<strong>Pending:</strong> @${username}`;
       friendsPartyInviteOutgoing.innerHTML = pendingLabel;
     }
+    await refreshPartyState(false, { silent: true });
+    renderPartyInvitations();
+    renderPartyPanelChip();
     return { success: true, message };
   } catch (error) {
     message = error?.data?.detail || error?.message || 'Unable to send party invite.';
@@ -7679,15 +7682,27 @@ async function sendPartyInvite(username, { suppressStatus = false } = {}) {
       updateStatus(message);
     }
     console.warn('Failed to invite friend to party', error);
-    return { success: false, message };
-  } finally {
     await refreshPartyState(false, { silent: true });
+    renderPartyInvitations();
+    renderPartyPanelChip();
+    return { success: false, message };
   }
 }
 
 async function startPartyWithFriend(username) {
   if (!currentUser || !isSessionAuthenticated) {
     updateStatus('Sign in to start a party.');
+    return;
+  }
+  const existingParty = getActivePartyState();
+  if (existingParty) {
+    updateStatus(
+      existingParty.isLeader
+        ? 'You already lead an active party. Invite friends from the party panel.'
+        : 'You already joined a party. Ask your leader to invite friends.',
+    );
+    renderPartyInvitations();
+    renderPartyPanelChip();
     return;
   }
   const draftName = friendsPartyNameInput ? friendsPartyNameInput.value.trim() : '';
@@ -7719,6 +7734,8 @@ async function startPartyWithFriend(username) {
     updateStatus(detail);
     console.warn('Failed to start party', error);
     await refreshPartyState(false, { silent: true });
+    renderPartyInvitations();
+    renderPartyPanelChip();
     return;
   }
   const result = await sendPartyInvite(friend.username, { suppressStatus: true });
