@@ -294,13 +294,15 @@ const MUSIC_RESUME_MAX_AGE_MS = 15 * 60 * 1000; // 15 minutes
 const PARTY_DURATION_MS = 3 * 60 * 60 * 1000;
 const PARTY_MAX_FRIENDS = 3;
 const PARTY_INVITE_DISPLAY_MS = 60 * 1000;
-const PARTY_POLL_INTERVAL_MS = 15 * 1000;
+const PARTY_POLL_INTERVAL_VISIBLE_MS = 8 * 1000;
+const PARTY_POLL_INTERVAL_HIDDEN_MS = 30 * 1000;
 const PARTY_NAME_MIN_LENGTH = 3;
 const PARTY_NAME_MAX_LENGTH = 48;
 const FRIEND_REQUEST_NOTICE_DISPLAY_MS = 60 * 1000;
 const PARTY_OUTGOING_NOTICE_STORAGE_KEY = 'partyOutgoingInviteLastSentAt';
 const PARTY_OUTGOING_NOTICE_NAME_STORAGE_KEY = 'partyOutgoingInviteLastTo';
 const PARTY_OUTGOING_NOTICE_PARTY_NAME_STORAGE_KEY = 'partyOutgoingInviteLastPartyName';
+const PARTY_STATE_STORAGE_KEY = 'partyStateSnapshot';
 
 const TREE_GIF_URL = resolveDataUrl('tree.gif?v=2');
 const HITMARKER_GIF_URL = resolveDataUrl('attack_hitmarker.gif?v=1');
@@ -3238,6 +3240,47 @@ let partyState = {
   joinRequests: [],
   insights: null,
 };
+function savePartyStateSnapshot(snapshot) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    window.localStorage.setItem(PARTY_STATE_STORAGE_KEY, JSON.stringify(snapshot));
+  } catch (_) {}
+}
+
+function loadPartyStateSnapshot() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(PARTY_STATE_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    return JSON.parse(raw);
+  } catch (_) {
+    return null;
+  }
+}
+
+function clearPartyStateSnapshot() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    window.localStorage.removeItem(PARTY_STATE_STORAGE_KEY);
+  } catch (_) {}
+}
+
+try {
+  const cachedPartyState = loadPartyStateSnapshot();
+  if (cachedPartyState) {
+    applyPartyStateFromServer(cachedPartyState, { silent: true, fromCache: true });
+  }
+} catch (error) {
+  console.warn('Failed to restore cached party state', error);
+}
 const activePartyInviteNotices = new Map();
 let activeOutgoingInviteNotice = null;
 const seenPartyInviteIds = new Set();
@@ -4063,6 +4106,7 @@ function resetPartyState() {
     joinRequests: [],
     insights: null,
   };
+  clearPartyStateSnapshot();
   activePartyInviteNotices.clear();
   seenPartyInviteIds.clear();
   renderCooldownStrip();
@@ -4390,7 +4434,7 @@ function removePartyInviteNotice(invitationId) {
 
 function applyPartyStateFromServer(snapshot = {}, options = {}) {
   const { party, incoming, outgoing, join_requests, insights } = snapshot;
-  const { silent = false } = options;
+  const { silent = false, fromCache = false } = options;
   const normalizedParty = sanitizePartyPayload(party);
   const incomingInvites = Array.isArray(incoming)
     ? incoming.map(sanitizePartyInvitation).filter((invite) => invite && invite.status === 'pending')
@@ -4408,6 +4452,15 @@ function applyPartyStateFromServer(snapshot = {}, options = {}) {
     joinRequests,
     insights: sanitizePartyInsights(insights),
   };
+  if (!fromCache) {
+    savePartyStateSnapshot({
+      party: normalizedParty || null,
+      incoming: incomingInvites,
+      outgoing: outgoingInvites,
+      join_requests: joinRequests,
+      insights: partyState.insights,
+    });
+  }
   // Restore or clear outgoing invite 60s notice based on pending outgoing and last sent time
   try {
     const savedAtStr = window.localStorage.getItem(PARTY_OUTGOING_NOTICE_STORAGE_KEY);
@@ -5155,7 +5208,7 @@ async function restoreSessionFromServer() {
   });
   applyPartyStateFromServer(partySnapshot, { silent: false });
   refreshPartyState(false, { silent: true }).catch(() => null);
-  try { startPartyPolling(); } catch (_) {}
+  try { startPartyPolling({ immediate: true }); } catch (_) {}
 }
 
 async function logoutCurrentSession() {
@@ -7535,31 +7588,58 @@ async function refreshPartyState(showErrors = false, { silent = true } = {}) {
   }
 }
 
-let partyPollTimerId = 0;
+let partyPollTimeoutId = 0;
 let partyPollInFlight = false;
 
-function startPartyPolling() {
-  try { stopPartyPolling(); } catch (_) {}
+function getPartyPollDelay() {
+  if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+    return PARTY_POLL_INTERVAL_VISIBLE_MS;
+  }
+  return PARTY_POLL_INTERVAL_HIDDEN_MS;
+}
+
+function scheduleNextPartyPoll(delay) {
+  if (partyPollTimeoutId) {
+    window.clearTimeout(partyPollTimeoutId);
+  }
+  partyPollTimeoutId = window.setTimeout(runPartyPollCycle, delay);
+}
+
+async function runPartyPollCycle() {
+  if (!isSessionAuthenticated || !currentUser) {
+    stopPartyPolling();
+    return;
+  }
+  if (partyPollInFlight) {
+    scheduleNextPartyPoll(getPartyPollDelay());
+    return;
+  }
+  partyPollInFlight = true;
+  try {
+    await refreshPartyState(false, { silent: false });
+  } finally {
+    partyPollInFlight = false;
+  }
+  scheduleNextPartyPoll(getPartyPollDelay());
+}
+
+function startPartyPolling(options = {}) {
+  const { immediate = false } = options;
+  stopPartyPolling();
   if (!isSessionAuthenticated || !currentUser) {
     return;
   }
-  partyPollTimerId = window.setInterval(async () => {
-    if (partyPollInFlight) return;
-    if (!isSessionAuthenticated || !currentUser) return;
-    if (document.visibilityState && document.visibilityState !== 'visible') return;
-    partyPollInFlight = true;
-    try {
-      await refreshPartyState(false, { silent: false });
-    } finally {
-      partyPollInFlight = false;
-    }
-  }, PARTY_POLL_INTERVAL_MS);
+  if (immediate) {
+    runPartyPollCycle();
+    return;
+  }
+  scheduleNextPartyPoll(getPartyPollDelay());
 }
 
 function stopPartyPolling() {
-  if (partyPollTimerId) {
-    window.clearInterval(partyPollTimerId);
-    partyPollTimerId = 0;
+  if (partyPollTimeoutId) {
+    window.clearTimeout(partyPollTimeoutId);
+    partyPollTimeoutId = 0;
   }
   partyPollInFlight = false;
 }
@@ -12588,17 +12668,17 @@ if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
         refreshPartyState(false, { silent: true }).catch(() => null);
-        try { startPartyPolling(); } catch (_) {}
+        try { startPartyPolling({ immediate: true }); } catch (_) {}
       } else {
-        // Optionally pause polling when hidden to save resources
-        try { stopPartyPolling(); } catch (_) {}
+        // Poll at a slower cadence while hidden so pending invites still arrive.
+        try { startPartyPolling(); } catch (_) {}
       }
     });
     // Also refresh on window focus for browsers that don't reliably fire visibilitychange
     window.addEventListener('focus', () => {
       if (document.visibilityState === 'visible') {
         refreshPartyState(false, { silent: true }).catch(() => null);
-        try { startPartyPolling(); } catch (_) {}
+        try { startPartyPolling({ immediate: true }); } catch (_) {}
       }
     });
   } catch (_) {}
