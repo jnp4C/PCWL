@@ -62,6 +62,7 @@ from .services import (
     PARTY_ATTACK_BONUS_PER_PLAYER,
     PARTY_CONTRIBUTION_DISTRICT_PER_PLAYER,
     PARTY_CONTRIBUTION_PLAYER_MULTIPLIER,
+    _normalise_district_code,
     respond_to_party_invitation,
     start_charge,
 )
@@ -84,10 +85,7 @@ def _classify_district_state(defended, attacked, threshold=DISTRICT_SECURE_THRES
 
 
 def _clean_district_code(value: Optional[str]) -> Optional[str]:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
+    return _normalise_district_code(value)
 
 
 def _serialize_party_member(player: Player, *, is_leader: bool, is_self: bool) -> Dict[str, Any]:

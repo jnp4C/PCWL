@@ -48,6 +48,27 @@ MAX_PARTY_MEMBERS = 4
 PARTY_NAME_MIN_LENGTH = 3
 PARTY_NAME_MAX_LENGTH = 48
 
+LEGACY_DISTRICT_CODE_ALIASES = {
+    "1100": "500054",
+    "PRAGUE1": "500054",
+    "PRAHA1": "500054",
+    "1200": "500089",
+    "PRAGUE2": "500089",
+    "PRAHA2": "500089",
+    "1300": "500097",
+    "PRAGUE3": "500097",
+    "PRAHA3": "500097",
+    "1400": "500119",
+    "PRAGUE4": "500119",
+    "PRAHA4": "500119",
+    "1500": "500143",
+    "PRAGUE5": "500143",
+    "PRAHA5": "500143",
+    "1600": "500178",
+    "PRAGUE6": "500178",
+    "PRAHA6": "500178",
+}
+
 
 @dataclass
 class CheckInResult:
@@ -76,7 +97,13 @@ def _normalise_district_code(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
     text = str(value).strip()
-    return text or None
+    if not text:
+        return None
+    key = re.sub(r"[^A-Z0-9]", "", text.upper())
+    alias = LEGACY_DISTRICT_CODE_ALIASES.get(key)
+    if alias:
+        return alias
+    return text
 
 
 def _normalise_district_name(value: Optional[str]) -> Optional[str]:
