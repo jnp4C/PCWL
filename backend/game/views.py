@@ -1579,7 +1579,7 @@ def _build_player_leaderboard(limit=100):
     return payload
 
 
-def _build_district_leaderboard(limit=50):
+def _build_district_leaderboard(limit: Optional[int] = None):
     now = timezone.now()
     recent_cutoff = now - timedelta(hours=24)
     recent_rows = CheckIn.objects.filter(district_code__isnull=False, occurred_at__gte=recent_cutoff).values(
@@ -1728,6 +1728,9 @@ def _build_district_leaderboard(limit=50):
 
     for index, item in enumerate(districts_by_score, start=1):
         item["rank"] = index
+
+    if limit is None:
+        return districts_by_score
 
     if limit <= 0:
         return []

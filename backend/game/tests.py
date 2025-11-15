@@ -865,6 +865,28 @@ class LeaderboardApiTests(TestCase):
         self.assertLess(damaged_entry["change"], 0)
         self.assertGreater(damaged_entry.get("rank", 0), 0)
 
+    def test_leaderboard_returns_all_active_districts(self):
+        # Ensure we exceed the previous hard-coded limit of 50 rows returned.
+        existing_active = District.objects.filter(is_active=True).count()
+        additional = max(55 - existing_active, 0) + 10
+        for index in range(additional):
+            District.objects.get_or_create(
+                code=f"extra-{index}",
+                defaults={
+                    "name": f"Extra District {index}",
+                    "base_strength": 2000,
+                    "current_strength": 2000,
+                    "is_active": True,
+                },
+            )
+
+        response = self.client.get(reverse("leaderboard-api"))
+        self.assertEqual(response.status_code, 200)
+        districts = response.json().get("districts", [])
+        active_codes = set(District.objects.filter(is_active=True).values_list("code", flat=True))
+        self.assertGreater(len(active_codes), 50)
+        self.assertSetEqual(active_codes, {entry["id"] for entry in districts})
+
 
 class DistrictAnalyticsTests(TestCase):
     def setUp(self):
