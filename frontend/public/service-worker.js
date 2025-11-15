@@ -31,6 +31,18 @@ self.addEventListener('fetch', (event) => {
   ) {
     return;
   }
+  const url = new URL(request.url);
+  const isSameOrigin = url.origin === self.location.origin;
+  const isGoogleFontHost =
+    url.hostname.endsWith('fonts.googleapis.com') || url.hostname.endsWith('fonts.gstatic.com');
+
+  if (!isSameOrigin) {
+    if (isGoogleFontHost) {
+      event.respondWith(new Response('', { status: 204, statusText: 'Font request blocked' }));
+    }
+    return;
+  }
+
   event.respondWith(
     (async () => {
       const cache = await caches.open(VERSION);

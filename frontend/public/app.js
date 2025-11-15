@@ -304,6 +304,8 @@ const PARTY_OUTGOING_NOTICE_STORAGE_KEY = 'partyOutgoingInviteLastSentAt';
 const PARTY_OUTGOING_NOTICE_NAME_STORAGE_KEY = 'partyOutgoingInviteLastTo';
 const PARTY_OUTGOING_NOTICE_PARTY_NAME_STORAGE_KEY = 'partyOutgoingInviteLastPartyName';
 const PARTY_STATE_STORAGE_KEY = 'partyStateSnapshot';
+const PENDING_CHECKINS_STORAGE_KEY = 'pcwlPendingCheckins';
+const MAX_PENDING_CHECKINS = 20;
 
 const TREE_GIF_URL = resolveDataUrl('tree.gif?v=2');
 const HITMARKER_GIF_URL = resolveDataUrl('attack_hitmarker.gif?v=1');
@@ -382,6 +384,112 @@ function getCookie(name) {
 
 function getCsrfToken() {
   return getCookie('csrftoken');
+}
+
+function loadPendingCheckinsFromStorage() {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return [];
+  }
+  try {
+    const raw = window.localStorage.getItem(PENDING_CHECKINS_STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.filter(
+      (entry) =>
+        entry &&
+        typeof entry === 'object' &&
+        typeof entry.username === 'string' &&
+        entry.username &&
+        entry.payload &&
+        typeof entry.payload === 'object',
+    );
+  } catch (error) {
+    console.warn('Failed to load pending check-ins', error);
+    return [];
+  }
+}
+
+function persistPendingCheckins() {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(PENDING_CHECKINS_STORAGE_KEY, JSON.stringify(pendingCheckins));
+  } catch (error) {
+    console.warn('Failed to persist pending check-ins', error);
+  }
+}
+
+function enqueuePendingCheckin(username, payload) {
+  if (!username || !payload) {
+    return;
+  }
+  const entry = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    username,
+    payload,
+    createdAt: Date.now(),
+  };
+  pendingCheckins.push(entry);
+  if (pendingCheckins.length > MAX_PENDING_CHECKINS) {
+    pendingCheckins.shift();
+  }
+  persistPendingCheckins();
+}
+
+async function flushPendingCheckins() {
+  if (
+    pendingCheckinFlushInFlight ||
+    !pendingCheckins.length ||
+    !isSessionAuthenticated ||
+    !currentUser
+  ) {
+    return;
+  }
+  pendingCheckinFlushInFlight = true;
+  let changed = false;
+  try {
+    let index = 0;
+    while (index < pendingCheckins.length) {
+      const entry = pendingCheckins[index];
+      if (!entry || entry.username !== currentUser) {
+        index += 1;
+        continue;
+      }
+      let removeEntry = false;
+      try {
+        await submitBackendCheckIn(entry.payload, { username: entry.username });
+        removeEntry = true;
+      } catch (error) {
+        const retriable =
+          !error || typeof error.status !== 'number' || Number(error.status) >= 500;
+        if (!retriable) {
+          console.warn('Dropping pending check-in after permanent failure', error);
+          removeEntry = true;
+        } else {
+          break;
+        }
+      }
+      if (removeEntry) {
+        pendingCheckins.splice(index, 1);
+        changed = true;
+        continue;
+      }
+      index += 1;
+    }
+  } catch (error) {
+    console.warn('Failed to flush pending check-ins', error);
+  } finally {
+    pendingCheckinFlushInFlight = false;
+    if (changed) {
+      persistPendingCheckins();
+    }
+  }
 }
 
 async function apiRequest(path, options = {}) {
@@ -3333,6 +3441,8 @@ let lastHoverLngLat = null;
 let lastHoverDistrictId = null;
 let isPointerOverDistrict = false;
 let districtScores = {};
+let pendingCheckins = loadPendingCheckinsFromStorage();
+let pendingCheckinFlushInFlight = false;
 const districtStrengthState = {
   byId: new Map(),
   maxStrength: 0,
@@ -3340,6 +3450,8 @@ const districtStrengthState = {
   appliedIds: new Set(),
 };
 let districtStrengthFetchPromise = null;
+let districtFeatureStateRefreshQueued = false;
+let districtSourceListenersBound = false;
 let musicAudio = null;
 let musicState = {
   muted: false,
@@ -11197,6 +11309,7 @@ function completeAuthenticatedLogin(username, profile, options = {}) {
 
   const triggerGeolocation = options.triggerGeolocation !== false;
   showMap(triggerGeolocation);
+  flushPendingCheckins();
 }
 
 function handleExistingPlayer(username) {
@@ -11282,18 +11395,22 @@ function switchToWelcome() {
   prefillLastSignedInUser();
 }
 
-async function submitBackendCheckIn({
-  districtId,
-  districtName,
-  mode,
-  precision = null,
-  locationSource = null,
-  coordinates = null,
-}) {
-  if (!currentUser || !players[currentUser]) {
+async function submitBackendCheckIn(
+  {
+    districtId,
+    districtName,
+    mode,
+    precision = null,
+    locationSource = null,
+    coordinates = null,
+  },
+  options = {},
+) {
+  const targetUsername = options.username || currentUser;
+  if (!targetUsername || !players[targetUsername]) {
     return null;
   }
-  const profile = ensurePlayerProfile(currentUser);
+  const profile = ensurePlayerProfile(targetUsername);
   const payload = {
     district_code: districtId,
     mode,
@@ -11324,7 +11441,9 @@ async function submitBackendCheckIn({
     applyServerPlayerData(profile, response.player);
   }
   savePlayers();
-  renderPlayerState();
+  if (targetUsername === currentUser) {
+    renderPlayerState();
+  }
   return response;
 }
 
@@ -11480,15 +11599,17 @@ async function handleCheckIn(options = {}) {
     backendLocationSource ||
     (checkinMode === 'ranged' ? 'ranged' : checkinMode === 'remote' ? 'home-remote' : null);
 
+  const checkinPayload = {
+    districtId,
+    districtName: districtDisplayName,
+    mode: checkinMode,
+    precision,
+    locationSource: sourceForBackend,
+    coordinates: coordinatesPayload,
+  };
+
   try {
-    const response = await submitBackendCheckIn({
-      districtId,
-      districtName: districtDisplayName,
-      mode: checkinMode,
-      precision,
-      locationSource: sourceForBackend,
-      coordinates: coordinatesPayload,
-    });
+    const response = await submitBackendCheckIn(checkinPayload);
     const checkin = response && response.checkin ? response.checkin : null;
     const pointsAwarded = checkin ? Number(checkin.points_awarded) : null;
     const multiplierValue = checkin ? Number(checkin.multiplier) : null;
@@ -11523,6 +11644,14 @@ async function handleCheckIn(options = {}) {
       updateStatus(detail);
       return;
     }
+    const shouldQueue =
+      !error || typeof error.status !== 'number' || Number(error.status) >= 500;
+    if (shouldQueue) {
+      enqueuePendingCheckin(currentUser, checkinPayload);
+      updateStatus('Network issue detected. Saved your check-in and will sync when back online.');
+      flushPendingCheckins();
+      return;
+    }
     const message =
       (error && error.message) || 'Unable to check in right now. Please try again.';
     updateStatus(message);
@@ -11533,6 +11662,7 @@ async function handleCheckIn(options = {}) {
   try {
     refreshDistrictStrengthsFromServer();
   } catch (_) {}
+  flushPendingCheckins();
 }
 
 function handleSetHomeDistrict() {
@@ -12666,6 +12796,12 @@ if (friendsPartyJoinRequestsList) {
       event.preventDefault();
       handlePartyJoinRequestResponse(declineTarget.dataset.partyJoinDecline, false);
     }
+  });
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    flushPendingCheckins();
   });
 }
 
