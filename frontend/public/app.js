@@ -164,6 +164,7 @@ const friendsPartyInviteIncomingList = document.getElementById('friends-party-in
 const friendsPartyInviteOutgoing = document.getElementById('friends-party-invite-outgoing');
 const friendsPartyJoinRequestsList = document.getElementById('friends-party-join-requests');
 const friendsPartyNameDisplay = document.getElementById('friends-party-name-display');
+const friendsPartyHeadingName = document.getElementById('friends-party-heading-name');
 const friendsPartyNameRow = document.getElementById('friends-party-name-row');
 const friendsPartyNameInput = document.getElementById('friends-party-name');
 const friendsPartyNameSaveButton = document.getElementById('friends-party-name-save');
@@ -4094,9 +4095,65 @@ document.addEventListener('click', (event) => {
 
 function loadPlayers() {
   players = {};
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+  let stored = null;
+  let sourceKey = STORAGE_KEY;
+  try {
+    stored = window.localStorage.getItem(STORAGE_KEY);
+    if (!stored) {
+      for (const legacyKey of LEGACY_PLAYER_STORAGE_KEYS) {
+        const legacyValue = window.localStorage.getItem(legacyKey);
+        if (legacyValue) {
+          stored = legacyValue;
+          sourceKey = legacyKey;
+          break;
+        }
+      }
+    }
+    if (!stored) {
+      return;
+    }
+    const parsed = JSON.parse(stored);
+    if (parsed && typeof parsed === 'object') {
+      players = parsed;
+    }
+    if (sourceKey !== STORAGE_KEY) {
+      try {
+        window.localStorage.setItem(STORAGE_KEY, stored);
+      } catch (_) {}
+      LEGACY_PLAYER_STORAGE_KEYS.forEach((legacyKey) => {
+        if (legacyKey !== STORAGE_KEY) {
+          try {
+            window.localStorage.removeItem(legacyKey);
+          } catch (_) {}
+        }
+      });
+    }
+  } catch (error) {
+    console.warn('Failed to load players from storage', error);
+    players = {};
+  }
 }
 
-function savePlayers() {}
+function savePlayers() {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(players));
+    LEGACY_PLAYER_STORAGE_KEYS.forEach((legacyKey) => {
+      if (legacyKey !== STORAGE_KEY) {
+        try {
+          window.localStorage.removeItem(legacyKey);
+        } catch (_) {}
+      }
+    });
+  } catch (error) {
+    console.warn('Failed to save players to storage', error);
+  }
+}
 
 function resetPartyState() {
   partyState = {
@@ -7077,6 +7134,30 @@ function formatPartyStatus(activeState, pendingInvites = 0, firstPendingInvite =
   return fragments.filter(Boolean).join(' • ');
 }
 
+function applyPartyNameLabels(partyName) {
+  const trimmedName = typeof partyName === 'string' ? partyName.trim() : '';
+  if (friendsPartyNameDisplay) {
+    if (trimmedName) {
+      friendsPartyNameDisplay.textContent = `Party name: ${trimmedName}`;
+      friendsPartyNameDisplay.classList.remove('hidden');
+    } else {
+      friendsPartyNameDisplay.textContent = '';
+      friendsPartyNameDisplay.classList.add('hidden');
+    }
+  }
+  if (friendsPartyHeadingName) {
+    if (trimmedName) {
+      friendsPartyHeadingName.textContent = trimmedName;
+      friendsPartyHeadingName.classList.remove('hidden');
+      friendsPartyHeadingName.setAttribute('aria-label', `Current party ${trimmedName}`);
+    } else {
+      friendsPartyHeadingName.textContent = '';
+      friendsPartyHeadingName.classList.add('hidden');
+      friendsPartyHeadingName.removeAttribute('aria-label');
+    }
+  }
+}
+
 function updatePartyUi(friends) {
   if (!friendsPartySection || !friendsPartyStatus) {
     return;
@@ -7094,16 +7175,8 @@ function updatePartyUi(friends) {
   friendsPartySection.classList.remove('hidden');
   const firstPendingInvite = pendingInvites > 0 ? partyState.incoming?.[0] : null;
   friendsPartyStatus.textContent = formatPartyStatus(activeParty, pendingInvites, firstPendingInvite, profile);
-  if (friendsPartyNameDisplay) {
-    const partyName = activeParty && activeParty.name ? activeParty.name : '';
-    if (partyName) {
-      friendsPartyNameDisplay.textContent = `Party name: ${partyName}`;
-      friendsPartyNameDisplay.classList.remove('hidden');
-    } else {
-      friendsPartyNameDisplay.textContent = '';
-      friendsPartyNameDisplay.classList.add('hidden');
-    }
-  }
+  const partyName = activeParty && activeParty.name ? activeParty.name : '';
+  applyPartyNameLabels(partyName);
   refreshPartyNameControls(activeParty, profile);
 
   if (friendsPartyMembersList) {
@@ -7875,12 +7948,13 @@ async function handlePartyInviteResponse(invitationId, accept) {
   if (!Number.isFinite(numericId) || !isSessionAuthenticated || !currentUser) {
     return;
   }
+  let requestSucceeded = false;
   try {
     await apiRequest(`party/invitations/${numericId}/`, {
       method: 'POST',
       body: { action: accept ? 'accept' : 'decline' },
     });
-    updateStatus(accept ? 'Joined party boost!' : 'Invitation declined.');
+    requestSucceeded = true;
   } catch (error) {
     const detail = error?.data?.detail || error?.message || 'Unable to respond to invitation.';
     updateStatus(detail);
@@ -7889,6 +7963,19 @@ async function handlePartyInviteResponse(invitationId, accept) {
     removePartyInviteNotice(numericId);
     renderCooldownStrip();
     await refreshPartyState(false, { silent: true });
+    if (!requestSucceeded) {
+      return;
+    }
+    if (accept) {
+      const activeParty = getActivePartyState();
+      const newPartyName =
+        activeParty && typeof activeParty.name === 'string' && activeParty.name.trim()
+          ? activeParty.name.trim()
+          : '';
+      updateStatus(newPartyName ? `Joined ${newPartyName}!` : 'Joined party boost!');
+    } else {
+      updateStatus('Invitation declined.');
+    }
   }
 }
 
@@ -7897,18 +7984,32 @@ async function handlePartyJoinRequestResponse(requestId, accept) {
   if (!Number.isFinite(numericId) || !isSessionAuthenticated || !currentUser) {
     return;
   }
+  let requestSucceeded = false;
   try {
     await apiRequest(`party/join-requests/${numericId}/`, {
       method: 'POST',
       body: { action: accept ? 'accept' : 'decline' },
     });
-    updateStatus(accept ? 'Player added to your party.' : 'Join request declined.');
+    requestSucceeded = true;
   } catch (error) {
     const detail = error?.data?.detail || error?.message || 'Unable to update join request.';
     updateStatus(detail);
     console.warn('Failed to respond to party join request', error);
   } finally {
     await refreshPartyState(false, { silent: true });
+    if (!requestSucceeded) {
+      return;
+    }
+    if (accept) {
+      const activeParty = getActivePartyState();
+      const partyName =
+        activeParty && typeof activeParty.name === 'string' && activeParty.name.trim()
+          ? activeParty.name.trim()
+          : '';
+      updateStatus(partyName ? `Player added to ${partyName}.` : 'Player added to your party.');
+    } else {
+      updateStatus('Join request declined.');
+    }
   }
 }
 

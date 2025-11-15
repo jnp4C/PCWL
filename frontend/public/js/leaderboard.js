@@ -20,6 +20,8 @@ const decimalFormatter = new Intl.NumberFormat(undefined, {
   minimumFractionDigits: 0,
   maximumFractionDigits: 2,
 });
+const LEADERBOARD_REFRESH_DEBOUNCE_MS = 1500;
+let scheduledLeaderboardRefresh = 0;
 
 function loadPlayerData() {
   try {
@@ -377,7 +379,17 @@ function renderFallbackLeaderboards() {
   renderDistrictLeaderboard(fallbackDistricts);
 }
 
-async function initialiseLeaderboardPage() {
+function scheduleLeaderboardRefresh() {
+  if (scheduledLeaderboardRefresh) {
+    window.clearTimeout(scheduledLeaderboardRefresh);
+  }
+  scheduledLeaderboardRefresh = window.setTimeout(() => {
+    scheduledLeaderboardRefresh = 0;
+    refreshLeaderboardsFromApi();
+  }, LEADERBOARD_REFRESH_DEBOUNCE_MS);
+}
+
+async function refreshLeaderboardsFromApi() {
   try {
     const data = await fetchLeaderboardData();
     renderPlayerLeaderboard(data.players || []);
@@ -386,6 +398,18 @@ async function initialiseLeaderboardPage() {
     console.warn('Falling back to local leaderboard data', error);
     renderFallbackLeaderboards();
   }
+}
+
+function initialiseLeaderboardPage() {
+  refreshLeaderboardsFromApi();
+}
+
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('storage', (event) => {
+    if (event && (event.key === PLAYER_STORAGE_KEY || event.key === DISTRICT_STORAGE_KEY)) {
+      scheduleLeaderboardRefresh();
+    }
+  });
 }
 
 if (document.readyState === 'loading') {

@@ -1031,6 +1031,22 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   margin: 0 0 0.4rem;
   font-size: 0.95rem;
   font-weight: 600;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.friend-party-heading-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.friend-party-heading-name::before {
+  content: '•';
+  margin-right: 0.35rem;
+  color: var(--color-text-muted);
 }
 
 .friend-party-status {
