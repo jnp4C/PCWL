@@ -4454,11 +4454,11 @@ function applyPartyStateFromServer(snapshot = {}, options = {}) {
   };
   if (!fromCache) {
     savePartyStateSnapshot({
-      party: normalizedParty || null,
-      incoming: incomingInvites,
-      outgoing: outgoingInvites,
-      join_requests: joinRequests,
-      insights: partyState.insights,
+      party,
+      incoming,
+      outgoing,
+      join_requests,
+      insights,
     });
   }
   // Restore or clear outgoing invite 60s notice based on pending outgoing and last sent time
