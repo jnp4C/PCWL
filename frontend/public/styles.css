@@ -3813,3 +3813,36 @@ button.secondary:hover,
   color: var(--color-text-muted);
   letter-spacing: 0.01em;
 }
+
+.district-tooltip-metrics {
+  margin-top: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.district-tooltip-metric {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.district-tooltip-metric-label {
+  color: var(--color-text-muted);
+  margin-right: 0.5rem;
+}
+
+.district-tooltip-metric-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.district-tooltip-metric-defended .district-tooltip-metric-value {
+  color: var(--color-success-text);
+}
+
+.district-tooltip-metric-attacked .district-tooltip-metric-value {
+  color: var(--color-danger-text);
+}

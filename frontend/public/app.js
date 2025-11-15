@@ -4059,6 +4059,12 @@ function showDistrictTooltip(feature, lngLat) {
     strengthInfo && Number.isFinite(strengthInfo.strength)
       ? `${Math.round(strengthInfo.strength).toLocaleString()} pts`
       : 'No leaderboard data yet';
+  const defendedValue = strengthInfo ? Number(strengthInfo.defended) : NaN;
+  const defendedPoints =
+    strengthInfo && Number.isFinite(defendedValue) ? Math.max(0, Math.round(defendedValue)) : null;
+  const attackedValue = strengthInfo ? Number(strengthInfo.attacked) : NaN;
+  const attackedPoints =
+    strengthInfo && Number.isFinite(attackedValue) ? Math.max(0, Math.round(attackedValue)) : null;
 
   const popup = ensureDistrictPopup();
   const content = document.createElement('div');
@@ -4071,6 +4077,39 @@ function showDistrictTooltip(feature, lngLat) {
   meta.textContent = strengthText;
   content.appendChild(title);
   content.appendChild(meta);
+  if (defendedPoints !== null || attackedPoints !== null) {
+    const metrics = document.createElement('div');
+    metrics.className = 'district-tooltip-metrics';
+    if (defendedPoints !== null) {
+      const defendedRow = document.createElement('div');
+      defendedRow.className = 'district-tooltip-metric district-tooltip-metric-defended';
+      const defendedLabel = document.createElement('span');
+      defendedLabel.className = 'district-tooltip-metric-label';
+      defendedLabel.textContent = 'Defended';
+      const defendedValue = document.createElement('strong');
+      defendedValue.className = 'district-tooltip-metric-value';
+      defendedValue.textContent =
+        defendedPoints > 0 ? `+${defendedPoints.toLocaleString()} pts` : '0 pts';
+      defendedRow.appendChild(defendedLabel);
+      defendedRow.appendChild(defendedValue);
+      metrics.appendChild(defendedRow);
+    }
+    if (attackedPoints !== null) {
+      const attackedRow = document.createElement('div');
+      attackedRow.className = 'district-tooltip-metric district-tooltip-metric-attacked';
+      const attackedLabel = document.createElement('span');
+      attackedLabel.className = 'district-tooltip-metric-label';
+      attackedLabel.textContent = 'Attacked';
+      const attackedValue = document.createElement('strong');
+      attackedValue.className = 'district-tooltip-metric-value';
+      attackedValue.textContent =
+        attackedPoints > 0 ? `-${attackedPoints.toLocaleString()} pts` : '0 pts';
+      attackedRow.appendChild(attackedLabel);
+      attackedRow.appendChild(attackedValue);
+      metrics.appendChild(attackedRow);
+    }
+    content.appendChild(metrics);
+  }
 
   popup.setDOMContent(content).setLngLat(lngLat).addTo(map);
 }
@@ -5688,6 +5727,43 @@ function calculateDistrictFillColor(strength, maxStrength, isWinner) {
   return blendHexColors(DISTRICT_FILL_COLOR_MID, DISTRICT_FILL_COLOR_HIGH, (ratio - 0.5) / 0.5);
 }
 
+function scheduleDistrictFeatureStateUpdate() {
+  if (districtFeatureStateRefreshQueued) {
+    return;
+  }
+  districtFeatureStateRefreshQueued = true;
+  const trigger = () => {
+    districtFeatureStateRefreshQueued = false;
+    updateDistrictFeatureStates();
+  };
+  if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+    window.requestAnimationFrame(trigger);
+  } else {
+    setTimeout(trigger, 0);
+  }
+}
+
+function ensureDistrictFeatureStateSyncHooks() {
+  ensureMap(() => {
+    if (!map || typeof map.on !== 'function' || districtSourceListenersBound) {
+      return;
+    }
+    const scheduleIfDistrictSource = (event) => {
+      if (!event || event.sourceId !== 'prague-districts') {
+        return;
+      }
+      if (event.isSourceLoaded || event.dataType === 'source' || event.type === 'sourcedata') {
+        scheduleDistrictFeatureStateUpdate();
+      }
+    };
+    map.on('sourcedata', scheduleIfDistrictSource);
+    map.on('styledata', () => {
+      scheduleDistrictFeatureStateUpdate();
+    });
+    districtSourceListenersBound = true;
+  });
+}
+
 function updateDistrictFeatureStates() {
   ensureMap(() => {
     if (!map || typeof map.setFeatureState !== 'function') {
@@ -5763,7 +5839,28 @@ async function refreshDistrictStrengthsFromServer() {
         if (!Number.isFinite(strengthValue)) {
           return;
         }
-        map.set(id, { strength: strengthValue, name: entry.name || '' });
+        const defendedRaw =
+          entry.defended ??
+          entry.defended_points ??
+          entry.defended_points_total ??
+          entry.defended_total ??
+          0;
+        const attackedRaw =
+          entry.attacked ??
+          entry.attacked_points ??
+          entry.attacked_points_total ??
+          entry.attacked_total ??
+          0;
+        const defendedValue = Number(defendedRaw);
+        const attackedValue = Number(attackedRaw);
+        const defended = Number.isFinite(defendedValue) ? defendedValue : 0;
+        const attacked = Number.isFinite(attackedValue) ? attackedValue : 0;
+        map.set(id, {
+          strength: strengthValue,
+          name: entry.name || '',
+          defended,
+          attacked,
+        });
         if (strengthValue > maxStrength) {
           maxStrength = strengthValue;
         }
@@ -5771,7 +5868,7 @@ async function refreshDistrictStrengthsFromServer() {
       districtStrengthState.byId = map;
       districtStrengthState.maxStrength = maxStrength;
       districtStrengthState.lastUpdatedAt = Date.now();
-      updateDistrictFeatureStates();
+      scheduleDistrictFeatureStateUpdate();
     })
     .catch((error) => {
       console.warn('Failed to refresh district leaderboard data', error);
@@ -11958,6 +12055,7 @@ function addSourcesAndLayers() {
       }
     },
   );
+  ensureDistrictFeatureStateSyncHooks();
 
   map.addLayer({
     id: 'districts-fill',
