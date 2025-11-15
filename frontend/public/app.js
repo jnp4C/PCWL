@@ -354,6 +354,9 @@ const MARKER_COLOR_PATTERN = /^#(?:[0-9a-fA-F]{6})$/;
 const FRIEND_LOCATIONS_SOURCE_ID = 'friend-locations';
 const FRIEND_LOCATIONS_LAYER_ID = 'friend-locations';
 const FRIEND_LOCATIONS_GLOW_LAYER_ID = 'friend-locations-glow';
+const FRIEND_DELTA_FORMATTER = new Intl.NumberFormat(undefined, {
+  maximumFractionDigits: 0,
+});
 const API_BASE_URL = '/api';
 const CSRF_HEADER_NAME = 'X-CSRFToken';
 let friendLocationsGeoJson = { type: 'FeatureCollection', features: [] };
@@ -7087,7 +7090,7 @@ function rebuildFriendLocationMarkers() {
       const isPositive = deltaRaw > 0;
       deltaSpan.className = `friend-label-delta ${isPositive ? 'positive' : 'negative'}`;
       const prefix = isPositive ? '+' : '-';
-      deltaSpan.textContent = `${prefix}${integerFormatter.format(Math.abs(deltaRaw))}`;
+      deltaSpan.textContent = `${prefix}${FRIEND_DELTA_FORMATTER.format(Math.abs(deltaRaw))}`;
       el.appendChild(deltaSpan);
     }
     if (username) {
