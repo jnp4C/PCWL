@@ -253,6 +253,7 @@ const DISTRICT_GLOW_GLOW_WIDTH = 22;
 const DISTRICT_GLOW_GLOW_BLUR = 14;
 const DISTRICT_GLOW_GLOW_OPACITY = 0.86;
 const DISTRICT_FILTER_NONE = ['==', ['literal', 0], 1];
+const DISTRICT_SOURCE_LAYER = 'districts';
 const DISTRICT_ID_FIELDS = ['kod_mc', 'KOD_MC', 'kod_uzohmp', 'KOD_UZOHMP', 'objectid', 'OBJECTID'];
 const MAP_THEME_SETTINGS = {
   light: {
@@ -5912,7 +5913,7 @@ function updateDistrictFeatureStates() {
       const fillColor = calculateDistrictFillColor(strength, maxStrength, winnerIds.has(id));
       try {
         map.setFeatureState(
-          { source: 'prague-districts', id },
+          { source: 'prague-districts', sourceLayer: DISTRICT_SOURCE_LAYER, id },
           {
             strength,
             fillColor,
@@ -5930,7 +5931,7 @@ function updateDistrictFeatureStates() {
       }
       try {
         map.setFeatureState(
-          { source: 'prague-districts', id },
+          { source: 'prague-districts', sourceLayer: DISTRICT_SOURCE_LAYER, id },
           {
             strength: null,
             fillColor: null,
@@ -12216,7 +12217,7 @@ function addSourcesAndLayers() {
     id: 'districts-fill',
     type: 'fill',
     source: 'prague-districts',
-    'source-layer': 'districts',
+    'source-layer': DISTRICT_SOURCE_LAYER,
     layout: {
       visibility: 'visible',
     },
@@ -12245,7 +12246,7 @@ function addSourcesAndLayers() {
     id: 'districts-outline',
     type: 'line',
     source: 'prague-districts',
-    'source-layer': 'districts',
+    'source-layer': DISTRICT_SOURCE_LAYER,
     layout: {
       visibility: 'visible',
     },
@@ -12260,7 +12261,7 @@ function addSourcesAndLayers() {
     id: 'district-hover-glow',
     type: 'line',
     source: 'prague-districts',
-    'source-layer': 'districts',
+    'source-layer': DISTRICT_SOURCE_LAYER,
     layout: {
       visibility: 'visible',
       'line-cap': 'round',
@@ -12279,7 +12280,7 @@ function addSourcesAndLayers() {
     id: 'district-hover-line',
     type: 'line',
     source: 'prague-districts',
-    'source-layer': 'districts',
+    'source-layer': DISTRICT_SOURCE_LAYER,
     layout: {
       visibility: 'visible',
       'line-cap': 'round',
