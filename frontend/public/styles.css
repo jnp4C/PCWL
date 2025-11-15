@@ -3800,3 +3800,16 @@ button.secondary:hover,
   color: var(--color-text);
   letter-spacing: 0.02em;
 }
+
+.district-tooltip-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.district-tooltip-meta {
+  margin-top: 0.1rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  letter-spacing: 0.01em;
+}

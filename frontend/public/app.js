@@ -311,6 +311,39 @@ const DEFEND_HITMARKER_GIF_URL = resolveDataUrl('defend_hitmarker.gif?v=1');
 const MOBILE_CONTEXT_MENU_LONG_PRESS_MS = 650;
 const MOBILE_CONTEXT_MENU_MOVE_THRESHOLD = 18;
 const DEFAULT_MARKER_COLOR = '#6366f1';
+const DISTRICT_FILL_COLOR_LOW = '#f87171';
+const DISTRICT_FILL_COLOR_MID = '#facc15';
+const DISTRICT_FILL_COLOR_HIGH = '#22c55e';
+const DISTRICT_FILL_COLOR_WINNER = '#ffd700';
+function hexToRgb(hex) {
+  if (typeof hex !== 'string' || !hex.startsWith('#') || hex.length !== 7) {
+    return { r: 0, g: 0, b: 0 };
+  }
+  const r = Number.parseInt(hex.slice(1, 3), 16);
+  const g = Number.parseInt(hex.slice(3, 5), 16);
+  const b = Number.parseInt(hex.slice(5, 7), 16);
+  if ([r, g, b].some((value) => Number.isNaN(value))) {
+    return { r: 0, g: 0, b: 0 };
+  }
+  return { r, g, b };
+}
+
+function blendHexColors(fromHex, toHex, t) {
+  const ratio = Math.max(0, Math.min(1, Number(t) || 0));
+  const from = hexToRgb(fromHex);
+  const to = hexToRgb(toHex);
+  const mix = (fromChannel, toChannel) => Math.round(fromChannel + (toChannel - fromChannel) * ratio);
+  const r = mix(from.r, to.r)
+    .toString(16)
+    .padStart(2, '0');
+  const g = mix(from.g, to.g)
+    .toString(16)
+    .padStart(2, '0');
+  const b = mix(from.b, to.b)
+    .toString(16)
+    .padStart(2, '0');
+  return `#${r}${g}${b}`;
+}
 const MARKER_COLOR_PATTERN = /^#(?:[0-9a-fA-F]{6})$/;
 const FRIEND_LOCATIONS_SOURCE_ID = 'friend-locations';
 const FRIEND_LOCATIONS_LAYER_ID = 'friend-locations';
@@ -3300,6 +3333,13 @@ let lastHoverLngLat = null;
 let lastHoverDistrictId = null;
 let isPointerOverDistrict = false;
 let districtScores = {};
+const districtStrengthState = {
+  byId: new Map(),
+  maxStrength: 0,
+  lastUpdatedAt: 0,
+  appliedIds: new Set(),
+};
+let districtStrengthFetchPromise = null;
 let musicAudio = null;
 let musicState = {
   muted: false,
@@ -3901,10 +3941,24 @@ function showDistrictTooltip(feature, lngLat) {
     displayName = displayName.replace(/^Praha\b/i, 'Prague');
   }
 
+  const districtId = getDistrictId(feature);
+  const strengthInfo = getDistrictStrengthInfo(districtId);
+  const strengthText =
+    strengthInfo && Number.isFinite(strengthInfo.strength)
+      ? `${Math.round(strengthInfo.strength).toLocaleString()} pts`
+      : 'No leaderboard data yet';
+
   const popup = ensureDistrictPopup();
   const content = document.createElement('div');
   content.className = 'district-tooltip';
-  content.textContent = displayName;
+  const title = document.createElement('div');
+  title.className = 'district-tooltip-name';
+  title.textContent = displayName;
+  const meta = document.createElement('div');
+  meta.className = 'district-tooltip-meta';
+  meta.textContent = strengthText;
+  content.appendChild(title);
+  content.appendChild(meta);
 
   popup.setDOMContent(content).setLngLat(lngLat).addTo(map);
 }
@@ -5492,6 +5546,128 @@ function accumulateDistrictScore(districtId, districtName, delta, table = null) 
   if (!table) {
     saveDistrictScores();
   }
+}
+
+function getDistrictStrengthInfo(districtId) {
+  const id = districtId ? safeId(districtId) : null;
+  if (!id) {
+    return null;
+  }
+  return districtStrengthState.byId.get(id) || null;
+}
+
+function calculateDistrictFillColor(strength, maxStrength, isWinner) {
+  if (isWinner && maxStrength > 0) {
+    return DISTRICT_FILL_COLOR_WINNER;
+  }
+  if (!Number.isFinite(strength) || strength <= 0 || !Number.isFinite(maxStrength) || maxStrength <= 0) {
+    return blendHexColors(DISTRICT_FILL_COLOR_LOW, DISTRICT_FILL_COLOR_MID, 0.25);
+  }
+  const ratio = Math.max(0, Math.min(1, strength / maxStrength));
+  if (ratio <= 0) {
+    return DISTRICT_FILL_COLOR_LOW;
+  }
+  if (ratio >= 1) {
+    return DISTRICT_FILL_COLOR_HIGH;
+  }
+  if (ratio < 0.5) {
+    return blendHexColors(DISTRICT_FILL_COLOR_LOW, DISTRICT_FILL_COLOR_MID, ratio / 0.5);
+  }
+  return blendHexColors(DISTRICT_FILL_COLOR_MID, DISTRICT_FILL_COLOR_HIGH, (ratio - 0.5) / 0.5);
+}
+
+function updateDistrictFeatureStates() {
+  ensureMap(() => {
+    if (!map || typeof map.setFeatureState !== 'function') {
+      return;
+    }
+    const appliedIds = districtStrengthState.appliedIds || new Set();
+    const seenIds = new Set();
+    const maxStrength = districtStrengthState.maxStrength || 0;
+    const winnerIds = new Set();
+    if (maxStrength > 0) {
+      districtStrengthState.byId.forEach((info, id) => {
+        if (Number(info?.strength) === maxStrength) {
+          winnerIds.add(id);
+        }
+      });
+    }
+    districtStrengthState.byId.forEach((info, id) => {
+      if (!id) {
+        return;
+      }
+      seenIds.add(id);
+      const strength = Number(info?.strength) || 0;
+      const fillColor = calculateDistrictFillColor(strength, maxStrength, winnerIds.has(id));
+      try {
+        map.setFeatureState(
+          { source: 'prague-districts', id },
+          {
+            strength,
+            fillColor,
+            isWinner: winnerIds.has(id),
+          },
+        );
+        appliedIds.add(id);
+      } catch (_) {
+        // Feature not ready yet; ignore until loaded.
+      }
+    });
+    appliedIds.forEach((id) => {
+      if (seenIds.has(id)) {
+        return;
+      }
+      try {
+        map.setFeatureState(
+          { source: 'prague-districts', id },
+          {
+            strength: null,
+            fillColor: null,
+            isWinner: false,
+          },
+        );
+      } catch (_) {}
+      appliedIds.delete(id);
+    });
+    districtStrengthState.appliedIds = appliedIds;
+  });
+}
+
+async function refreshDistrictStrengthsFromServer() {
+  if (districtStrengthFetchPromise) {
+    return districtStrengthFetchPromise;
+  }
+  districtStrengthFetchPromise = apiRequest('leaderboard/')
+    .then((payload) => {
+      const districts = Array.isArray(payload?.districts) ? payload.districts : [];
+      const map = new Map();
+      let maxStrength = 0;
+      districts.forEach((entry) => {
+        const id = entry && entry.id ? safeId(entry.id) : null;
+        if (!id) {
+          return;
+        }
+        const strengthValue = Number(entry.strength ?? entry.score ?? 0);
+        if (!Number.isFinite(strengthValue)) {
+          return;
+        }
+        map.set(id, { strength: strengthValue, name: entry.name || '' });
+        if (strengthValue > maxStrength) {
+          maxStrength = strengthValue;
+        }
+      });
+      districtStrengthState.byId = map;
+      districtStrengthState.maxStrength = maxStrength;
+      districtStrengthState.lastUpdatedAt = Date.now();
+      updateDistrictFeatureStates();
+    })
+    .catch((error) => {
+      console.warn('Failed to refresh district leaderboard data', error);
+    })
+    .finally(() => {
+      districtStrengthFetchPromise = null;
+    });
+  return districtStrengthFetchPromise;
 }
 
 function resolveDistrictDeltaFromEntry(entry) {
@@ -7762,7 +7938,8 @@ async function sendPartyInvite(username, { suppressStatus = false } = {}) {
   }
 }
 
-async function startPartyWithFriend(username) {
+async function startPartyWithFriend(username, options = {}) {
+  const { retried = false } = options;
   if (!currentUser || !isSessionAuthenticated) {
     updateStatus('Sign in to start a party.');
     return;
@@ -7791,11 +7968,13 @@ async function startPartyWithFriend(username) {
     refreshPartyNameControls(getActivePartyState(), profile);
     return;
   }
-  const friend = findFriendByUsername(username || (friendsPartySelect ? friendsPartySelect.value : ''));
+  const selectionUsername = username || (friendsPartySelect ? friendsPartySelect.value : '');
+  const friend = findFriendByUsername(selectionUsername);
   if (!friend) {
     updateStatus('Select a friend to start a party.');
     return;
   }
+  const friendUsername = friend.username;
   try {
     const requestOptions = { method: 'POST' };
     if (draftName && draftName.length >= PARTY_NAME_MIN_LENGTH) {
@@ -7804,6 +7983,19 @@ async function startPartyWithFriend(username) {
     await apiRequest('party/', requestOptions);
   } catch (error) {
     const detail = error?.data?.detail || error?.message || 'Unable to start a party.';
+    const normalizedDetail = detail ? detail.toLowerCase() : '';
+    if (!retried && normalizedDetail.includes('already in an active party')) {
+      await disbandActiveParty({ silent: true, force: true });
+      await refreshPartyState(false, { silent: true });
+      if (getActivePartyState()) {
+        updateStatus(detail);
+        renderPartyInvitations();
+        renderPartyPanelChip();
+        return;
+      }
+      updateStatus('Reset your previous party. Trying again…');
+      return startPartyWithFriend(friendUsername, { retried: true });
+    }
     updateStatus(detail);
     console.warn('Failed to start party', error);
     await refreshPartyState(false, { silent: true });
@@ -7923,27 +8115,37 @@ async function savePartyName() {
   }
 }
 
-async function disbandActiveParty() {
+async function disbandActiveParty(options = {}) {
+  const { silent = false, force = false } = options;
   if (!isSessionAuthenticated || !currentUser) {
-    return;
+    return false;
   }
   const activeParty = getActivePartyState();
-  if (!activeParty) {
-    return;
+  if (!activeParty && !force) {
+    return false;
   }
   try {
     await apiRequest('party/', { method: 'DELETE' });
-    updateStatus(activeParty.isLeader ? 'Party disbanded.' : 'You left the party.');
+    if (!silent) {
+      updateStatus(
+        activeParty && activeParty.isLeader ? 'Party disbanded.' : 'You left the party.',
+      );
+    }
+    return true;
   } catch (error) {
     const detail = error?.data?.detail || error?.message || 'Unable to update party.';
-    updateStatus(detail);
+    if (!silent) {
+      updateStatus(detail);
+    }
     console.warn('Failed to end party', error);
+    return false;
   } finally {
     await refreshPartyState(false, { silent: true });
   }
 }
 
-async function handlePartyInviteResponse(invitationId, accept) {
+async function handlePartyInviteResponse(invitationId, accept, options = {}) {
+  const { retried = false } = options;
   const numericId = Number(invitationId);
   if (!Number.isFinite(numericId) || !isSessionAuthenticated || !currentUser) {
     return;
@@ -7957,6 +8159,20 @@ async function handlePartyInviteResponse(invitationId, accept) {
     requestSucceeded = true;
   } catch (error) {
     const detail = error?.data?.detail || error?.message || 'Unable to respond to invitation.';
+    const normalizedDetail = detail ? detail.toLowerCase() : '';
+    if (
+      accept &&
+      !retried &&
+      (normalizedDetail.includes('already in another party') ||
+        normalizedDetail.includes('already in a party'))
+    ) {
+      await disbandActiveParty({ silent: true, force: true });
+      await refreshPartyState(false, { silent: true });
+      if (!getActivePartyState()) {
+        updateStatus('Closed your previous party. Joining the invite…');
+        return handlePartyInviteResponse(invitationId, accept, { retried: true });
+      }
+    }
     updateStatus(detail);
     console.warn('Failed to respond to party invite', error);
   } finally {
@@ -7979,7 +8195,8 @@ async function handlePartyInviteResponse(invitationId, accept) {
   }
 }
 
-async function handlePartyJoinRequestResponse(requestId, accept) {
+async function handlePartyJoinRequestResponse(requestId, accept, options = {}) {
+  const { retried = false } = options;
   const numericId = Number(requestId);
   if (!Number.isFinite(numericId) || !isSessionAuthenticated || !currentUser) {
     return;
@@ -7993,6 +8210,20 @@ async function handlePartyJoinRequestResponse(requestId, accept) {
     requestSucceeded = true;
   } catch (error) {
     const detail = error?.data?.detail || error?.message || 'Unable to update join request.';
+    const normalizedDetail = detail ? detail.toLowerCase() : '';
+    if (
+      accept &&
+      !retried &&
+      (normalizedDetail.includes('already in another party') ||
+        normalizedDetail.includes('already in a party'))
+    ) {
+      await disbandActiveParty({ silent: true, force: true });
+      await refreshPartyState(false, { silent: true });
+      if (!getActivePartyState()) {
+        updateStatus('Closed your previous party. Approving the request…');
+        return handlePartyJoinRequestResponse(requestId, accept, { retried: true });
+      }
+    }
     updateStatus(detail);
     console.warn('Failed to respond to party join request', error);
   } finally {
@@ -11299,6 +11530,9 @@ async function handleCheckIn(options = {}) {
   }
 
   refreshDistrictHover();
+  try {
+    refreshDistrictStrengthsFromServer();
+  } catch (_) {}
 }
 
 function handleSetHomeDistrict() {
@@ -11450,6 +11684,9 @@ async function handleRangedAttack({ districtId, districtName, contextCoords = nu
   }
 
   refreshDistrictHover();
+  try {
+    refreshDistrictStrengthsFromServer();
+  } catch (_) {}
 }
 
 function addSourcesAndLayers() {
@@ -11600,8 +11837,23 @@ function addSourcesAndLayers() {
       visibility: 'visible',
     },
     paint: {
-      'fill-color': '#9f9be9',
-      'fill-opacity': 0.18,
+      'fill-color': [
+        'case',
+        ['boolean', ['feature-state', 'isWinner'], false],
+        DISTRICT_FILL_COLOR_WINNER,
+        ['coalesce', ['feature-state', 'fillColor'], '#9f9be9'],
+      ],
+      'fill-opacity': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        8,
+        0.35,
+        12,
+        0.55,
+        16,
+        0.72,
+      ],
     },
   });
 
@@ -13020,6 +13272,7 @@ initialiseMap();
 
 loadDistrictScores();
 initialisePlayers();
+refreshDistrictStrengthsFromServer().catch(() => null);
 
 // If the map finishes loading before the user clicks “Start”, keep status informative.
 ensureMap(() => {
