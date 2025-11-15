@@ -38,7 +38,9 @@ self.addEventListener('fetch', (event) => {
 
   if (!isSameOrigin) {
     if (isGoogleFontHost) {
-      event.respondWith(new Response('', { status: 204, statusText: 'Font request blocked' }));
+      event.respondWith(
+        new Response(null, { status: 204, statusText: 'Font request blocked' }),
+      );
     }
     return;
   }

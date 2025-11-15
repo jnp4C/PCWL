@@ -241,6 +241,8 @@ const STATIC_DATASETS = {
   },
 };
 const STATIC_DATA_CACHE = {};
+const DISTRICT_PM_TILES_FILENAME = 'prague-districts.pmtiles';
+let pmtilesProtocolInstance = null;
 const DISTRICT_GLOW_DEFAULT_COLOR = '#8f76e6';
 const DISTRICT_GLOW_HOME_COLOR_LIGHT = '#176f3c';
 const DISTRICT_GLOW_HOME_COLOR_DARK = '#c7ff5a';
@@ -588,6 +590,91 @@ if (typeof window !== 'undefined') {
 
 function resolveDataUrl(filename) {
   return `${DATA_PREFIX}${filename}`;
+}
+
+function buildPmtilesUrl(filename) {
+  const path = resolveDataUrl(filename);
+  if (!path) {
+    return null;
+  }
+  if (/^https?:\/\//i.test(path)) {
+    return `pmtiles://${path}`;
+  }
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const origin =
+    typeof window !== 'undefined' && window.location && typeof window.location.origin === 'string'
+      ? window.location.origin.replace(/\/+$/, '')
+      : '';
+  if (origin) {
+    return `pmtiles://${origin}${normalizedPath}`;
+  }
+  return `pmtiles://${normalizedPath}`;
+}
+
+function ensurePmtilesProtocol() {
+  if (pmtilesProtocolInstance) {
+    return pmtilesProtocolInstance;
+  }
+  if (
+    typeof maplibregl === 'undefined' ||
+    typeof pmtiles === 'undefined' ||
+    typeof maplibregl.addProtocol !== 'function'
+  ) {
+    return null;
+  }
+  pmtilesProtocolInstance = new pmtiles.Protocol({ metadata: true });
+  maplibregl.addProtocol('pmtiles', pmtilesProtocolInstance.tile);
+  return pmtilesProtocolInstance;
+}
+
+function waitForDistrictSourceReady(callback) {
+  if (!map || typeof map.on !== 'function' || typeof map.off !== 'function') {
+    return;
+  }
+  const handler = (event) => {
+    if (!event || event.sourceId !== 'prague-districts') {
+      return;
+    }
+    if (event.isSourceLoaded || event.dataType === 'source') {
+      map.off('sourcedata', handler);
+      callback();
+    }
+  };
+  map.on('sourcedata', handler);
+}
+
+function addDistrictSource(mapInstance) {
+  if (!mapInstance || typeof mapInstance.addSource !== 'function') {
+    return;
+  }
+  if (mapInstance.getSource && mapInstance.getSource('prague-districts')) {
+    return;
+  }
+  const pmtilesUrl = buildPmtilesUrl(DISTRICT_PM_TILES_FILENAME);
+  if (pmtilesUrl && ensurePmtilesProtocol()) {
+    mapInstance.addSource('prague-districts', {
+      type: 'vector',
+      url: pmtilesUrl,
+      promoteId: 'kod_mc',
+    });
+    waitForDistrictSourceReady(() => {
+      if (lastKnownLocation) {
+        updateCurrentDistrictFromCoordinates(lastKnownLocation[0], lastKnownLocation[1]);
+      }
+    });
+    return;
+  }
+  addStaticGeoSource(
+    mapInstance,
+    'prague-districts',
+    'prague-districts',
+    { promoteId: 'kod_mc' },
+    () => {
+      if (lastKnownLocation) {
+        updateCurrentDistrictFromCoordinates(lastKnownLocation[0], lastKnownLocation[1]);
+      }
+    },
+  );
 }
 
 function resolveAssetUrl(path) {
@@ -5756,10 +5843,19 @@ function ensureDistrictFeatureStateSyncHooks() {
         scheduleDistrictFeatureStateUpdate();
       }
     };
+    const ensureSourceReady = () => {
+      if (!map || typeof map.isSourceLoaded !== 'function') {
+        return;
+      }
+      if (map.isSourceLoaded('prague-districts')) {
+        scheduleDistrictFeatureStateUpdate();
+      }
+    };
     map.on('sourcedata', scheduleIfDistrictSource);
-    map.on('styledata', () => {
-      scheduleDistrictFeatureStateUpdate();
-    });
+    map.on('styledata', ensureSourceReady);
+    map.on('moveend', ensureSourceReady);
+    map.on('idle', ensureSourceReady);
+    ensureSourceReady();
     districtSourceListenersBound = true;
   });
 }
@@ -12044,23 +12140,14 @@ function addSourcesAndLayers() {
     }, 1200);
   });
 
-  addStaticGeoSource(
-    map,
-    'prague-districts',
-    'prague-districts',
-    { promoteId: 'kod_mc' },
-    () => {
-      if (lastKnownLocation) {
-        updateCurrentDistrictFromCoordinates(lastKnownLocation[0], lastKnownLocation[1]);
-      }
-    },
-  );
+  addDistrictSource(map);
   ensureDistrictFeatureStateSyncHooks();
 
   map.addLayer({
     id: 'districts-fill',
     type: 'fill',
     source: 'prague-districts',
+    'source-layer': 'districts',
     layout: {
       visibility: 'visible',
     },
@@ -12089,6 +12176,7 @@ function addSourcesAndLayers() {
     id: 'districts-outline',
     type: 'line',
     source: 'prague-districts',
+    'source-layer': 'districts',
     layout: {
       visibility: 'visible',
     },
@@ -12103,6 +12191,7 @@ function addSourcesAndLayers() {
     id: 'district-hover-glow',
     type: 'line',
     source: 'prague-districts',
+    'source-layer': 'districts',
     layout: {
       visibility: 'visible',
       'line-cap': 'round',
@@ -12121,6 +12210,7 @@ function addSourcesAndLayers() {
     id: 'district-hover-line',
     type: 'line',
     source: 'prague-districts',
+    'source-layer': 'districts',
     layout: {
       visibility: 'visible',
       'line-cap': 'round',
