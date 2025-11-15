@@ -6995,6 +6995,19 @@ function createFriendLocationFeature(friend) {
   if (typeof friend.display_name === 'string' && friend.display_name.trim()) {
     feature.properties.displayName = friend.display_name.trim();
   }
+  const recentCheckins = getFriendRecentCheckins(friend);
+  if (recentCheckins.length) {
+    const latest = recentCheckins[0];
+    const latestType = typeof latest.type === 'string' ? latest.type.toLowerCase() : '';
+    const delta = resolveDistrictDeltaFromEntry(latest);
+    if (Number.isFinite(delta) && delta !== 0) {
+      feature.properties.lastActionDelta = delta;
+      feature.properties.lastActionType = latestType || (delta > 0 ? 'defend' : 'attack');
+      if (latest && latest.timestamp) {
+        feature.properties.lastActionAt = latest.timestamp;
+      }
+    }
+  }
   const districtId = location.districtId ? safeId(location.districtId) : null;
   if (districtId) {
     feature.properties.districtId = districtId;
@@ -7059,8 +7072,43 @@ function rebuildFriendLocationMarkers() {
 
     const el = document.createElement('div');
     el.className = 'friend-location-label';
-    el.textContent = label;
     el.style.setProperty('--friend-label-color', markerColor);
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'friend-label-name';
+    nameSpan.textContent = label;
+    el.appendChild(nameSpan);
+
+    const deltaRaw =
+      feature.properties && feature.properties.lastActionDelta !== undefined
+        ? Number(feature.properties.lastActionDelta)
+        : null;
+    if (Number.isFinite(deltaRaw) && deltaRaw !== 0) {
+      const deltaSpan = document.createElement('span');
+      const isPositive = deltaRaw > 0;
+      deltaSpan.className = `friend-label-delta ${isPositive ? 'positive' : 'negative'}`;
+      const prefix = isPositive ? '+' : '-';
+      deltaSpan.textContent = `${prefix}${integerFormatter.format(Math.abs(deltaRaw))}`;
+      el.appendChild(deltaSpan);
+    }
+    if (username) {
+      el.dataset.username = username;
+      el.setAttribute('role', 'button');
+      el.setAttribute('aria-label', `Open @${username}'s profile`);
+      el.tabIndex = 0;
+      const activateProfile = (event) => {
+        if (event) {
+          event.stopPropagation();
+          event.preventDefault();
+        }
+        openFriendProfileFromMap(username, el);
+      };
+      el.addEventListener('click', activateProfile);
+      el.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+          activateProfile(event);
+        }
+      });
+    }
 
     const key = `${label}-${coords[0]}-${coords[1]}-${index}`;
     const marker = new maplibregl.Marker({
@@ -7585,6 +7633,21 @@ function findFriendByUsername(username) {
   return friendsState.items.find(
     (friend) => friend && typeof friend.username === 'string' && friend.username.toLowerCase() === target,
   );
+}
+
+function openFriendProfileFromMap(username, trigger = null) {
+  const raw = typeof username === 'string' ? username.replace(/^@/, '').trim() : '';
+  if (!raw) {
+    updateStatus('Unable to load that friend right now.');
+    return false;
+  }
+  const friend = findFriendByUsername(raw);
+  if (!friend) {
+    updateStatus(`Unable to load @${raw}'s profile.`);
+    return false;
+  }
+  openFriendProfileDrawer(friend.username, trigger);
+  return true;
 }
 
 function updatePartySelectOptions(friends, excludedSet) {
@@ -12382,7 +12445,10 @@ function addSourcesAndLayers() {
     const feature = event.features[0];
     const props = feature && feature.properties ? feature.properties : {};
     const usernameRaw = props && typeof props.username === 'string' ? props.username : '';
-    const username = usernameRaw ? `@${usernameRaw}` : 'Friend';
+    if (openFriendProfileFromMap(usernameRaw)) {
+      return;
+    }
+    const fallbackLabel = usernameRaw ? `@${usernameRaw}` : 'Friend';
     const districtName =
       props && typeof props.districtName === 'string' && props.districtName.trim()
         ? props.districtName.trim()
@@ -12393,7 +12459,7 @@ function addSourcesAndLayers() {
     const timestamp = Number.isFinite(timestampRaw) ? timestampRaw : null;
     const timeLabel = timestamp ? formatTimeAgo(timestamp) : 'recently';
     const locationLabel = districtName || (districtId ? `District ${districtId}` : 'their last known location');
-    updateStatus(`${username} last checked in ${timeLabel} at ${locationLabel}.`);
+    updateStatus(`${fallbackLabel} last checked in ${timeLabel} at ${locationLabel}.`);
   });
 
   addStaticGeoSource(map, 'prague-parks', 'prague-parks', {}, null, { minZoom: 12, unloadBelowMinZoom: true });

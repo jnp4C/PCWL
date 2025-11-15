@@ -560,7 +560,7 @@ class CheckInApiTests(TestCase):
         # Prague 1 now normalises to cadastral code 500054 via LEGACY_DISTRICT_CODE_ALIASES
         self.assertEqual(checkin.home_district_code_snapshot, "500054")
         self.assertEqual(checkin.party_code, "")
-        engagement = DistrictEngagement.objects.get(home_district_code="500054", target_district_code="1200")
+        engagement = DistrictEngagement.objects.get(home_district_code="500054", target_district_code="500089")
         self.assertEqual(engagement.attack_points_total, 10)
         self.assertEqual(engagement.attack_checkins, 1)
 
