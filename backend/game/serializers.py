@@ -101,6 +101,36 @@ class PlayerSerializer(serializers.ModelSerializer):
             player.save(update_fields=["home_district", "updated_at"])
         return player
 
+    def to_representation(self, instance):
+        # Ensure home district fields are populated in responses even if legacy data was incomplete.
+        self._ensure_home_district(instance)
+        return super().to_representation(instance)
+
+    def _ensure_home_district(self, instance: Player) -> None:
+        """Attach/repair the home district FK so responses stay consistent."""
+        if not instance:
+            return
+        if instance.home_district_ref:
+            # Backfill any missing text fields from the FK.
+            if not instance.home_district_code:
+                instance.home_district_code = instance.home_district_ref.code
+            if not instance.home_district_name:
+                instance.home_district_name = instance.home_district_ref.name
+            if not instance.home_district:
+                instance.home_district = instance.home_district_ref.name
+            return
+
+        code = _normalise_district_code(instance.home_district_code)
+        if not code:
+            return
+        name = (instance.home_district_name or instance.home_district or "").strip() or f"District {code}"
+        district, _ = District.objects.get_or_create(
+            code=code,
+            defaults={"name": name, "is_active": True},
+        )
+        if district:
+            instance.assign_home_district(district, save=True)
+
     def validate_home_district_code(self, value: Any) -> str:
         if value in (None, ""):
             return ""

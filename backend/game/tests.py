@@ -196,9 +196,10 @@ class PlayerApiTests(TestCase):
         response = self.client.patch(url, payload, content_type="application/json")
         self.assertEqual(response.status_code, 200)
         player.refresh_from_db()
-        self.assertEqual(player.home_district_code, "1100")
+        # Codes are normalized to the canonical catalog code for Prague 1
+        self.assertEqual(player.home_district_code, "500054")
         self.assertEqual(player.home_district_name, "Prague 1")
-        district = District.objects.get(code="1100")
+        district = District.objects.get(code="500054")
         self.assertEqual(district.name, "Prague 1")
         self.assertTrue(district.is_active)
 
