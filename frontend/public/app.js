@@ -9860,11 +9860,11 @@ function renderBubbleSuggestionCard(suggestion) {
     partyRow.className = 'bubble-party bubble-live-party';
     const nameLabel = document.createElement('span');
     nameLabel.className = 'bubble-live-party-label';
-    const displayName =
+    const partyDisplayName =
       typeof activeParty.name === 'string' && activeParty.name.trim()
         ? activeParty.name.trim()
         : `Party ${activeParty.code}`;
-    nameLabel.textContent = displayName;
+    nameLabel.textContent = partyDisplayName;
     partyRow.appendChild(nameLabel);
 
     const metaParts = [];
@@ -9887,6 +9887,56 @@ function renderBubbleSuggestionCard(suggestion) {
       meta.className = 'bubble-live-party-meta';
       meta.textContent = metaParts.join(' • ');
       partyRow.appendChild(meta);
+    }
+    const joinStatus = typeof activeParty.joinStatus === 'string' ? activeParty.joinStatus : 'available';
+    const canRequestJoin = activeParty.canRequest !== false && joinStatus === 'available';
+    const joinContainer = document.createElement('div');
+    joinContainer.className = 'bubble-party-meta';
+    let joinStatusLabel = '';
+    switch (joinStatus) {
+      case 'pending':
+        joinStatusLabel = 'Join request pending.';
+        break;
+      case 'invited':
+        joinStatusLabel = 'Invite already sent—check your invites.';
+        break;
+      case 'viewer_in_party':
+        joinStatusLabel = 'Leave your current party to request a spot.';
+        break;
+      case 'already_member':
+        joinStatusLabel = 'You are already in this party.';
+        break;
+      case 'self':
+        joinStatusLabel = 'You lead this party.';
+        break;
+      case 'full':
+        joinStatusLabel = 'Party is full right now.';
+        break;
+      case 'not_friend':
+        joinStatusLabel = 'Add as a friend to request a spot.';
+        break;
+      default:
+        break;
+    }
+    if (joinStatusLabel) {
+      const statusLabel = document.createElement('div');
+      statusLabel.className = 'bubble-join-status';
+      statusLabel.textContent = joinStatusLabel;
+      joinContainer.appendChild(statusLabel);
+    }
+    if (canRequestJoin) {
+      const joinButton = document.createElement('button');
+      joinButton.type = 'button';
+      joinButton.className = 'secondary small bubble-join-button';
+      joinButton.dataset.partyJoinUsername =
+        (typeof activeParty.leader === 'string' && activeParty.leader) || suggestion.username;
+      joinButton.dataset.partyJoinName = partyDisplayName;
+      joinButton.dataset.partyJoinCode = activeParty.code;
+      joinButton.textContent = 'Request to join';
+      joinContainer.appendChild(joinButton);
+    }
+    if (joinContainer.childNodes.length) {
+      partyRow.appendChild(joinContainer);
     }
     card.appendChild(partyRow);
   }
@@ -10385,7 +10435,54 @@ async function handleFriendSearchAction(event) {
   }
 }
 
+async function requestPartyJoinFromBubble(button) {
+  if (!button || button.disabled) {
+    return;
+  }
+  const username = (button.dataset.partyJoinUsername || '').trim();
+  const partyName = (button.dataset.partyJoinName || '').trim();
+  if (!username) {
+    return;
+  }
+  if (!isSessionAuthenticated || !currentUser) {
+    updateStatus('Sign in to request to join a party.');
+    return;
+  }
+  if (getActivePartyState()) {
+    updateStatus('Leave your current party before requesting to join another.');
+    return;
+  }
+  const originalLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Requesting…';
+  try {
+    await apiRequest('party/join/', {
+      method: 'POST',
+      body: { username },
+    });
+    const successLabel = partyName ? `Requested to join ${partyName}.` : `Join request sent to @${username}.`;
+    updateStatus(successLabel);
+    button.textContent = 'Requested';
+    button.classList.remove('secondary');
+    button.classList.add('primary');
+    refreshPartyState(false, { silent: true }).catch(() => null);
+    refreshFriendBubble(true).catch(() => null);
+  } catch (error) {
+    const detail = error?.data?.detail || error?.message || 'Unable to request to join this party.';
+    updateStatus(detail);
+    console.warn('Failed to request party join from bubble', error);
+    button.disabled = false;
+    button.textContent = originalLabel;
+  }
+}
+
 async function handleFriendsBubbleAction(event) {
+  const joinButton = event.target.closest('.bubble-join-button');
+  if (joinButton) {
+    event.preventDefault();
+    requestPartyJoinFromBubble(joinButton);
+    return;
+  }
   const addButton = event.target.closest('.bubble-add-button');
   if (!addButton) {
     return;

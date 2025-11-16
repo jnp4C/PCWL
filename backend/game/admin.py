@@ -46,7 +46,7 @@ class PlayerAdminForm(forms.ModelForm):
             return ""
         self.instance.home_district_name = district.name
         self.instance.home_district = district.name
-            self.instance.home_district_ref = district
+        self.instance.home_district_ref = district
         return district.code
 
     def save(self, commit=True):
