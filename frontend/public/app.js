@@ -6030,15 +6030,16 @@ function updateDistrictFeatureStates() {
       }
       seenIds.add(id);
       const strength = Number(info?.strength) || 0;
-        const fillColor = calculateDistrictFillColor(
-          strength,
-          maxStrength,
-          districtStrengthState.minStrength,
-          winnerIds.has(id),
-        );
+      const featureId = Number.isFinite(Number(id)) ? Number(id) : id;
+      const fillColor = calculateDistrictFillColor(
+        strength,
+        maxStrength,
+        districtStrengthState.minStrength,
+        winnerIds.has(id),
+      );
       try {
         map.setFeatureState(
-          { source: 'prague-districts', sourceLayer: DISTRICT_SOURCE_LAYER, id },
+          { source: 'prague-districts', sourceLayer: DISTRICT_SOURCE_LAYER, id: featureId },
           {
             strength,
             fillColor,
@@ -6056,7 +6057,11 @@ function updateDistrictFeatureStates() {
       }
       try {
         map.setFeatureState(
-          { source: 'prague-districts', sourceLayer: DISTRICT_SOURCE_LAYER, id },
+          {
+            source: 'prague-districts',
+            sourceLayer: DISTRICT_SOURCE_LAYER,
+            id: Number.isFinite(Number(id)) ? Number(id) : id,
+          },
           {
             strength: null,
             fillColor: null,

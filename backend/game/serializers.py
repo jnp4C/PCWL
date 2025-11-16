@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from rest_framework import serializers
 
 from .models import CheckIn, District, FriendLink, FriendRequest, Player
+from .services import _normalise_district_code
 
 
 DEFAULT_MAP_MARKER_COLOR = "#6366f1"
@@ -104,7 +105,8 @@ class PlayerSerializer(serializers.ModelSerializer):
         if value in (None, ""):
             return ""
         code = str(value).strip()
-        return code
+        normalized = _normalise_district_code(code)
+        return normalized or ""
 
     def _apply_district_defaults(self, validated_data: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[District]]:
         data = dict(validated_data)
@@ -112,7 +114,7 @@ class PlayerSerializer(serializers.ModelSerializer):
         name = data.get("home_district_name")
         resolved_district: Optional[District] = None
         if isinstance(code, str):
-            code = code.strip()
+            code = _normalise_district_code(code) or ""
             data["home_district_code"] = code
         if isinstance(name, str):
             name = name.strip()
