@@ -34,8 +34,14 @@ class PlayerAdminForm(forms.ModelForm):
             for attr in ("can_add_related", "can_change_related", "can_delete_related"):
                 if hasattr(widget, attr):
                     setattr(widget, attr, False)
-        if self.instance and self.instance.pk and self.instance.home_district_ref_id:
-            self.fields["home_district_code"].initial = self.instance.home_district_ref
+        if self.instance and self.instance.pk:
+            initial = None
+            if self.instance.home_district_ref_id:
+                initial = self.instance.home_district_ref
+            elif self.instance.home_district_code:
+                initial = District.objects.filter(code=self.instance.home_district_code).first()
+            if initial:
+                self.fields["home_district_code"].initial = initial
 
     def clean_home_district_code(self):
         district = self.cleaned_data.get("home_district_code")

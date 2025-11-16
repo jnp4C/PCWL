@@ -51,10 +51,16 @@
       </p>
       <div class="leaderboard-sections">
         <section class="leaderboard-section" aria-labelledby="player-leaderboard-heading">
-          <h2 id="player-leaderboard-heading">
-            Player Leaderboard
-            <span class="leaderboard-badge" aria-label="Live scores">Live</span>
-          </h2>
+          <div class="leaderboard-heading-row">
+            <h2 id="player-leaderboard-heading">
+              Player Leaderboard
+              <span class="leaderboard-badge" aria-label="Live scores">Live</span>
+            </h2>
+            <div class="leaderboard-actions" aria-label="Player leaderboard controls">
+              <button id="player-sort-toggle" class="secondary small" type="button">Show lowest</button>
+              <button id="player-show-toggle" class="secondary small" type="button">Show all</button>
+            </div>
+          </div>
           <p class="leaderboard-section-note" id="player-leaderboard-note">
             Scores sync after each attack or defend. Drag or swipe to explore every column and scroll for more players.
           </p>
@@ -84,7 +90,13 @@
           </p>
         </section>
         <section class="leaderboard-section" aria-labelledby="district-leaderboard-heading">
-          <h2 id="district-leaderboard-heading">District Leaderboard</h2>
+          <div class="leaderboard-heading-row">
+            <h2 id="district-leaderboard-heading">District Leaderboard</h2>
+            <div class="leaderboard-actions" aria-label="District leaderboard controls">
+              <button id="district-sort-toggle" class="secondary small" type="button">Show lowest</button>
+              <button id="district-show-toggle" class="secondary small" type="button">Show all</button>
+            </div>
+          </div>
           <p class="leaderboard-section-note" id="district-leaderboard-note">
             District standings highlight strength swings over the past 24 hours. Scroll to inspect every district.
           </p>

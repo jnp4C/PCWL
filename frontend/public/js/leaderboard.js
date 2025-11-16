@@ -22,6 +22,49 @@ const decimalFormatter = new Intl.NumberFormat(undefined, {
 });
 const LEADERBOARD_REFRESH_DEBOUNCE_MS = 1500;
 let scheduledLeaderboardRefresh = 0;
+const LEADERBOARD_COMPACT_LIMIT = 10;
+const LEADERBOARD_MAX_LIMIT = 50;
+
+const leaderboardState = {
+  players: {
+    order: 'desc',
+    showAll: false,
+  },
+  districts: {
+    order: 'desc',
+    showAll: false,
+  },
+  lastPlayers: [],
+  lastDistricts: [],
+};
+
+const playerSortToggle = document.getElementById('player-sort-toggle');
+const playerShowToggle = document.getElementById('player-show-toggle');
+const districtSortToggle = document.getElementById('district-sort-toggle');
+const districtShowToggle = document.getElementById('district-show-toggle');
+
+function isCompactLeaderboardView() {
+  return (
+    typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 720px)').matches
+  );
+}
+
+function refreshToggleLabels() {
+  if (playerShowToggle) {
+    playerShowToggle.textContent = leaderboardState.players.showAll ? 'Show top 10' : 'Show all';
+  }
+  if (districtShowToggle) {
+    districtShowToggle.textContent = leaderboardState.districts.showAll ? 'Show top 10' : 'Show all';
+  }
+  if (playerSortToggle) {
+    playerSortToggle.textContent =
+      leaderboardState.players.order === 'asc' ? 'Show highest' : 'Show lowest';
+  }
+  if (districtSortToggle) {
+    districtSortToggle.textContent =
+      leaderboardState.districts.order === 'asc' ? 'Show highest' : 'Show lowest';
+  }
+}
 
 function loadPlayerData() {
   try {
@@ -179,6 +222,7 @@ function setEmptyState(hasRows, tableElement, emptyElement) {
 }
 
 function renderPlayerLeaderboard(players) {
+  leaderboardState.lastPlayers = Array.isArray(players) ? players.slice() : [];
   const tbody = document.getElementById('player-leaderboard-body');
   const table = tbody ? tbody.closest('table') : null;
   const empty = document.getElementById('player-leaderboard-empty');
@@ -198,18 +242,25 @@ function renderPlayerLeaderboard(players) {
       rank: Number(entry.rank),
     }))
     .sort((a, b) => {
-      if (b.points !== a.points) {
-        return b.points - a.points;
+      const primary = b.points - a.points;
+      if (primary !== 0) {
+        return leaderboardState.players.order === 'asc' ? -primary : primary;
       }
-      if (b.attackPoints !== a.attackPoints) {
-        return b.attackPoints - a.attackPoints;
+      const attackDiff = b.attackPoints - a.attackPoints;
+      if (attackDiff !== 0) {
+        return leaderboardState.players.order === 'asc' ? -attackDiff : attackDiff;
       }
-      if (b.defendPoints !== a.defendPoints) {
-        return b.defendPoints - a.defendPoints;
+      const defendDiff = b.defendPoints - a.defendPoints;
+      if (defendDiff !== 0) {
+        return leaderboardState.players.order === 'asc' ? -defendDiff : defendDiff;
       }
-      return a.username.localeCompare(b.username, undefined, { sensitivity: 'base' });
-    })
-    .slice(0, 50);
+      const nameCompare = a.username.localeCompare(b.username, undefined, { sensitivity: 'base' });
+      return leaderboardState.players.order === 'asc' ? -nameCompare : nameCompare;
+    });
+
+  const isCompact = isCompactLeaderboardView();
+  const limit = leaderboardState.players.showAll || !isCompact ? LEADERBOARD_MAX_LIMIT : LEADERBOARD_COMPACT_LIMIT;
+  const visible = ranked.slice(0, limit);
 
   tbody.innerHTML = '';
 
@@ -230,7 +281,7 @@ function renderPlayerLeaderboard(players) {
     return cell;
   };
 
-  ranked.forEach((player, index) => {
+  visible.forEach((player, index) => {
     const row = document.createElement('tr');
 
     const rankValue =
@@ -281,10 +332,11 @@ function renderPlayerLeaderboard(players) {
     tbody.appendChild(row);
   });
 
-  setEmptyState(ranked.length > 0, table, empty);
+  setEmptyState(visible.length > 0, table, empty);
 }
 
 function renderDistrictLeaderboard(districts) {
+  leaderboardState.lastDistricts = Array.isArray(districts) ? districts.slice() : [];
   const tbody = document.getElementById('district-leaderboard-body');
   const table = tbody ? tbody.closest('table') : null;
   const empty = document.getElementById('district-leaderboard-empty');
@@ -313,14 +365,22 @@ function renderDistrictLeaderboard(districts) {
       };
     })
     .sort((a, b) => {
-      if (b.strength !== a.strength) {
-        return b.strength - a.strength;
+      const primary = b.strength - a.strength;
+      if (primary !== 0) {
+        return leaderboardState.districts.order === 'asc' ? -primary : primary;
       }
-      if (b.defended !== a.defended) {
-        return b.defended - a.defended;
+      const defendedDiff = b.defended - a.defended;
+      if (defendedDiff !== 0) {
+        return leaderboardState.districts.order === 'asc' ? -defendedDiff : defendedDiff;
       }
-      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      const nameCompare = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      return leaderboardState.districts.order === 'asc' ? -nameCompare : nameCompare;
     });
+
+  const isCompact = isCompactLeaderboardView();
+  const limit =
+    leaderboardState.districts.showAll || !isCompact ? LEADERBOARD_MAX_LIMIT : LEADERBOARD_COMPACT_LIMIT;
+  const visible = ranked.slice(0, limit);
 
   tbody.innerHTML = '';
 
@@ -337,7 +397,7 @@ function renderDistrictLeaderboard(districts) {
     return cell;
   };
 
-  ranked.forEach((district, index) => {
+  visible.forEach((district, index) => {
     const row = document.createElement('tr');
 
     const rankValue =
@@ -381,7 +441,7 @@ function renderDistrictLeaderboard(districts) {
     tbody.appendChild(row);
   });
 
-  setEmptyState(ranked.length > 0, table, empty);
+  setEmptyState(visible.length > 0, table, empty);
 }
 
 async function fetchLeaderboardData() {
@@ -438,6 +498,40 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
     }
   });
 }
+
+if (playerShowToggle) {
+  playerShowToggle.addEventListener('click', () => {
+    leaderboardState.players.showAll = !leaderboardState.players.showAll;
+    refreshToggleLabels();
+    renderPlayerLeaderboard(leaderboardState.lastPlayers);
+  });
+}
+
+if (districtShowToggle) {
+  districtShowToggle.addEventListener('click', () => {
+    leaderboardState.districts.showAll = !leaderboardState.districts.showAll;
+    refreshToggleLabels();
+    renderDistrictLeaderboard(leaderboardState.lastDistricts);
+  });
+}
+
+if (playerSortToggle) {
+  playerSortToggle.addEventListener('click', () => {
+    leaderboardState.players.order = leaderboardState.players.order === 'asc' ? 'desc' : 'asc';
+    refreshToggleLabels();
+    renderPlayerLeaderboard(leaderboardState.lastPlayers);
+  });
+}
+
+if (districtSortToggle) {
+  districtSortToggle.addEventListener('click', () => {
+    leaderboardState.districts.order = leaderboardState.districts.order === 'asc' ? 'desc' : 'asc';
+    refreshToggleLabels();
+    renderDistrictLeaderboard(leaderboardState.lastDistricts);
+  });
+}
+
+refreshToggleLabels();
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initialiseLeaderboardPage);

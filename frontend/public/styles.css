@@ -3004,9 +3004,31 @@ button.secondary:hover,
   gap: 2.5rem;
 }
 
+.leaderboard-heading-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  flex-wrap: wrap;
+}
+
 .leaderboard-section h2 {
   margin: 0 0 1rem;
   font-size: 1.45rem;
+}
+
+.leaderboard-heading-row h2 {
+  margin: 0;
+}
+
+.leaderboard-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.leaderboard-actions button {
+  padding: 0.45rem 0.9rem;
 }
 
 .page-leaderboard .app {
