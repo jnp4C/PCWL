@@ -354,6 +354,7 @@ const MARKER_COLOR_PATTERN = /^#(?:[0-9a-fA-F]{6})$/;
 const FRIEND_LOCATIONS_SOURCE_ID = 'friend-locations';
 const FRIEND_LOCATIONS_LAYER_ID = 'friend-locations';
 const FRIEND_LOCATIONS_GLOW_LAYER_ID = 'friend-locations-glow';
+const DISTRICT_STRENGTH_CACHE_KEY = 'districtStrengthSnapshot';
 const FRIEND_DELTA_FORMATTER = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 0,
 });
@@ -3593,6 +3594,99 @@ const COOLDOWN_KEYS = {
   CHARGE: 'charge',
 };
 
+function loadDistrictStrengthCache() {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(DISTRICT_STRENGTH_CACHE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.entries)) {
+      return null;
+    }
+    const map = new Map();
+    let maxStrength = DISTRICT_BASE_SCORE;
+    let minStrength = DISTRICT_BASE_SCORE;
+    parsed.entries.forEach((entry) => {
+      if (!entry || typeof entry.id === 'undefined') {
+        return;
+      }
+      const id = safeId(entry.id);
+      const strength = Number(entry.strength);
+      const defended = Number(entry.defended);
+      const attacked = Number(entry.attacked);
+      if (!id || !Number.isFinite(strength)) {
+        return;
+      }
+      map.set(id, {
+        strength,
+        name: typeof entry.name === 'string' ? entry.name : '',
+        defended: Number.isFinite(defended) ? defended : 0,
+        attacked: Number.isFinite(attacked) ? attacked : 0,
+      });
+      if (strength > maxStrength) {
+        maxStrength = strength;
+      }
+      if (strength < minStrength) {
+        minStrength = strength;
+      }
+    });
+    return {
+      map,
+      maxStrength,
+      minStrength,
+      lastUpdatedAt: Number(parsed.lastUpdatedAt) || 0,
+    };
+  } catch (error) {
+    console.warn('Failed to load cached district strengths', error);
+    return null;
+  }
+}
+
+function saveDistrictStrengthCache() {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+  try {
+    const entries = [];
+    districtStrengthState.byId.forEach((info, id) => {
+      if (!id || !info) {
+        return;
+      }
+      entries.push({
+        id,
+        strength: Number(info.strength) || DISTRICT_BASE_SCORE,
+        name: typeof info.name === 'string' ? info.name : '',
+        defended: Number(info.defended) || 0,
+        attacked: Number(info.attacked) || 0,
+      });
+    });
+    const payload = {
+      entries,
+      maxStrength: districtStrengthState.maxStrength,
+      minStrength: districtStrengthState.minStrength,
+      lastUpdatedAt: districtStrengthState.lastUpdatedAt || Date.now(),
+    };
+    window.localStorage.setItem(DISTRICT_STRENGTH_CACHE_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.warn('Failed to cache district strengths', error);
+  }
+}
+
+try {
+  const cachedStrengths = loadDistrictStrengthCache();
+  if (cachedStrengths) {
+    districtStrengthState.byId = cachedStrengths.map;
+    districtStrengthState.maxStrength = cachedStrengths.maxStrength;
+    districtStrengthState.minStrength = cachedStrengths.minStrength;
+    districtStrengthState.lastUpdatedAt = cachedStrengths.lastUpdatedAt || 0;
+    scheduleDistrictFeatureStateUpdate();
+  }
+} catch (_) {}
+
 const COOLDOWN_DURATIONS = {
   attack: 3 * 60 * 1000,
   defendLocal: 3 * 60 * 1000,
@@ -6028,6 +6122,7 @@ async function refreshDistrictStrengthsFromServer() {
       districtStrengthState.maxStrength = maxStrength;
       districtStrengthState.minStrength = minStrength;
       districtStrengthState.lastUpdatedAt = Date.now();
+      saveDistrictStrengthCache();
       scheduleDistrictFeatureStateUpdate();
     })
     .catch((error) => {
