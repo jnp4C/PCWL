@@ -34,11 +34,8 @@ class PlayerAdminForm(forms.ModelForm):
             for attr in ("can_add_related", "can_change_related", "can_delete_related"):
                 if hasattr(widget, attr):
                     setattr(widget, attr, False)
-        if self.instance and self.instance.pk and self.instance.home_district_code:
-            try:
-                self.fields["home_district_code"].initial = District.objects.get(code=self.instance.home_district_code)
-            except District.DoesNotExist:
-                self.fields["home_district_code"].initial = None
+        if self.instance and self.instance.pk and self.instance.home_district_ref_id:
+            self.fields["home_district_code"].initial = self.instance.home_district_ref
 
     def clean_home_district_code(self):
         district = self.cleaned_data.get("home_district_code")
@@ -49,8 +46,24 @@ class PlayerAdminForm(forms.ModelForm):
             return ""
         self.instance.home_district_name = district.name
         self.instance.home_district = district.name
-        self.instance.home_district_ref = district
+            self.instance.home_district_ref = district
         return district.code
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        district_obj = None
+        district_code = self.cleaned_data.get("home_district_code")
+        if district_code:
+            district_obj = (
+                district_code
+                if isinstance(district_code, District)
+                else District.objects.filter(code=district_code).first()
+            )
+        instance.assign_home_district(district_obj, save=False)
+        if commit:
+            instance.save()
+            self.save_m2m()
+        return instance
 
 
 @admin.register(District)
