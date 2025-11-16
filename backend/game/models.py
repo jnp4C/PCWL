@@ -104,6 +104,31 @@ class Player(models.Model):
     def __str__(self):
         return self.username
 
+    def _sync_home_fields(self) -> None:
+        """Keep home district code/name/ref in sync if any are provided."""
+        if self.home_district_ref:
+            # Prioritise the FK; backfill code/name if missing.
+            if not self.home_district_code:
+                self.home_district_code = self.home_district_ref.code
+            if not self.home_district_name:
+                self.home_district_name = self.home_district_ref.name
+            if not self.home_district:
+                self.home_district = self.home_district_ref.name
+            return
+        # No FK: try to resolve by code to avoid dangling text-only codes.
+        if self.home_district_code and not self.home_district_ref_id:
+            district = District.objects.filter(code=self.home_district_code).first()
+            if district:
+                self.home_district_ref = district
+                if not self.home_district_name:
+                    self.home_district_name = district.name
+                if not self.home_district:
+                    self.home_district = district.name
+
+    def save(self, *args, **kwargs):
+        self._sync_home_fields()
+        super().save(*args, **kwargs)
+
     def ensure_auth_user(self, password=None):
         """
         Make sure this player is backed by a Django auth user.
