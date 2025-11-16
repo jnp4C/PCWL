@@ -16,6 +16,9 @@ const changeFormatter = new Intl.NumberFormat(undefined, {
   signDisplay: 'always',
 });
 
+const MOBILE_ACCORDION_QUERY = '(max-width: 640px)';
+const DESKTOP_ACCORDION_ENABLED = true;
+
 const decimalFormatter = new Intl.NumberFormat(undefined, {
   minimumFractionDigits: 0,
   maximumFractionDigits: 2,
@@ -221,6 +224,53 @@ function setEmptyState(hasRows, tableElement, emptyElement) {
   }
 }
 
+function shouldUseAccordionLayout() {
+  if (DESKTOP_ACCORDION_ENABLED) {
+    return true;
+  }
+  return typeof window !== 'undefined' && window.matchMedia && window.matchMedia(MOBILE_ACCORDION_QUERY).matches;
+}
+
+function applyAccordionBehavior(table) {
+  if (!table) {
+    return;
+  }
+  const rows = Array.from(table.querySelectorAll('tbody tr'));
+  const enableAccordion = shouldUseAccordionLayout();
+  rows.forEach((row) => {
+    // Clear previous listeners
+    if (row.__accordionHandler) {
+      row.removeEventListener('click', row.__accordionHandler);
+    }
+    row.classList.remove('collapsed', 'expanded', 'collapsible-row');
+    row.style.maxHeight = '';
+    if (!enableAccordion) {
+      return;
+    }
+    row.classList.add('collapsible-row', 'collapsed');
+    const handler = () => {
+      const isCollapsed = row.classList.contains('collapsed');
+      const startHeight = row.scrollHeight;
+      if (isCollapsed) {
+        row.classList.remove('collapsed');
+        row.classList.add('expanded');
+      } else {
+        row.classList.remove('expanded');
+        row.classList.add('collapsed');
+      }
+      const targetHeight = row.scrollHeight;
+      row.style.maxHeight = `${startHeight}px`;
+      requestAnimationFrame(() => {
+        row.style.maxHeight = `${targetHeight}px`;
+      });
+    };
+    row.__accordionHandler = handler;
+    row.addEventListener('click', handler);
+    // Set initial height with extras hidden
+    row.style.maxHeight = `${row.scrollHeight}px`;
+  });
+}
+
 function renderPlayerLeaderboard(players) {
   leaderboardState.lastPlayers = Array.isArray(players) ? players.slice() : [];
   const tbody = document.getElementById('player-leaderboard-body');
@@ -264,10 +314,13 @@ function renderPlayerLeaderboard(players) {
 
   tbody.innerHTML = '';
 
-  const appendCell = (row, { text = '', html = null, className = '', label = '' }) => {
+  const appendCell = (row, { text = '', html = null, className = '', label = '', extra = false }) => {
     const cell = document.createElement('td');
     if (className) {
       cell.className = className;
+    }
+    if (extra) {
+      cell.classList.add('leaderboard-extra');
     }
     if (label) {
       cell.dataset.label = label;
@@ -312,27 +365,32 @@ function renderPlayerLeaderboard(players) {
       className: 'numeric',
       text: integerFormatter.format(player.points),
       label: 'Points',
+      extra: true,
     });
     appendCell(row, {
       className: 'numeric',
       text: integerFormatter.format(player.attackPoints),
       label: 'Attack',
+      extra: true,
     });
     appendCell(row, {
       className: 'numeric',
       text: integerFormatter.format(player.defendPoints),
       label: 'Defend',
+      extra: true,
     });
     appendCell(row, {
       className: 'numeric',
       text: formatRatio(player.attackPoints, player.defendPoints),
       label: 'A : D Ratio',
+      extra: true,
     });
 
     tbody.appendChild(row);
   });
 
   setEmptyState(visible.length > 0, table, empty);
+  applyAccordionBehavior(table);
 }
 
 function renderDistrictLeaderboard(districts) {
@@ -384,10 +442,13 @@ function renderDistrictLeaderboard(districts) {
 
   tbody.innerHTML = '';
 
-  const appendCell = (row, { text = '', className = '', label = '' }) => {
+  const appendCell = (row, { text = '', className = '', label = '', extra = false }) => {
     const cell = document.createElement('td');
     if (className) {
       cell.className = className;
+    }
+    if (extra) {
+      cell.classList.add('leaderboard-extra');
     }
     if (label) {
       cell.dataset.label = label;
@@ -410,6 +471,7 @@ function renderDistrictLeaderboard(districts) {
       className: 'numeric',
       text: integerFormatter.format(district.strength),
       label: 'Strength',
+      extra: true,
     });
 
     const defendedValue = district.defended > 0 ? changeFormatter.format(district.defended) : '0';
@@ -417,6 +479,7 @@ function renderDistrictLeaderboard(districts) {
       className: 'numeric',
       text: defendedValue,
       label: 'Defended',
+      extra: true,
     });
     if (district.defended > 0) {
       defendedCell.classList.add('positive');
@@ -427,6 +490,7 @@ function renderDistrictLeaderboard(districts) {
       className: 'numeric',
       text: attackedValue,
       label: 'Attacked',
+      extra: true,
     });
     if (district.attacked > 0) {
       attackedCell.classList.add('negative');
@@ -436,12 +500,14 @@ function renderDistrictLeaderboard(districts) {
       className: 'numeric',
       text: integerFormatter.format(district.checkins),
       label: 'Check-ins',
+      extra: true,
     });
 
     tbody.appendChild(row);
   });
 
   setEmptyState(visible.length > 0, table, empty);
+  applyAccordionBehavior(table);
 }
 
 async function fetchLeaderboardData() {

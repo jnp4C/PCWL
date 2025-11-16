@@ -5966,7 +5966,7 @@ function scheduleDistrictFeatureStateUpdate() {
   if (districtFeatureStateRefreshQueued) {
     return;
   }
-  districtFeatureStateRefreshQueued = true;
+    districtFeatureStateRefreshQueued = true;
   const trigger = () => {
     districtFeatureStateRefreshQueued = false;
     updateDistrictFeatureStates();
@@ -6070,6 +6070,42 @@ function updateDistrictFeatureStates() {
   });
 }
 
+function applyDistrictStrengthEntries(entries) {
+  const map = new Map();
+  let maxStrength = DISTRICT_BASE_SCORE;
+  let minStrength = DISTRICT_BASE_SCORE;
+  entries.forEach((entry) => {
+    const id = entry && entry.id ? safeId(entry.id) : null;
+    if (!id) {
+      return;
+    }
+    const strengthValue = Number(entry.strength ?? entry.score ?? DISTRICT_BASE_SCORE);
+    if (!Number.isFinite(strengthValue)) {
+      return;
+    }
+    const defendedValue = Number(entry.defended);
+    const attackedValue = Number(entry.attacked);
+    const defended = Number.isFinite(defendedValue) ? defendedValue : 0;
+    const attacked = Number.isFinite(attackedValue) ? attackedValue : 0;
+    map.set(id, {
+      strength: strengthValue,
+      name: typeof entry.name === 'string' ? entry.name : '',
+      defended,
+      attacked,
+    });
+    if (strengthValue > maxStrength) {
+      maxStrength = strengthValue;
+    }
+    if (strengthValue < minStrength) {
+      minStrength = strengthValue;
+    }
+  });
+  districtStrengthState.byId = map;
+  districtStrengthState.maxStrength = maxStrength;
+  districtStrengthState.minStrength = minStrength;
+  districtStrengthState.lastUpdatedAt = Date.now();
+}
+
 async function refreshDistrictStrengthsFromServer() {
   if (districtStrengthFetchPromise) {
     return districtStrengthFetchPromise;
@@ -6077,56 +6113,17 @@ async function refreshDistrictStrengthsFromServer() {
   districtStrengthFetchPromise = apiRequest('leaderboard/')
     .then((payload) => {
       const districts = Array.isArray(payload?.districts) ? payload.districts : [];
-      const map = new Map();
-      let maxStrength = DISTRICT_BASE_SCORE;
-      let minStrength = DISTRICT_BASE_SCORE;
-      districts.forEach((entry) => {
-        const id = entry && entry.id ? safeId(entry.id) : null;
-        if (!id) {
-          return;
-        }
-        const strengthValue = Number(entry.strength ?? entry.score ?? 0);
-        if (!Number.isFinite(strengthValue)) {
-          return;
-        }
-        const defendedRaw =
-          entry.defended ??
-          entry.defended_points ??
-          entry.defended_points_total ??
-          entry.defended_total ??
-          0;
-        const attackedRaw =
-          entry.attacked ??
-          entry.attacked_points ??
-          entry.attacked_points_total ??
-          entry.attacked_total ??
-          0;
-        const defendedValue = Number(defendedRaw);
-        const attackedValue = Number(attackedRaw);
-        const defended = Number.isFinite(defendedValue) ? defendedValue : 0;
-        const attacked = Number.isFinite(attackedValue) ? attackedValue : 0;
-        map.set(id, {
-          strength: strengthValue,
-          name: entry.name || '',
-          defended,
-          attacked,
-        });
-        if (strengthValue > maxStrength) {
-          maxStrength = strengthValue;
-        }
-        if (strengthValue < minStrength) {
-          minStrength = strengthValue;
-        }
-      });
-      districtStrengthState.byId = map;
-      districtStrengthState.maxStrength = maxStrength;
-      districtStrengthState.minStrength = minStrength;
-      districtStrengthState.lastUpdatedAt = Date.now();
+      applyDistrictStrengthEntries(districts);
       saveDistrictStrengthCache();
       scheduleDistrictFeatureStateUpdate();
     })
     .catch((error) => {
       console.warn('Failed to refresh district leaderboard data', error);
+      const fallback = loadDistrictData();
+      if (Array.isArray(fallback) && fallback.length) {
+        applyDistrictStrengthEntries(fallback);
+        scheduleDistrictFeatureStateUpdate();
+      }
     })
     .finally(() => {
       districtStrengthFetchPromise = null;

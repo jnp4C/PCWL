@@ -3398,6 +3398,15 @@ button.secondary:hover,
   .leaderboard-table td:nth-child(n + 3)::before {
     margin-bottom: 0;
   }
+
+  .leaderboard-table tbody tr.collapsible-row {
+    overflow: hidden;
+    transition: max-height 0.25s ease;
+  }
+
+  .leaderboard-table tbody tr.collapsible-row.collapsed .leaderboard-extra {
+    display: none;
+  }
 }
 
 @media (max-width: 480px) {
