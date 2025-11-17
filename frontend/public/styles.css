@@ -1491,8 +1491,10 @@ body.dark .friend-profile-marker {
 }
 
 .friend-card.bubble-card .bubble-live-party-highlight {
-  background: rgba(255, 208, 120, 0.45);
-  box-shadow: inset 0 0 0 1.5px rgba(255, 208, 120, 0.7);
+  background: #ffe8a3;
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 208, 120, 0.95),
+    0 8px 18px rgba(255, 193, 77, 0.32);
   border-radius: 12px;
   padding: 0.55rem 0.75rem;
 }
