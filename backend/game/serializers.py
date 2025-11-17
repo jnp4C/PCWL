@@ -624,6 +624,8 @@ class PartyPreviewSerializer(serializers.Serializer):
     join_status = serializers.CharField()
     members = serializers.ListField(child=serializers.CharField(), required=False)
     leader_location_name = serializers.CharField(allow_blank=True, required=False)
+    attack_multiplier = serializers.FloatField(required=False)
+    contribution_multiplier = serializers.FloatField(required=False)
 
 
 class BubbleMutualSerializer(serializers.Serializer):

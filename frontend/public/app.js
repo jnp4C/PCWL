@@ -4856,6 +4856,14 @@ function sanitizePartyPreview(raw) {
     members,
     leaderLocationName:
       typeof raw.leader_location_name === 'string' ? raw.leader_location_name.trim() : '',
+    attackMultiplier:
+      Number.isFinite(Number(raw.attack_multiplier)) && Number(raw.attack_multiplier) > 0
+        ? Number(raw.attack_multiplier)
+        : 0,
+    contributionMultiplier:
+      Number.isFinite(Number(raw.contribution_multiplier)) && Number(raw.contribution_multiplier) > 0
+        ? Number(raw.contribution_multiplier)
+        : 0,
   };
 }
 
@@ -8155,6 +8163,41 @@ function renderPartyPanelChip(now = Date.now()) {
   friendsPartyChip.classList.remove('hidden');
 
   const activeParty = getActivePartyState();
+  // Incoming join requests (leader only): show a gold chip similar to invites, prioritize over other chips
+  const pendingJoinRequests = Array.isArray(partyState.joinRequests)
+    ? partyState.joinRequests.filter((req) => req && req.status === 'pending')
+    : [];
+  const isLeader = activeParty && activeParty.isLeader;
+  if (isLeader && pendingJoinRequests.length > 0) {
+    const first = pendingJoinRequests[0];
+    const requester = first.fromUsername ? `@${first.fromUsername}` : 'Join request';
+    const partyName = first.partyName ? first.partyName : activeParty?.name || '';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'cooldown-item party-invite';
+    button.dataset.partyPanelChip = 'join-request';
+    const track = document.createElement('div');
+    track.className = 'cooldown-track';
+    const fill = document.createElement('div');
+    fill.className = 'cooldown-fill';
+    fill.style.transform = 'scaleX(1)';
+    track.appendChild(fill);
+    const label = document.createElement('span');
+    label.className = 'cooldown-time';
+    label.textContent =
+      pendingJoinRequests.length > 1
+        ? `${requester} (+${pendingJoinRequests.length - 1}) wants to join`
+        : `${requester} wants to join`;
+    if (partyName) {
+      label.textContent += ` • ${partyName}`;
+    }
+    button.setAttribute('aria-label', label.textContent);
+    button.appendChild(track);
+    button.appendChild(label);
+    friendsPartyChip.appendChild(button);
+    return;
+  }
+
   // If an active party exists, show a 3h countdown chip reflecting remaining time
   if (activeParty && Number.isFinite(activeParty.expiresAt)) {
     const remaining = Math.max(0, activeParty.expiresAt - now);
@@ -10104,6 +10147,19 @@ function renderBubbleSuggestionCard(suggestion) {
       : [];
     if (memberNames.length) {
       metaParts.push(`With ${memberNames.join(', ')}`);
+    }
+    const boostParts = [];
+    if (Number.isFinite(Number(activeParty.attackMultiplier)) && activeParty.attackMultiplier > 0) {
+      boostParts.push(`Attack ${formatPartyMultiplier(activeParty.attackMultiplier)}`);
+    }
+    if (
+      Number.isFinite(Number(activeParty.contributionMultiplier)) &&
+      activeParty.contributionMultiplier > 0
+    ) {
+      boostParts.push(`Defend ${formatPartyMultiplier(activeParty.contributionMultiplier)}`);
+    }
+    if (boostParts.length) {
+      metaParts.push(boostParts.join(' • '));
     }
     if (metaParts.length) {
       const meta = document.createElement('span');

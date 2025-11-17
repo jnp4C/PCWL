@@ -143,6 +143,9 @@ def _build_party_preview_for_viewer(
         join_status = "not_friend"
         can_request = False
 
+    attack_multiplier = float(PARTY_ATTACK_BONUS_PER_PLAYER * member_count)
+    contribution_multiplier = float(PARTY_CONTRIBUTION_DISTRICT_PER_PLAYER * member_count)
+
     return {
         "code": party.code,
         "name": party.name or "",
@@ -156,6 +159,8 @@ def _build_party_preview_for_viewer(
         "join_status": join_status,
         "members": member_usernames or [],
         "leader_location_name": leader_location_name or "",
+        "attack_multiplier": attack_multiplier,
+        "contribution_multiplier": contribution_multiplier,
     }
 
 
@@ -773,6 +778,7 @@ class PartyView(PlayerScopedAPIView):
                 "party": party_payload,
                 "incoming_invitations": incoming,
                 "outgoing_invitations": outgoing,
+                "join_requests": join_requests,
                 "insights": insights,
             },
             status=status.HTTP_200_OK,
