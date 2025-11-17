@@ -242,7 +242,10 @@ const STATIC_DATASETS = {
 };
 const STATIC_DATA_CACHE = {};
 const DISTRICT_PM_TILES_FILENAME = 'prague-districts.pmtiles';
+const BUILDINGS_PM_TILES_FILENAME = 'prague-building-polygons.pmtiles';
+const BUILDINGS_SOURCE_LAYER = 'buildings';
 let pmtilesProtocolInstance = null;
+let buildingsSourceType = 'geojson';
 const DISTRICT_GLOW_DEFAULT_COLOR = '#8f76e6';
 const DISTRICT_GLOW_HOME_COLOR_LIGHT = '#176f3c';
 const DISTRICT_GLOW_HOME_COLOR_DARK = '#c7ff5a';
@@ -680,6 +683,34 @@ function addDistrictSource(mapInstance) {
         updateCurrentDistrictFromCoordinates(lastKnownLocation[0], lastKnownLocation[1]);
       }
     },
+  );
+}
+
+function addBuildingSource(mapInstance) {
+  if (!mapInstance || typeof mapInstance.addSource !== 'function') {
+    return;
+  }
+  if (mapInstance.getSource && mapInstance.getSource('prague-buildings')) {
+    return;
+  }
+  const pmtilesUrl = buildPmtilesUrl(BUILDINGS_PM_TILES_FILENAME);
+  if (pmtilesUrl && ensurePmtilesProtocol()) {
+    mapInstance.addSource('prague-buildings', {
+      type: 'vector',
+      url: pmtilesUrl,
+      minzoom: 13,
+    });
+    buildingsSourceType = 'vector';
+    return;
+  }
+  buildingsSourceType = 'geojson';
+  addStaticGeoSource(
+    mapInstance,
+    'prague-buildings',
+    'prague-building-polygons',
+    {},
+    null,
+    { minZoom: 13, unloadBelowMinZoom: true },
   );
 }
 
@@ -12406,19 +12437,15 @@ function addSourcesAndLayers() {
     },
   });
 
-  addStaticGeoSource(
-    map,
-    'prague-buildings',
-    'prague-building-polygons',
-    {},
-    null,
-    { minZoom: 13, unloadBelowMinZoom: true },
-  );
+  addBuildingSource(map);
 
+  const buildingLayerSourceConfig =
+    buildingsSourceType === 'vector' ? { 'source-layer': BUILDINGS_SOURCE_LAYER } : {};
   map.addLayer({
     id: 'buildings-3d',
     type: 'fill-extrusion',
     source: 'prague-buildings',
+    ...buildingLayerSourceConfig,
     paint: {
       'fill-extrusion-color': '#d6cbff',
       'fill-extrusion-height': [
@@ -12440,6 +12467,7 @@ function addSourcesAndLayers() {
     id: 'buildings-outline',
     type: 'line',
     source: 'prague-buildings',
+    ...buildingLayerSourceConfig,
     paint: {
       'line-color': '#8f76e6',
       'line-width': 0.4,
