@@ -1309,6 +1309,11 @@ class FriendBubbleView(PlayerScopedAPIView):
 
         all_candidate_ids: Set[int] = set(candidate_map.keys()) | direct_friend_ids
         party_previews = _gather_party_previews(player, all_candidate_ids, requestable_ids=direct_friend_ids)
+        party_highlights: List[Dict[str, Any]] = []
+        if party_previews:
+            direct_party_links = [link for link in direct_links if link.friend_id in party_previews]
+            if direct_party_links:
+                party_highlights = self._format_direct_friend_suggestions(direct_party_links, party_previews)
 
         if not candidate_map:
             fallback = self._format_direct_friend_suggestions(direct_links, party_previews)
@@ -1404,7 +1409,16 @@ class FriendBubbleView(PlayerScopedAPIView):
         for entry in ordered:
             entry.pop("_sort", None)
 
-        serializer = BubbleSuggestionSerializer(ordered, many=True)
+        combined: List[Dict[str, Any]] = []
+        seen_usernames: Set[str] = set()
+        for entry in party_highlights + ordered:
+            username = entry.get("username")
+            if not username or username in seen_usernames:
+                continue
+            seen_usernames.add(username)
+            combined.append(entry)
+
+        serializer = BubbleSuggestionSerializer(combined[: self.MAX_RESULTS], many=True)
         return Response({"bubble": serializer.data}, status=status.HTTP_200_OK)
 
 

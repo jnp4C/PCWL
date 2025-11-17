@@ -597,6 +597,58 @@ if (typeof window !== 'undefined') {
   }
 }
 
+function disablePageZoom() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return;
+  }
+  const getMapEl = () => document.getElementById('map');
+  const isInsideMap = (event) => {
+    const mapEl = getMapEl();
+    if (!mapEl) {
+      return false;
+    }
+    if (event && typeof event.composedPath === 'function') {
+      const path = event.composedPath();
+      if (Array.isArray(path) && path.includes(mapEl)) {
+        return true;
+      }
+    }
+    let node = event ? event.target : null;
+    while (node) {
+      if (node === mapEl) {
+        return true;
+      }
+      node = node.parentNode;
+    }
+    return false;
+  };
+
+  const handleWheel = (event) => {
+    if (!event || !event.ctrlKey) {
+      return;
+    }
+    if (isInsideMap(event)) {
+      return;
+    }
+    event.preventDefault();
+  };
+
+  const handleKeydown = (event) => {
+    if (!event || !(event.ctrlKey || event.metaKey)) {
+      return;
+    }
+    const key = event.key;
+    if (key === '+' || key === '=' || key === '-' || key === '_' || key === '0') {
+      event.preventDefault();
+    }
+  };
+
+  window.addEventListener('wheel', handleWheel, { passive: false });
+  window.addEventListener('keydown', handleKeydown, { passive: false });
+}
+
+disablePageZoom();
+
 function resolveDataUrl(filename) {
   return `${DATA_PREFIX}${filename}`;
 }
