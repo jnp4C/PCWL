@@ -227,6 +227,9 @@ def _gather_party_previews(
             continue
         if not party.is_active():
             continue
+        if viewer_party_id and party.id == viewer_party_id:
+            # Viewer is already in this party; do not surface it as joinable.
+            continue
         member_count = member_counts.get(party.id, 1)
         is_requestable = membership.player_id in requestable_ids
         leader_location_name = ""

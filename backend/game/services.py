@@ -306,6 +306,12 @@ def respond_to_party_invitation(invitation: PartyInvitation, player: Player, acc
                 player=player,
                 joined_at=timezone.now(),
             )
+            # Cancel any pending join requests from this player to this party
+            PartyJoinRequest.objects.filter(
+                party=party,
+                from_player=player,
+                status=PartyJoinRequest.Status.PENDING,
+            ).update(status=PartyJoinRequest.Status.CANCELLED, responded_at=timezone.now())
             invitation.status = PartyInvitation.Status.ACCEPTED
         else:
             invitation.status = PartyInvitation.Status.DECLINED
@@ -388,6 +394,12 @@ def respond_to_party_join_request(join_request: PartyJoinRequest, leader: Player
             player=join_request.from_player,
             joined_at=timezone.now(),
         )
+        # Cancel any pending invitations to the requester for this same party
+        PartyInvitation.objects.filter(
+            party=party,
+            to_player=join_request.from_player,
+            status=PartyInvitation.Status.PENDING,
+        ).update(status=PartyInvitation.Status.CANCELLED, responded_at=timezone.now())
         join_request.status = PartyJoinRequest.Status.ACCEPTED
         join_request.responded_at = timezone.now()
         join_request.save(update_fields=["status", "responded_at"])

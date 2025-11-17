@@ -5017,9 +5017,14 @@ function applyPartyStateFromServer(snapshot = {}, options = {}) {
   const outgoingInvites = Array.isArray(outgoing)
     ? outgoing.map(sanitizePartyInvitation).filter(Boolean)
     : [];
-  const joinRequests = Array.isArray(join_requests)
-    ? join_requests.map(sanitizePartyJoinRequest).filter((req) => req && req.status === 'pending')
+  const rawJoinRequests = Array.isArray(join_requests)
+    ? join_requests
+    : Array.isArray(party?.join_requests)
+    ? party.join_requests
     : [];
+  const joinRequests = rawJoinRequests
+    .map(sanitizePartyJoinRequest)
+    .filter((req) => req && req.status === 'pending');
   partyState = {
     party: normalizedParty,
     incoming: incomingInvites,
