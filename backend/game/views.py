@@ -109,6 +109,8 @@ def _build_party_preview_for_viewer(
     pending_join_party_ids: Set[int],
     pending_invite_party_ids: Set[int],
     is_requestable: bool,
+    member_usernames: Optional[List[str]] = None,
+    leader_location_name: str = "",
 ) -> Dict[str, Any]:
     now = timezone.now()
     seconds_remaining = None
@@ -152,6 +154,8 @@ def _build_party_preview_for_viewer(
         "is_full": member_count >= MAX_PARTY_MEMBERS,
         "can_request": can_request,
         "join_status": join_status,
+        "members": member_usernames or [],
+        "leader_location_name": leader_location_name or "",
     }
 
 
@@ -180,6 +184,14 @@ def _gather_party_previews(
             .annotate(total=Count("id"))
         )
     }
+    member_usernames: Dict[int, List[str]] = {}
+    if party_ids:
+        for membership in PartyMembership.objects.select_related("player").filter(
+            party_id__in=party_ids, left_at__isnull=True
+        ):
+            if not membership.party_id or membership.player_id == membership.party.leader_id:
+                continue
+            member_usernames.setdefault(membership.party_id, []).append(membership.player.username)
     pending_join_party_ids = {
         jr.party_id
         for jr in PartyJoinRequest.objects.filter(
@@ -208,8 +220,20 @@ def _gather_party_previews(
         party = membership.party
         if not party or party.leader_id != membership.player_id:
             continue
+        if not party.is_active():
+            continue
         member_count = member_counts.get(party.id, 1)
         is_requestable = membership.player_id in requestable_ids
+        leader_location_name = ""
+        try:
+            loc = party.leader.last_known_location if party.leader else None
+            if isinstance(loc, dict):
+                if isinstance(loc.get("districtName"), str) and loc.get("districtName").strip():
+                    leader_location_name = loc["districtName"].strip()
+                elif isinstance(loc.get("districtId"), str) and loc.get("districtId").strip():
+                    leader_location_name = loc["districtId"].strip()
+        except Exception:
+            leader_location_name = ""
         previews[membership.player_id] = _build_party_preview_for_viewer(
             party,
             membership.player_id,
@@ -219,6 +243,8 @@ def _gather_party_previews(
             pending_join_party_ids=pending_join_party_ids,
             pending_invite_party_ids=pending_invite_party_ids,
             is_requestable=is_requestable,
+            member_usernames=member_usernames.get(party.id, []),
+            leader_location_name=leader_location_name,
         )
     return previews
 

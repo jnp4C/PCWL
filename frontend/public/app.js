@@ -4837,6 +4837,11 @@ function sanitizePartyPreview(raw) {
   const sizeNumber = Number(raw.size);
   const secondsRemainingNumber = Number(raw.seconds_remaining);
   const expiresAtNumber = Number(raw.expires_at);
+  const members = Array.isArray(raw.members)
+    ? raw.members
+        .map((name) => (typeof name === 'string' ? name.trim() : ''))
+        .filter(Boolean)
+    : [];
   return {
     code,
     name: typeof raw.name === 'string' ? raw.name : '',
@@ -4848,6 +4853,9 @@ function sanitizePartyPreview(raw) {
     isFull: Boolean(raw.is_full),
     canRequest: Boolean(raw.can_request),
     joinStatus: typeof raw.join_status === 'string' ? raw.join_status : 'available',
+    members,
+    leaderLocationName:
+      typeof raw.leader_location_name === 'string' ? raw.leader_location_name.trim() : '',
   };
 }
 
@@ -8228,6 +8236,42 @@ function renderPartyPanelChip(now = Date.now()) {
     }
   }
 
+  // Incoming join requests (leader only): show a gold chip similar to invites
+  const pendingJoinRequests = Array.isArray(partyState.joinRequests)
+    ? partyState.joinRequests.filter((req) => req && req.status === 'pending')
+    : [];
+  const leaderActiveParty = getActivePartyState();
+  const isLeader = leaderActiveParty && leaderActiveParty.isLeader;
+  if (isLeader && pendingJoinRequests.length > 0) {
+    const first = pendingJoinRequests[0];
+    const requester = first.fromUsername ? `@${first.fromUsername}` : 'Join request';
+    const partyName = first.partyName ? first.partyName : leaderActiveParty?.name || '';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'cooldown-item party-invite';
+    button.dataset.partyPanelChip = 'join-request';
+    const track = document.createElement('div');
+    track.className = 'cooldown-track';
+    const fill = document.createElement('div');
+    fill.className = 'cooldown-fill';
+    fill.style.transform = 'scaleX(1)';
+    track.appendChild(fill);
+    const label = document.createElement('span');
+    label.className = 'cooldown-time';
+    label.textContent =
+      pendingJoinRequests.length > 1
+        ? `${requester} (+${pendingJoinRequests.length - 1}) wants to join`
+        : `${requester} wants to join`;
+    if (partyName) {
+      label.textContent += ` • ${partyName}`;
+    }
+    button.setAttribute('aria-label', label.textContent);
+    button.appendChild(track);
+    button.appendChild(label);
+    friendsPartyChip.appendChild(button);
+    return;
+  }
+
   // Outgoing invite notice (leader) for 60s after sending, if no other chip shown
   if (activeOutgoingInviteNotice && typeof activeOutgoingInviteNotice.deadline === 'number') {
     const remaining = Math.max(0, activeOutgoingInviteNotice.deadline - now);
@@ -9988,9 +10032,14 @@ function renderBubbleSuggestionCard(suggestion) {
     (typeof suggestion.home_district_name === 'string' && suggestion.home_district_name.trim()) ||
     (typeof suggestion.home_district_code === 'string' && suggestion.home_district_code.trim()) ||
     'Not set';
+  const activeParty = suggestion.activeParty;
   const homeMeta = document.createElement('div');
   homeMeta.className = 'bubble-meta';
-  homeMeta.textContent = `Home district: ${homeName}`;
+  if (activeParty && typeof activeParty.leaderLocationName === 'string' && activeParty.leaderLocationName.trim()) {
+    homeMeta.textContent = `Party is active in ${activeParty.leaderLocationName.trim()}`;
+  } else {
+    homeMeta.textContent = `Home district: ${homeName}`;
+  }
   card.appendChild(homeMeta);
 
   const mutualEntries = Array.isArray(suggestion.mutual_friends) ? suggestion.mutual_friends : [];
@@ -10037,7 +10086,7 @@ function renderBubbleSuggestionCard(suggestion) {
   const activeParty = suggestion.activeParty;
   if (activeParty && typeof activeParty.code === 'string' && activeParty.code.trim()) {
     const partyRow = document.createElement('div');
-    partyRow.className = 'bubble-party bubble-live-party';
+    partyRow.className = 'bubble-party bubble-live-party bubble-live-party-highlight';
     const nameLabel = document.createElement('span');
     nameLabel.className = 'bubble-live-party-label';
     const partyDisplayName =
@@ -10049,18 +10098,13 @@ function renderBubbleSuggestionCard(suggestion) {
 
     const metaParts = [];
     if (activeParty.leader) {
-      metaParts.push(`Leader @${activeParty.leader}`);
+      metaParts.push(`@${activeParty.leader} is hosting a party! Request to join!`);
     }
-    const expiresSeconds = Number(activeParty.expiresAt);
-    const expiresMs = Number.isFinite(expiresSeconds) ? expiresSeconds * 1000 : null;
-    let countdownLabel = '';
-    if (expiresMs) {
-      countdownLabel = formatPartyCountdown(expiresMs);
-    } else if (Number.isFinite(Number(activeParty.secondsRemaining))) {
-      countdownLabel = formatPartyCountdown(Date.now() + Number(activeParty.secondsRemaining) * 1000);
-    }
-    if (countdownLabel) {
-      metaParts.push(`${countdownLabel} left`);
+    const memberNames = Array.isArray(activeParty.members)
+      ? activeParty.members.map((entry) => (typeof entry === 'string' ? entry : '')).filter(Boolean)
+      : [];
+    if (memberNames.length) {
+      metaParts.push(`With ${memberNames.join(', ')}`);
     }
     if (metaParts.length) {
       const meta = document.createElement('span');
@@ -13493,6 +13537,16 @@ if (friendsPartyChip) {
         renderPartyPanelChip();
         renderCooldownStrip();
       }
+      openFriendsDrawer(friendsButton || null);
+      if (
+        friendsPartyInvitationsPanel &&
+        typeof friendsPartyInvitationsPanel.scrollIntoView === 'function'
+      ) {
+        window.setTimeout(() => {
+          friendsPartyInvitationsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 120);
+      }
+    } else if (type === 'join-request') {
       openFriendsDrawer(friendsButton || null);
       if (
         friendsPartyInvitationsPanel &&
