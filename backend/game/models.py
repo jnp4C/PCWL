@@ -106,6 +106,11 @@ class Player(models.Model):
 
     def _sync_home_fields(self) -> None:
         """Keep home district code/name/ref in sync if any are provided."""
+        try:
+            from .services import _normalise_district_code  # local import to avoid circular
+        except Exception:
+            _normalise_district_code = lambda value: value  # type: ignore
+
         if self.home_district_ref:
             # Prioritise the FK; backfill code/name if missing.
             if not self.home_district_code:
@@ -117,13 +122,18 @@ class Player(models.Model):
             return
         # No FK: try to resolve by code to avoid dangling text-only codes.
         if self.home_district_code and not self.home_district_ref_id:
-            district = District.objects.filter(code=self.home_district_code).first()
-            if district:
-                self.home_district_ref = district
-                if not self.home_district_name:
-                    self.home_district_name = district.name
-                if not self.home_district:
-                    self.home_district = district.name
+            code = _normalise_district_code(self.home_district_code) or self.home_district_code
+            district = District.objects.filter(code=code).first()
+            if district is None:
+                name = (self.home_district_name or self.home_district or "").strip() or f"District {code}"
+                district = District.objects.create(code=code, name=name, is_active=True)
+            self.home_district_ref = district
+            if not self.home_district_code:
+                self.home_district_code = district.code
+            if not self.home_district_name:
+                self.home_district_name = district.name
+            if not self.home_district:
+                self.home_district = district.name
 
     def save(self, *args, **kwargs):
         self._sync_home_fields()
