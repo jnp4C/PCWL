@@ -10210,12 +10210,12 @@ async function refreshFriendBubble(force = false) {
   try {
     const response = await apiRequest('friends/bubble/');
     const items = Array.isArray(response?.bubble) ? response.bubble.filter(Boolean) : [];
-    let suggestions = items;
+    let suggestions = items.map(sanitizeBubbleSuggestion).filter(Boolean);
     let source = 'bubble';
     if (!suggestions.length) {
       const fallback = buildFriendsBubbleFallback();
       if (fallback.length) {
-        suggestions = fallback;
+        suggestions = fallback.map(sanitizeBubbleSuggestion).filter(Boolean);
         source = 'friends';
       }
     }
@@ -10235,7 +10235,7 @@ async function refreshFriendBubble(force = false) {
     console.warn('Failed to load friend bubble', error);
     const fallback = buildFriendsBubbleFallback();
     if (fallback.length) {
-      friendsBubbleState.items = fallback;
+      friendsBubbleState.items = fallback.map(sanitizeBubbleSuggestion).filter(Boolean);
       friendsBubbleState.loaded = true;
       friendsBubbleState.error = null;
       friendsBubbleState.source = 'friends';
