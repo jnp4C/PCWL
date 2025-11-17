@@ -1512,6 +1512,26 @@ body.dark .friend-profile-marker {
   text-shadow: 0 0 8px rgba(255, 255, 200, 0.6);
 }
 
+.how-figure {
+  margin: 0.9rem 0;
+}
+
+.how-figure-image {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(15, 6, 32, 0.24);
+  object-fit: contain;
+}
+
+.how-figure-caption {
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
 .friend-card.bubble-card .bubble-live-party-label {
   font-size: 0.9rem;
   font-weight: 700;
@@ -4045,3 +4065,6 @@ button.secondary:hover,
 .district-tooltip-metric-attacked .district-tooltip-metric-value {
   color: var(--color-danger-text);
 }
+
+.how-figure { margin: 0.9rem 0; }
+.how-figure-image { display: block; width: 100
