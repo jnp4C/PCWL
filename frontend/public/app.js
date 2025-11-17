@@ -10083,7 +10083,6 @@ function renderBubbleSuggestionCard(suggestion) {
     card.appendChild(party);
   }
 
-  const activeParty = suggestion.activeParty;
   if (activeParty && typeof activeParty.code === 'string' && activeParty.code.trim()) {
     const partyRow = document.createElement('div');
     partyRow.className = 'bubble-party bubble-live-party bubble-live-party-highlight';
