@@ -8279,42 +8279,6 @@ function renderPartyPanelChip(now = Date.now()) {
     }
   }
 
-  // Incoming join requests (leader only): show a gold chip similar to invites
-  const pendingJoinRequests = Array.isArray(partyState.joinRequests)
-    ? partyState.joinRequests.filter((req) => req && req.status === 'pending')
-    : [];
-  const leaderActiveParty = getActivePartyState();
-  const isLeader = leaderActiveParty && leaderActiveParty.isLeader;
-  if (isLeader && pendingJoinRequests.length > 0) {
-    const first = pendingJoinRequests[0];
-    const requester = first.fromUsername ? `@${first.fromUsername}` : 'Join request';
-    const partyName = first.partyName ? first.partyName : leaderActiveParty?.name || '';
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'cooldown-item party-invite';
-    button.dataset.partyPanelChip = 'join-request';
-    const track = document.createElement('div');
-    track.className = 'cooldown-track';
-    const fill = document.createElement('div');
-    fill.className = 'cooldown-fill';
-    fill.style.transform = 'scaleX(1)';
-    track.appendChild(fill);
-    const label = document.createElement('span');
-    label.className = 'cooldown-time';
-    label.textContent =
-      pendingJoinRequests.length > 1
-        ? `${requester} (+${pendingJoinRequests.length - 1}) wants to join`
-        : `${requester} wants to join`;
-    if (partyName) {
-      label.textContent += ` • ${partyName}`;
-    }
-    button.setAttribute('aria-label', label.textContent);
-    button.appendChild(track);
-    button.appendChild(label);
-    friendsPartyChip.appendChild(button);
-    return;
-  }
-
   // Outgoing invite notice (leader) for 60s after sending, if no other chip shown
   if (activeOutgoingInviteNotice && typeof activeOutgoingInviteNotice.deadline === 'number') {
     const remaining = Math.max(0, activeOutgoingInviteNotice.deadline - now);
