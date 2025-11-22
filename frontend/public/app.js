@@ -4797,6 +4797,9 @@ function sanitizePartyPayload(raw) {
   const attackMultiplier = Number(raw.attack_multiplier);
   const contributionMultiplier = Number(raw.contribution_multiplier);
   const playerContributionMultiplier = Number(raw.player_contribution_multiplier);
+  const attackPoints = Math.max(0, Math.round(Number(raw.attack_points) || 0));
+  const contributionPoints = Math.max(0, Math.round(Number(raw.contribution_points) || 0));
+  const score = Number(raw.score);
   return {
     code: typeof raw.code === 'string' ? raw.code : '',
     name:
@@ -4818,8 +4821,12 @@ function sanitizePartyPayload(raw) {
     playerContributionMultiplier: Number.isFinite(playerContributionMultiplier)
       ? playerContributionMultiplier
       : 0,
-    attackPoints: Math.max(0, Math.round(Number(raw.attack_points) || 0)),
-    contributionPoints: Math.max(0, Math.round(Number(raw.contribution_points) || 0)),
+    attackPoints,
+    contributionPoints,
+    score: Math.max(
+      0,
+      Number.isFinite(score) ? Math.round(score) : attackPoints + contributionPoints,
+    ),
     attackCheckins: Math.max(0, Math.round(Number(raw.attack_checkins) || 0)),
     contributionCheckins: Math.max(0, Math.round(Number(raw.contribution_checkins) || 0)),
     focus: typeof raw.focus === 'string' ? raw.focus : 'balanced',
@@ -4901,6 +4908,12 @@ function sanitizePartyPreview(raw) {
         .map((name) => (typeof name === 'string' ? name.trim() : ''))
         .filter(Boolean)
     : [];
+  const attackPoints = Math.max(0, Math.round(Number(raw.attack_points) || 0));
+  const contributionPoints = Math.max(0, Math.round(Number(raw.contribution_points) || 0));
+  const score = Number(raw.score);
+  const attackCheckins = Number(raw.attack_checkins);
+  const contributionCheckins = Number(raw.contribution_checkins);
+  const lastActiveAt = parseServerTimestamp(raw.last_active_at || raw.lastActiveAt);
   return {
     code,
     name: typeof raw.name === 'string' ? raw.name : '',
@@ -4923,6 +4936,18 @@ function sanitizePartyPreview(raw) {
       Number.isFinite(Number(raw.contribution_multiplier)) && Number(raw.contribution_multiplier) > 0
         ? Number(raw.contribution_multiplier)
         : 0,
+    attackPoints,
+    contributionPoints,
+    score: Math.max(
+      0,
+      Number.isFinite(score) ? Math.round(score) : attackPoints + contributionPoints,
+    ),
+    attackCheckins: Number.isFinite(attackCheckins) && attackCheckins > 0 ? Math.round(attackCheckins) : 0,
+    contributionCheckins:
+      Number.isFinite(contributionCheckins) && contributionCheckins > 0
+        ? Math.round(contributionCheckins)
+        : 0,
+    lastActiveAt,
   };
 }
 
@@ -5178,11 +5203,17 @@ function renderPartyBoostBox() {
   const contribMult = Number(party.contributionMultiplier) || 0;
   const atkChecks = Number(party.attackCheckins) || 0;
   const contribChecks = Number(party.contributionCheckins) || 0;
+  const attackPoints = Math.max(0, Number(party.attackPoints) || 0);
+  const defendPoints = Math.max(0, Number(party.contributionPoints) || 0);
+  const partyScore = Math.max(0, Number(party.score) || attackPoints + defendPoints);
   const parts = [];
   if (party.name) parts.push(party.name);
   parts.push(`Size ${size}`);
   if (atkMult) parts.push(`Attack ${formatPartyMultiplier(atkMult)}`);
   if (contribMult) parts.push(`Defend ${formatPartyMultiplier(contribMult)}`);
+  if (partyScore) {
+    parts.push(`+${partyScore} pts this party`);
+  }
   if (atkChecks || contribChecks) parts.push(`${atkChecks + contribChecks} party boosts`);
   partyBoostSummary.textContent = parts.join(' • ');
 
@@ -5192,9 +5223,25 @@ function renderPartyBoostBox() {
   const entriesToShow = partyEntries.slice(0, 3);
 
   partyBoostList.innerHTML = '';
-  if (!entriesToShow.length) {
-    return;
-  }
+
+  // Session totals (attack/defend) for the active party
+  const totalsItem = document.createElement('li');
+  totalsItem.className = 'recent-checkins-item';
+  const totalsTitle = document.createElement('div');
+  totalsTitle.className = 'recent-checkins-entry';
+  totalsTitle.textContent = 'Party boosts this session';
+  const totalsMeta = document.createElement('div');
+  totalsMeta.className = 'recent-checkins-meta';
+  const totalsPieces = [];
+  totalsPieces.push(`+${partyScore} pts total`);
+  totalsPieces.push(`Attack ${attackPoints} pts`);
+  totalsPieces.push(`Defend ${defendPoints} pts`);
+  totalsPieces.push(`${atkChecks + contribChecks} check-ins`);
+  totalsMeta.textContent = totalsPieces.join(' • ');
+  totalsItem.appendChild(totalsTitle);
+  totalsItem.appendChild(totalsMeta);
+  partyBoostList.appendChild(totalsItem);
+
   entriesToShow.forEach((entry) => {
     const li = document.createElement('li');
     li.className = 'recent-checkins-item';
@@ -7489,18 +7536,28 @@ function isFriendUsername(username) {
   );
 }
 
+function normaliseFriendEntry(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return raw;
+  }
+  const friend = { ...raw };
+  friend.activeParty = sanitizePartyPreview(raw.activeParty || raw.active_party);
+  return friend;
+}
+
 function upsertFriend(friend) {
   if (!friend || typeof friend.username !== 'string') {
     return;
   }
+  const normalized = normaliseFriendEntry(friend);
   const target = friend.username.toLowerCase();
   const existingIndex = friendsState.items.findIndex(
     (item) => item && typeof item.username === 'string' && item.username.toLowerCase() === target,
   );
   if (existingIndex >= 0) {
-    friendsState.items[existingIndex] = friend;
+    friendsState.items[existingIndex] = normalized;
   } else {
-    friendsState.items.push(friend);
+    friendsState.items.push(normalized);
   }
   friendsState.items = sortFriends(friendsState.items);
   friendsState.loaded = true;
@@ -9534,6 +9591,47 @@ function renderFriendProfileContent(friend) {
     friendProfileBody.appendChild(statsGrid);
   }
 
+  const liveParty = friend.activeParty || friend.active_party || null;
+  if (liveParty && typeof liveParty === 'object') {
+    const prestigeCard = document.createElement('div');
+    prestigeCard.className = 'friend-profile-streak character-card';
+
+    const labelRow = document.createElement('div');
+    labelRow.className = 'streak-label-row';
+    const chip = document.createElement('span');
+    chip.className = 'streak-chip';
+    chip.textContent = 'Party prestige';
+    const activeLabel = document.createElement('span');
+    activeLabel.className = 'streak-days';
+    const lastActiveTs = Number.isFinite(Number(liveParty.lastActiveAt)) ? Number(liveParty.lastActiveAt) : null;
+    const lastActiveLabel = lastActiveTs ? formatTimeAgo(lastActiveTs) : 'Recently';
+    activeLabel.textContent = `Last active ${lastActiveLabel}`;
+    labelRow.appendChild(chip);
+    labelRow.appendChild(activeLabel);
+
+    const prestigeValue = document.createElement('div');
+    prestigeValue.className = 'streak-value';
+    const prestigePoints = Math.max(0, Math.round(Number(liveParty.score) || 0));
+    prestigeValue.textContent = `+${prestigePoints.toLocaleString()} pts`;
+
+    const prestigeHint = document.createElement('p');
+    prestigeHint.className = 'streak-hint';
+    const atkPts = Math.max(0, Math.round(Number(liveParty.attackPoints) || 0));
+    const defPts = Math.max(0, Math.round(Number(liveParty.contributionPoints) || 0));
+    const totalChecks = Math.max(
+      0,
+      Math.round(Number(liveParty.attackCheckins) || 0) + Math.round(Number(liveParty.contributionCheckins) || 0),
+    );
+    const partyName =
+      typeof liveParty.name === 'string' && liveParty.name.trim() ? liveParty.name.trim() : `Party ${liveParty.code}`;
+    prestigeHint.textContent = `${partyName} has earned ${atkPts} attack pts and ${defPts} defend pts over ${totalChecks} boosts.`;
+
+    prestigeCard.appendChild(labelRow);
+    prestigeCard.appendChild(prestigeValue);
+    prestigeCard.appendChild(prestigeHint);
+    friendProfileBody.appendChild(prestigeCard);
+  }
+
   const lastKnown = friend.last_known_location;
   if (lastKnown && typeof lastKnown === 'object') {
     const lastSeenParts = [];
@@ -9596,7 +9694,7 @@ function openFriendProfileDrawer(username, trigger = null) {
   if (!friendProfileDrawer || !friendProfileOverlay) {
     return;
   }
-  const friend = findFriendByUsername(username);
+  const friend = normaliseFriendEntry(findFriendByUsername(username));
   if (!friend) {
     updateStatus(`Unable to load @${username}'s profile.`);
     return;
@@ -10449,6 +10547,13 @@ function renderBubbleSuggestionCard(suggestion) {
     if (boostParts.length) {
       metaParts.push(boostParts.join(' • '));
     }
+    const prestige =
+      Number.isFinite(Number(activeParty.score)) && Number(activeParty.score) > 0
+        ? Math.round(Number(activeParty.score))
+        : null;
+    if (prestige) {
+      metaParts.push(`Prestige +${prestige} pts`);
+    }
     if (metaParts.length) {
       const meta = document.createElement('span');
       meta.className = 'bubble-live-party-meta';
@@ -10570,7 +10675,9 @@ async function refreshFriends(force = false) {
 
   try {
     const response = await apiRequest('friends/');
-    const items = Array.isArray(response?.friends) ? response.friends : [];
+    const items = Array.isArray(response?.friends)
+      ? response.friends.map(normaliseFriendEntry).filter(Boolean)
+      : [];
     friendsState.items = sortFriends(items);
     friendsState.loaded = true;
     friendsState.error = null;
@@ -10839,7 +10946,7 @@ async function addFriendByUsername(username) {
     const friendData = payload && typeof payload === 'object' ? payload.friend : null;
     const requestData = payload && typeof payload === 'object' ? payload.friend_request : null;
     if (friendData && typeof friendData === 'object') {
-      upsertFriend(friendData);
+      upsertFriend(normaliseFriendEntry(friendData));
       updateFriendsDrawerContent();
       if (friendsManageOpen) {
         renderFriendManageList();
@@ -10911,7 +11018,7 @@ async function updateFriendFavorite(username, isFavorite) {
       body: { is_favorite: Boolean(isFavorite) },
     });
     if (payload && typeof payload === 'object') {
-      upsertFriend(payload);
+      upsertFriend(normaliseFriendEntry(payload));
       updateFriendsDrawerContent();
       if (friendsManageOpen) {
         renderFriendManageList();

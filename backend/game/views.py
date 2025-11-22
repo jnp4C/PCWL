@@ -3,7 +3,7 @@ from django.db import transaction
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Set
 
-from django.db.models import Case, Count, F, Q, Sum, When
+from django.db.models import Case, Count, F, Q, Sum, When, Max
 from django.db.models.functions import Coalesce
 from django.db import DatabaseError
 from django.db.utils import OperationalError
@@ -112,6 +112,7 @@ def _build_party_preview_for_viewer(
     is_requestable: bool,
     member_usernames: Optional[List[str]] = None,
     leader_location_name: str = "",
+    party_stats: Optional[Dict[str, int]] = None,
 ) -> Dict[str, Any]:
     now = timezone.now()
     seconds_remaining = None
@@ -146,6 +147,19 @@ def _build_party_preview_for_viewer(
 
     attack_multiplier = float(PARTY_ATTACK_BONUS_PER_PLAYER * member_count)
     contribution_multiplier = float(PARTY_CONTRIBUTION_DISTRICT_PER_PLAYER * member_count)
+    stats = party_stats or {}
+    attack_points = int(stats.get("attack_points") or 0)
+    contribution_points = int(stats.get("contribution_points") or 0)
+    prestige_score = attack_points + contribution_points
+    attack_checkins = int(stats.get("attack_checkins") or 0)
+    contribution_checkins = int(stats.get("contribution_checkins") or 0)
+    last_active_at = stats.get("last_active_at")
+    last_active_ts = None
+    try:
+        if last_active_at:
+            last_active_ts = int(last_active_at.timestamp() * 1000)
+    except Exception:
+        last_active_ts = None
 
     return {
         "code": party.code,
@@ -162,6 +176,12 @@ def _build_party_preview_for_viewer(
         "leader_location_name": leader_location_name or "",
         "attack_multiplier": attack_multiplier,
         "contribution_multiplier": contribution_multiplier,
+        "attack_points": attack_points,
+        "contribution_points": contribution_points,
+        "score": prestige_score,
+        "attack_checkins": attack_checkins,
+        "contribution_checkins": contribution_checkins,
+        "last_active_at": last_active_ts,
     }
 
 
@@ -181,6 +201,38 @@ def _gather_party_previews(
     party_ids = {membership.party_id for membership in leader_memberships if membership.party_id}
     if not party_ids:
         return {}
+
+    party_codes: Dict[int, str] = {}
+    for membership in leader_memberships:
+        if membership.party and membership.party.code:
+            party_codes[membership.party_id] = membership.party.code
+
+    code_to_party_id = {code: pid for pid, code in party_codes.items()}
+    party_stats: Dict[int, Dict[str, int]] = {}
+    if party_codes:
+        aggregates = (
+            CheckIn.objects.filter(party_code__in=party_codes.values())
+            .values("party_code")
+            .annotate(
+                attack_points=Coalesce(Sum(-F("district_points_delta"), filter=Q(action=CheckIn.Action.ATTACK)), 0),
+                contribution_points=Coalesce(Sum("district_points_delta", filter=Q(is_party_contribution=True)), 0),
+                attack_checkins=Count("id", filter=Q(action=CheckIn.Action.ATTACK)),
+                contribution_checkins=Count("id", filter=Q(is_party_contribution=True)),
+                last_active_at=Max("occurred_at"),
+            )
+        )
+        for row in aggregates:
+            code = row.get("party_code")
+            party_id = code_to_party_id.get(code or "")
+            if not party_id:
+                continue
+            party_stats[party_id] = {
+                "attack_points": int(row.get("attack_points") or 0),
+                "contribution_points": int(row.get("contribution_points") or 0),
+                "attack_checkins": int(row.get("attack_checkins") or 0),
+                "contribution_checkins": int(row.get("contribution_checkins") or 0),
+                "last_active_at": row.get("last_active_at"),
+            }
 
     member_counts = {
         row["party_id"]: row["total"]
@@ -254,6 +306,7 @@ def _gather_party_previews(
             is_requestable=is_requestable,
             member_usernames=member_usernames.get(party.id, []),
             leader_location_name=leader_location_name,
+            party_stats=party_stats.get(party.id),
         )
     return previews
 
