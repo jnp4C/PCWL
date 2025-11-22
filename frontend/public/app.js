@@ -5334,6 +5334,18 @@ function renderPartyBoostBox() {
   partyBoostSection.classList.remove('hidden');
   partyBoostSection.setAttribute('aria-hidden', 'false');
 
+  const rotatingMessages = [
+    'Go out with friends!',
+    'Invite friends!',
+    'To be continued…',
+  ];
+  let headline = rotatingMessages[Math.floor(Date.now() / 4000) % rotatingMessages.length];
+  if (party.focus && typeof party.focus.name === 'string' && party.focus.name.trim()) {
+    headline = `Leading ${party.focus.name}`;
+  }
+  const partyName = party.name && party.name.trim() ? party.name.trim() : party.code;
+  partyBoostSummary.innerHTML = `<span class="party-chip party-chip-orange">${partyName}</span> ${headline}`;
+
   // Build summary line from party payload
   const size = Number(party.size) || 1;
   const atkMult = Number(party.attackMultiplier) || 0;
