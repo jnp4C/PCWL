@@ -1701,6 +1701,10 @@ function ensureDistrictDataLoaded() {
     .then((data) => {
       if (data && data.type === 'FeatureCollection') {
         districtGeoJson = data;
+        refreshDistrictFeatureLookup();
+        if (districtStrengthState.byId && districtStrengthState.byId.size > 0) {
+          scheduleDistrictFeatureStateUpdate();
+        }
         return districtGeoJson;
       }
       return null;
@@ -3715,6 +3719,10 @@ const districtStrengthState = {
 let districtStrengthFetchPromise = null;
 let districtFeatureStateRefreshQueued = false;
 let districtSourceListenersBound = false;
+let districtFeatureIdSet = new Set();
+let districtFeatureNameMap = new Map();
+let districtFeatureIdSet = new Set();
+let districtFeatureNameMap = new Map();
 let musicAudio = null;
 let musicState = {
   muted: false,
@@ -6173,6 +6181,49 @@ function calculateDistrictFillColor(strength, maxStrength, minStrength, isWinner
   return DISTRICT_FILL_COLOR_MID;
 }
 
+function normaliseDistrictNameKey(name) {
+  if (!name || typeof name !== 'string') {
+    return '';
+  }
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .trim();
+}
+
+function refreshDistrictFeatureLookup() {
+  districtFeatureIdSet = new Set();
+  districtFeatureNameMap = new Map();
+  if (!districtGeoJson || !Array.isArray(districtGeoJson.features)) {
+    return;
+  }
+  districtGeoJson.features.forEach((feature) => {
+    const id = getDistrictId(feature);
+    if (!id) {
+      return;
+    }
+    districtFeatureIdSet.add(id);
+    const name = getDistrictName(feature);
+    const key = normaliseDistrictNameKey(name);
+    if (key && !districtFeatureNameMap.has(key)) {
+      districtFeatureNameMap.set(key, id);
+    }
+  });
+}
+
+function resolveDistrictFeatureIdFromEntry(entry) {
+  const rawId = entry && (entry.id || entry.code);
+  const candidate = rawId ? safeId(rawId) : null;
+  if (candidate && districtFeatureIdSet.has(candidate)) {
+    return candidate;
+  }
+  const nameKey = normaliseDistrictNameKey(entry && entry.name);
+  if (nameKey && districtFeatureNameMap.has(nameKey)) {
+    return districtFeatureNameMap.get(nameKey);
+  }
+  return candidate;
+}
+
 function scheduleDistrictFeatureStateUpdate() {
   if (districtFeatureStateRefreshQueued) {
     return;
@@ -6239,6 +6290,9 @@ function updateDistrictFeatureStates() {
       if (!id) {
         return;
       }
+      if (!districtFeatureIdSet.size) {
+        refreshDistrictFeatureLookup();
+      }
       seenIds.add(id);
       const strength = Number(info?.strength) || 0;
       const featureId = Number.isFinite(Number(id)) ? Number(id) : id;
@@ -6290,8 +6344,11 @@ function applyDistrictStrengthEntries(entries) {
   const map = new Map();
   let maxStrength = DISTRICT_BASE_SCORE;
   let minStrength = DISTRICT_BASE_SCORE;
+  if (!districtFeatureIdSet.size) {
+    refreshDistrictFeatureLookup();
+  }
   entries.forEach((entry) => {
-    const id = entry && entry.id ? safeId(entry.id) : null;
+    const id = resolveDistrictFeatureIdFromEntry(entry);
     if (!id) {
       return;
     }
@@ -11684,8 +11741,10 @@ function renderDistrictLeaderboard(data) {
       li.textContent = 'No attack activity yet.';
       districtLeaderboardAggressive.appendChild(li);
     } else {
-      data.aggressive.forEach((item) => {
+      data.aggressive.forEach((item, index) => {
         const li = document.createElement('li');
+        const rankClass = index === 0 ? 'rank-1' : index === 1 ? 'rank-2' : index === 2 ? 'rank-3' : 'rank-rest';
+        li.classList.add(rankClass);
         const nameSpan = document.createElement('span');
         nameSpan.className = 'leaderboard-name';
         nameSpan.textContent = `@${item.username}`;
@@ -11707,8 +11766,10 @@ function renderDistrictLeaderboard(data) {
       li.textContent = 'No defensive activity yet.';
       districtLeaderboardSupport.appendChild(li);
     } else {
-      data.supporters.forEach((item) => {
+      data.supporters.forEach((item, index) => {
         const li = document.createElement('li');
+        const rankClass = index === 0 ? 'rank-1' : index === 1 ? 'rank-2' : index === 2 ? 'rank-3' : 'rank-rest';
+        li.classList.add(rankClass);
         const nameSpan = document.createElement('span');
         nameSpan.className = 'leaderboard-name';
         nameSpan.textContent = `@${item.username}`;

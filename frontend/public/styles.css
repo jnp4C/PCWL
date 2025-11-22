@@ -2094,6 +2094,28 @@ body.dark .friend-profile-marker {
   background: rgba(76, 29, 149, 0.08);
 }
 
+.district-leaderboard-list li.rank-1 {
+  background: linear-gradient(120deg, rgba(255, 215, 0, 0.45), rgba(34, 197, 94, 0.25));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 215, 0, 0.65),
+    0 8px 18px rgba(255, 215, 0, 0.16);
+}
+
+.district-leaderboard-list li.rank-2 {
+  background: linear-gradient(120deg, rgba(34, 197, 94, 0.25), rgba(250, 204, 21, 0.18));
+  box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.45);
+}
+
+.district-leaderboard-list li.rank-3 {
+  background: linear-gradient(120deg, rgba(250, 204, 21, 0.22), rgba(248, 113, 113, 0.16));
+  box-shadow: inset 0 0 0 1px rgba(250, 204, 21, 0.35);
+}
+
+.district-leaderboard-list li.rank-rest {
+  background: linear-gradient(120deg, rgba(248, 113, 113, 0.14), rgba(76, 29, 149, 0.08));
+  box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.22);
+}
+
 .district-leaderboard-list li.leaderboard-empty {
   justify-content: flex-start;
   color: var(--color-text-muted);
