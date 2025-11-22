@@ -59,6 +59,7 @@ Troubleshooting
 How frontend and backend are "merged" locally
 - The Django app (backend/pcwl_backend/urls.py) serves templates from backend/templates/ (home.html, create-account.html, etc.) and mounts the game API at /api/.
 - Static files (`frontend/public/app.js`, `styles.css`, `data/`, etc.) are served in development by Django’s staticfiles. You get one origin (127.0.0.1:8000) for both UI and API, which avoids CORS/CSRF issues.
+- For production/static hosting, rely on Django’s `collectstatic` + staticfiles storage to emit `Cache-Control` headers for JS/CSS/assets. The service worker has been removed so browsers always fetch fresh API responses; run `python manage.py collectstatic` during deploys to let Django handle asset caching.
 
 Useful scripts
 - tools/setup.sh — creates .venv and installs requirements with a compatible Python.

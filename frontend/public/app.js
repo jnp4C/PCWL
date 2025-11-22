@@ -932,42 +932,6 @@ function isFileOrigin() {
   }
 }
 
-function registerServiceWorker() {
-  if (typeof window === 'undefined' || typeof navigator === 'undefined') {
-    return;
-  }
-  if (!('serviceWorker' in navigator) || isFileOrigin()) {
-    return;
-  }
-  const onLoad = () => {
-    try {
-      const swUrl = new URL('service-worker.js', window.location.href);
-      const scopeUrl = new URL('./', swUrl.href);
-      navigator.serviceWorker
-        .register(swUrl.href, { scope: scopeUrl.pathname })
-        .then((registration) => {
-          if (registration && typeof registration.update === 'function') {
-            registration.update().catch((error) => {
-              console.warn('Service worker update failed', error);
-            });
-          }
-        })
-        .catch((error) => {
-          console.warn('Service worker registration failed', error);
-        });
-    } catch (error) {
-      console.warn('Service worker registration skipped', error);
-    }
-  };
-  if (document.readyState === 'complete') {
-    onLoad();
-  } else {
-    window.addEventListener('load', onLoad, { once: true });
-  }
-}
-
-registerServiceWorker();
-
 function setGeolocationUiState(isAvailable) {
   if (findMeButton) {
     findMeButton.disabled = !isAvailable;
