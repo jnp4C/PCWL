@@ -225,6 +225,7 @@ const MAP_STYLE = {
 
 const STATIC_PREFIX = readTemplateValue('staticUrl', '__STATIC_URL__') || '';
 const DATA_PREFIX = `${STATIC_PREFIX}data/`;
+const ASSET_VERSION = '20251122-1';
 const EMPTY_GEOJSON = { type: 'FeatureCollection', features: [] };
 const STATIC_DATASETS = {
   'prague-boundary': { topo: 'prague-boundary.topo.json', object: 'boundary', fallback: 'prague-boundary.geojson' },
@@ -326,7 +327,7 @@ const DEFAULT_MARKER_COLOR = '#6366f1';
 const DISTRICT_FILL_COLOR_LOW = '#f87171';
 const DISTRICT_FILL_COLOR_MID = '#facc15';
 const DISTRICT_FILL_COLOR_HIGH = '#22c55e';
-const DISTRICT_FILL_COLOR_WINNER = '#ffd700';
+const DISTRICT_FILL_COLOR_WINNER = '#00f27a';
 function hexToRgb(hex) {
   if (typeof hex !== 'string' || !hex.startsWith('#') || hex.length !== 7) {
     return { r: 0, g: 0, b: 0 };
@@ -653,7 +654,9 @@ function disablePageZoom() {
 disablePageZoom();
 
 function resolveDataUrl(filename) {
-  return `${DATA_PREFIX}${filename}`;
+  const base = `${DATA_PREFIX}${filename}`;
+  const separator = base.includes('?') ? '&' : '?';
+  return `${base}${separator}v=${ASSET_VERSION}`;
 }
 
 function buildPmtilesUrl(filename) {
@@ -770,7 +773,9 @@ function addBuildingSource(mapInstance) {
 }
 
 function resolveAssetUrl(path) {
-  return `${STATIC_PREFIX}${path}`;
+  const base = `${STATIC_PREFIX}${path}`;
+  const separator = base.includes('?') ? '&' : '?';
+  return `${base}${separator}v=${ASSET_VERSION}`;
 }
 
 function loadStaticDataset(datasetKey) {
@@ -785,7 +790,7 @@ function loadStaticDataset(datasetKey) {
 
   const config = STATIC_DATASETS[datasetKey] || {};
   if (config.topo && typeof topojson !== 'undefined') {
-    STATIC_DATA_CACHE[datasetKey] = fetch(resolveDataUrl(config.topo))
+    STATIC_DATA_CACHE[datasetKey] = fetch(resolveDataUrl(config.topo), { cache: 'no-store' })
       .then((response) => (response.ok ? response.json() : null))
       .then((topology) => {
         if (!topology || !topology.objects) {
@@ -812,7 +817,7 @@ function loadStaticDataset(datasetKey) {
       });
   } else {
     const fallbackFile = config.fallback || `${datasetKey}.geojson`;
-    STATIC_DATA_CACHE[datasetKey] = fetch(resolveDataUrl(fallbackFile))
+    STATIC_DATA_CACHE[datasetKey] = fetch(resolveDataUrl(fallbackFile), { cache: 'no-store' })
       .then((response) => (response.ok ? response.json() : null))
       .catch((error) => {
         console.error(`Failed to load GeoJSON dataset "${datasetKey}"`, error);
@@ -7373,6 +7378,8 @@ function createFriendLocationFeature(friend) {
     feature.properties.activePartyCode = friend.activeParty.code || '';
     feature.properties.activePartyName = friend.activeParty.name || '';
     feature.properties.activePartyScore = Number(friend.activeParty.score) || 0;
+    feature.properties.activePartySize = Number(friend.activeParty.size) || 0;
+    feature.properties.isPartyChip = true;
   }
   const recentCheckins = getFriendRecentCheckins(friend);
   if (recentCheckins.length) {
@@ -7406,9 +7413,19 @@ function buildFriendLocationsGeoJson(friends) {
     return { type: 'FeatureCollection', features: [] };
   }
   const features = [];
+  const activeParty = getActivePartyState ? getActivePartyState() : null;
+  const viewerPartyCode = activeParty && activeParty.code ? activeParty.code : '';
+  const partySeen = new Set();
   friends.forEach((friend) => {
     const feature = createFriendLocationFeature(friend);
     if (feature) {
+      const partyCode = feature.properties.activePartyCode || '';
+      if (viewerPartyCode && partyCode && partyCode === viewerPartyCode) {
+        if (partySeen.has(partyCode)) {
+          return;
+        }
+        partySeen.add(partyCode);
+      }
       features.push(feature);
     }
   });
@@ -13204,23 +13221,8 @@ function addSourcesAndLayers() {
       visibility: 'visible',
     },
     paint: {
-      'fill-color': [
-        'case',
-        ['boolean', ['feature-state', 'isWinner'], false],
-        DISTRICT_FILL_COLOR_WINNER,
-        ['coalesce', ['feature-state', 'fillColor'], '#9f9be9'],
-      ],
-      'fill-opacity': [
-        'interpolate',
-        ['linear'],
-        ['zoom'],
-        8,
-        0.35,
-        12,
-        0.55,
-        16,
-        0.72,
-      ],
+      'fill-color': ['coalesce', ['feature-state', 'fillColor'], '#9f9be9'],
+      'fill-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.48, 12, 0.6, 13.5, 0.2, 14.5, 0],
     },
   });
 
@@ -13286,7 +13288,7 @@ function addSourcesAndLayers() {
     type: 'circle',
     source: FRIEND_LOCATIONS_SOURCE_ID,
     paint: {
-      'circle-radius': 10,
+      'circle-radius': ['case', ['has', 'activePartyCode'], 14, 10],
       'circle-color': ['get', 'markerColor'],
       'circle-opacity': 0.28,
       'circle-blur': 0.6,
@@ -13298,11 +13300,35 @@ function addSourcesAndLayers() {
     type: 'circle',
     source: FRIEND_LOCATIONS_SOURCE_ID,
     paint: {
-      'circle-radius': 6,
-      'circle-color': ['get', 'markerColor'],
+      'circle-radius': ['case', ['has', 'activePartyCode'], 9, 6],
+      'circle-color': ['case', ['has', 'activePartyCode'], ['get', 'markerColor'], ['get', 'markerColor']],
       'circle-stroke-width': 2,
       'circle-stroke-color': '#ffffff',
       'circle-opacity': 0.95,
+    },
+  });
+
+  map.addLayer({
+    id: 'friend-locations-party-label',
+    type: 'symbol',
+    source: FRIEND_LOCATIONS_SOURCE_ID,
+    filter: ['has', 'activePartyCode'],
+    layout: {
+      'text-field': [
+        'coalesce',
+        ['get', 'activePartyName'],
+        ['get', 'activePartyCode'],
+        ['get', 'username'],
+      ],
+      'text-size': 12,
+      'text-offset': [0, 1.2],
+      'text-anchor': 'top',
+      'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+    },
+    paint: {
+      'text-color': ['get', 'markerColor'],
+      'text-halo-color': '#0b0b13',
+      'text-halo-width': 1.4,
     },
   });
 
