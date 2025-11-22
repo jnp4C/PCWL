@@ -9430,84 +9430,47 @@ function renderFriendProfileContent(friend) {
   }
 
   const markerColor = normaliseMarkerColor(friend.map_marker_color);
-
-  const header = document.createElement('div');
-  header.className = 'friend-profile-header';
-
-  const identity = document.createElement('div');
-  identity.className = 'friend-profile-identity';
-  if (markerColor) {
-    const marker = document.createElement('span');
-    marker.className = 'friend-profile-marker';
-    marker.style.backgroundColor = markerColor;
-    marker.title = 'Map marker color';
-    identity.appendChild(marker);
-  }
-
-  const nameBlock = document.createElement('div');
-  nameBlock.className = 'friend-profile-name-block';
-  const usernameEl = document.createElement('div');
-  usernameEl.className = 'friend-profile-username';
-  usernameEl.textContent = `@${friend.username}`;
-  if (markerColor) {
-    usernameEl.style.color = markerColor;
-  }
-  nameBlock.appendChild(usernameEl);
-
+  const homeMeta = resolveFriendHomeMeta(friend);
+  const homeLabel = homeMeta ? homeMeta.label : null;
   const displayName =
     typeof friend.display_name === 'string' && friend.display_name.trim() ? friend.display_name.trim() : '';
-  if (displayName) {
-    const displayEl = document.createElement('div');
-    displayEl.className = 'friend-profile-display';
-    displayEl.textContent = displayName;
-    nameBlock.appendChild(displayEl);
+
+  const summary = document.createElement('div');
+  summary.className = 'character-summary friend-profile-summary';
+
+  const identityCard = document.createElement('div');
+  identityCard.className = 'character-card character-identity friend-profile-identity-card';
+  if (markerColor) {
+    identityCard.style.setProperty('--player-marker-color', markerColor);
   }
+  const avatar = document.createElement('div');
+  avatar.className = 'character-avatar';
+  const initial = friend.username ? friend.username.trim().charAt(0).toUpperCase() : 'P';
+  avatar.textContent = initial || 'P';
+  identityCard.appendChild(avatar);
 
-  identity.appendChild(nameBlock);
-  header.appendChild(identity);
-
-  const tags = document.createElement('div');
-  tags.className = 'friend-profile-tags';
-
-  const homeMeta = resolveFriendHomeMeta(friend);
-  if (homeMeta) {
-    const homeInfo = document.createElement('div');
-    homeInfo.className = 'friend-profile-home';
-    homeInfo.dataset.status = homeMeta.statusClass;
-    homeInfo.textContent = `Home district: ${homeMeta.label}`;
-    if (homeMeta.statusClass === 'home') {
-      homeInfo.title = 'Matches your home district.';
-    } else if (homeMeta.statusClass === 'enemy') {
-      homeInfo.title = 'Different from your home district.';
-    } else {
-      homeInfo.title = 'Home district not set.';
-    }
-    tags.appendChild(homeInfo);
+  const meta = document.createElement('div');
+  meta.className = 'character-meta';
+  const nameEl = document.createElement('h3');
+  nameEl.id = '';
+  nameEl.textContent = displayName || `@${friend.username}`;
+  if (markerColor) {
+    nameEl.style.color = markerColor;
+  }
+  meta.appendChild(nameEl);
+  const tagline = document.createElement('p');
+  tagline.className = 'character-tagline';
+  if (homeLabel) {
+    tagline.textContent = `Champion of ${homeLabel}`;
   } else {
-    const homeInfo = document.createElement('div');
-    homeInfo.className = 'friend-profile-home';
-    homeInfo.textContent = 'Home district: Not set';
-    homeInfo.title = 'Home district not set.';
-    tags.appendChild(homeInfo);
+    tagline.textContent = formatFriendStatsSummary(friend);
   }
-
-  if (friend.is_favorite) {
-    const favoriteTag = document.createElement('div');
-    favoriteTag.className = 'friend-profile-favorite';
-    favoriteTag.textContent = '★ Favorite';
-    favoriteTag.title = 'You have marked this friend as a favorite.';
-    tags.appendChild(favoriteTag);
-  }
-
-  if (tags.children.length) {
-    header.appendChild(tags);
-  }
-
-  friendProfileBody.appendChild(header);
+  meta.appendChild(tagline);
+  identityCard.appendChild(meta);
 
   const streak = getFriendStreakMeta(friend);
   const streakCard = document.createElement('div');
-  streakCard.className = 'friend-profile-streak character-card';
+  streakCard.className = 'character-card character-streak friend-profile-streak';
   const streakLabelRow = document.createElement('div');
   streakLabelRow.className = 'streak-label-row';
   const streakChip = document.createElement('span');
@@ -9527,7 +9490,40 @@ function renderFriendProfileContent(friend) {
   streakCard.appendChild(streakLabelRow);
   streakCard.appendChild(streakValue);
   streakCard.appendChild(streakHint);
-  friendProfileBody.appendChild(streakCard);
+
+  summary.appendChild(identityCard);
+  summary.appendChild(streakCard);
+  friendProfileBody.appendChild(summary);
+
+  const tags = document.createElement('div');
+  tags.className = 'friend-profile-tags';
+
+  if (homeMeta) {
+    const homeInfo = document.createElement('div');
+    homeInfo.className = 'friend-profile-home';
+    homeInfo.dataset.status = homeMeta.statusClass;
+    homeInfo.textContent = `Home district: ${homeMeta.label}`;
+    if (homeMeta.statusClass === 'home') {
+      homeInfo.title = 'Matches your home district.';
+    } else if (homeMeta.statusClass === 'enemy') {
+      homeInfo.title = 'Different from your home district.';
+    } else {
+      homeInfo.title = 'Home district not set.';
+    }
+    tags.appendChild(homeInfo);
+  }
+
+  if (friend.is_favorite) {
+    const favoriteTag = document.createElement('div');
+    favoriteTag.className = 'friend-profile-favorite';
+    favoriteTag.textContent = '★ Favorite';
+    favoriteTag.title = 'You have marked this friend as a favorite.';
+    tags.appendChild(favoriteTag);
+  }
+
+  if (tags.children.length) {
+    friendProfileBody.appendChild(tags);
+  }
 
   const profileActions = document.createElement('div');
   profileActions.className = 'friend-profile-actions';

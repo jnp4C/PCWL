@@ -1410,6 +1410,10 @@ body.dark .friend-marker-swatch {
   gap: 1.25rem;
 }
 
+.friend-profile-summary {
+  margin: 0 0 0.25rem;
+}
+
 .friend-profile-streak {
   display: flex;
   flex-direction: column;
