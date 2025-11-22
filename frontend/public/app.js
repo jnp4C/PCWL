@@ -5846,7 +5846,7 @@ async function restoreSessionFromServer() {
     triggerGeolocation: false,
   });
   applyPartyStateFromServer(partySnapshot, { silent: false });
-  refreshPartyState(false, { silent: true }).catch(() => null);
+  refreshPartyState(false, { silent: true, syncPlayer: true }).catch(() => null);
   try { startPartyPolling({ immediate: true }); } catch (_) {}
 }
 
@@ -8553,7 +8553,43 @@ function updatePartyJoinRequestsUi() {
   });
 }
 
-async function refreshPartyState(showErrors = false, { silent = true } = {}) {
+async function refreshActivePlayerProfileFromServer({ silent = true } = {}) {
+  if (
+    !isSessionAuthenticated ||
+    !currentUser ||
+    !Number.isFinite(Number(activePlayerBackendId))
+  ) {
+    return null;
+  }
+  try {
+    const apiPlayer = await apiRequest(`players/${activePlayerBackendId}/`);
+    if (apiPlayer && typeof apiPlayer === 'object') {
+      const profile = ensurePlayerProfile(currentUser);
+      applyServerPlayerData(profile, apiPlayer);
+      savePlayers();
+      renderPlayerState();
+    }
+    return apiPlayer;
+  } catch (error) {
+    if (error && (error.status === 401 || error.status === 403)) {
+      isSessionAuthenticated = false;
+      activePlayerBackendId = null;
+      resetPartyState();
+      updatePartyUi(friendsState.items);
+      stopPartyPolling();
+      if (!silent) {
+        updateStatus('Session expired. Sign in again to stay in sync.');
+      }
+    } else if (!silent) {
+      const detail = error?.data?.detail || error?.message || 'Unable to refresh your profile.';
+      updateStatus(detail);
+    }
+    console.warn('Failed to refresh active player from server', error);
+    return null;
+  }
+}
+
+async function refreshPartyState(showErrors = false, { silent = true, syncPlayer = false } = {}) {
   if (!isSessionAuthenticated || !currentUser) {
     resetPartyState();
     updatePartyUi(friendsState.items);
@@ -8570,6 +8606,9 @@ async function refreshPartyState(showErrors = false, { silent = true } = {}) {
       },
       { silent },
     );
+    if (syncPlayer && getActivePartyState()) {
+      await refreshActivePlayerProfileFromServer({ silent: true });
+    }
   } catch (error) {
     if (error && (error.status === 401 || error.status === 403)) {
       isSessionAuthenticated = false;
@@ -8614,7 +8653,7 @@ async function runPartyPollCycle() {
   }
   partyPollInFlight = true;
   try {
-    await refreshPartyState(false, { silent: false });
+    await refreshPartyState(false, { silent: false, syncPlayer: true });
   } finally {
     partyPollInFlight = false;
   }
@@ -14132,7 +14171,7 @@ if (typeof document !== 'undefined') {
   try {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
-        refreshPartyState(false, { silent: true }).catch(() => null);
+        refreshPartyState(false, { silent: true, syncPlayer: true }).catch(() => null);
         try { startPartyPolling({ immediate: true }); } catch (_) {}
       } else {
         // Poll at a slower cadence while hidden so pending invites still arrive.
@@ -14142,7 +14181,7 @@ if (typeof document !== 'undefined') {
     // Also refresh on window focus for browsers that don't reliably fire visibilitychange
     window.addEventListener('focus', () => {
       if (document.visibilityState === 'visible') {
-        refreshPartyState(false, { silent: true }).catch(() => null);
+        refreshPartyState(false, { silent: true, syncPlayer: true }).catch(() => null);
         try { startPartyPolling({ immediate: true }); } catch (_) {}
       }
     });
