@@ -199,6 +199,13 @@ const districtLeaderboardAggressive = document.getElementById('district-leaderbo
 const districtLeaderboardSupport = document.getElementById('district-leaderboard-support');
 const districtTargetValue = document.getElementById('district-target-value');
 const districtThreatValue = document.getElementById('district-threat-value');
+const districtPartySection = document.getElementById('district-party-section');
+const districtPartyList = document.getElementById('district-party-list');
+const districtPartyToggle = document.getElementById('district-party-toggle');
+const DISTRICT_PARTY_VISIBLE_COUNT = 3;
+const districtPartyCache = new Map();
+let districtPartyEntries = [];
+let districtPartyExpanded = false;
 if (currentUserTag) {
   updateCurrentUserTag(null);
 }
@@ -8294,12 +8301,13 @@ function updatePartySelectOptions(friends, excludedSet) {
   if (!friendsPartySelect) {
     return;
   }
-  const previousSelection = friendsPartySelect.value;
+  const previousSelection = (friendsPartySelect.dataset.selectedFriend || friendsPartySelect.value || '').trim();
   friendsPartySelect.innerHTML = '';
   const placeholder = document.createElement('option');
   placeholder.value = '';
   placeholder.textContent = 'Select friend…';
   friendsPartySelect.appendChild(placeholder);
+  friendsPartySelect.dataset.selectedFriend = '';
   if (!Array.isArray(friends)) {
     friendsPartySelect.disabled = true;
     return;
@@ -8319,12 +8327,17 @@ function updatePartySelectOptions(friends, excludedSet) {
   });
   const hasChoices = friendsPartySelect.options.length > 1;
   friendsPartySelect.disabled = !hasChoices;
+  if (!hasChoices) {
+    friendsPartySelect.dataset.selectedFriend = '';
+    return;
+  }
   if (hasChoices && previousSelection) {
     const candidate = Array.from(friendsPartySelect.options).find(
       (opt) => opt && opt.value && opt.value.toLowerCase() === previousSelection.toLowerCase(),
     );
     if (candidate) {
       friendsPartySelect.value = candidate.value;
+      friendsPartySelect.dataset.selectedFriend = candidate.value;
     }
   }
 }
@@ -9178,14 +9191,15 @@ async function startPartyWithFriend(username, options = {}) {
     return;
   }
   const result = await sendPartyInvite(friend.username, { suppressStatus: true });
-  if (result.success) {
-    updateStatus(`Party started with @${friend.username}. Boost lasts 3 hours.`);
-    if (friendsPartySelect) {
-      friendsPartySelect.value = '';
+    if (result.success) {
+      updateStatus(`Party started with @${friend.username}. Boost lasts 3 hours.`);
+      if (friendsPartySelect) {
+        friendsPartySelect.value = '';
+        friendsPartySelect.dataset.selectedFriend = '';
+      }
+    } else if (result.message) {
+      updateStatus(result.message);
     }
-  } else if (result.message) {
-    updateStatus(result.message);
-  }
 }
 
 async function addFriendToParty(username) {
@@ -9235,6 +9249,7 @@ async function addFriendToParty(username) {
   const result = await sendPartyInvite(friend.username);
   if (result.success && friendsPartySelect) {
     friendsPartySelect.value = '';
+    friendsPartySelect.dataset.selectedFriend = '';
   }
 }
 
@@ -12114,6 +12129,137 @@ function calculateHomeDistrictContribution(profile) {
   return { points, checkins };
 }
 
+function formatDistrictPartyLastActive(timestamp) {
+  if (!timestamp) {
+    return null;
+  }
+  const parsed = Number(timestamp);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return formatTimeAgo(parsed);
+}
+
+function renderDistrictPartyList(entries) {
+  if (!districtPartyList) {
+    return;
+  }
+  districtPartyList.innerHTML = '';
+  if (!entries || !entries.length) {
+    const empty = document.createElement('li');
+    empty.className = 'district-party-leader empty';
+    empty.textContent = 'No active parties recorded yet.';
+    districtPartyList.appendChild(empty);
+    return;
+  }
+  const displayEntries = districtPartyExpanded ? entries : entries.slice(0, DISTRICT_PARTY_VISIBLE_COUNT);
+  displayEntries.forEach((entry) => {
+    const li = document.createElement('li');
+    li.className = 'district-party-leader';
+    const avatar = document.createElement('span');
+    avatar.className = 'district-party-avatar';
+    const avatarColor = entry.color && MARKER_COLOR_PATTERN.test(entry.color) ? entry.color : '#0f1c36';
+    avatar.style.background = avatarColor;
+    avatar.style.color = '#fff';
+    const leaderInitial = entry.leader ? entry.leader.charAt(0).toUpperCase() : 'P';
+    avatar.textContent = leaderInitial;
+    const content = document.createElement('div');
+    content.className = 'district-party-leader-content';
+    const nameRow = document.createElement('p');
+    nameRow.className = 'district-party-leader-name';
+    const heading = document.createElement('span');
+    heading.textContent = entry.name || entry.code || 'Party';
+    const score = document.createElement('span');
+    score.className = 'district-party-score';
+    const scoreValue = Number(entry.score) || 0;
+    score.textContent =
+      scoreValue > 0 ? `+${scoreValue.toLocaleString()} pts` : `${scoreValue.toLocaleString()} pts`;
+    nameRow.appendChild(heading);
+    nameRow.appendChild(score);
+    const meta = document.createElement('p');
+    meta.className = 'district-party-leader-meta';
+    const metaPieces = [];
+    if (entry.leader) {
+      metaPieces.push(`@${entry.leader}`);
+    }
+    const memberCount = Number(entry.member_count);
+    if (Number.isFinite(memberCount) && memberCount > 0) {
+      metaPieces.push(`${memberCount} member${memberCount === 1 ? '' : 's'}`);
+    }
+    const lastActive = formatDistrictPartyLastActive(entry.last_active_at);
+    if (lastActive) {
+      metaPieces.push(lastActive);
+    }
+    meta.textContent = metaPieces.join(' • ');
+    content.appendChild(nameRow);
+    if (metaPieces.length) {
+      content.appendChild(meta);
+    }
+    li.appendChild(avatar);
+    li.appendChild(content);
+    districtPartyList.appendChild(li);
+  });
+}
+
+function updateDistrictPartySection(entries) {
+  districtPartyEntries = Array.isArray(entries) ? entries : [];
+  districtPartyExpanded = false;
+  renderDistrictPartyList(districtPartyEntries);
+  if (districtPartyToggle) {
+    const hasMore = districtPartyEntries.length > DISTRICT_PARTY_VISIBLE_COUNT;
+    districtPartyToggle.classList.toggle('hidden', !hasMore);
+    districtPartyToggle.textContent = 'Show all';
+    districtPartyToggle.setAttribute('aria-expanded', 'false');
+  }
+}
+
+async function refreshDistrictPartyActivity(
+  districtCode,
+  { silent = true, force = false } = {},
+) {
+  if (!districtPartySection || !districtPartyList) {
+    return;
+  }
+  const code = districtCode ? safeId(districtCode) : null;
+  if (!code) {
+    updateDistrictPartySection([]);
+    return;
+  }
+  const cached = districtPartyCache.get(code);
+  if (!force && cached) {
+    updateDistrictPartySection(cached);
+  }
+  try {
+    const response = await apiRequest(`districts/${encodeURIComponent(code)}/activity/`);
+    const parties = Array.isArray(response?.top_parties) ? response.top_parties : [];
+    districtPartyCache.set(code, parties);
+    updateDistrictPartySection(parties);
+  } catch (error) {
+    if (!silent) {
+      const detail = error?.data?.detail || error?.message || 'Unable to load district parties.';
+      updateStatus(detail);
+    }
+    console.warn('Failed to load district activity parties', error);
+    if (!cached) {
+      updateDistrictPartySection([]);
+    }
+  }
+}
+
+if (districtPartyToggle) {
+  districtPartyToggle.addEventListener('click', () => {
+    if (!districtPartyEntries.length) {
+      return;
+    }
+    districtPartyExpanded = !districtPartyExpanded;
+    renderDistrictPartyList(districtPartyEntries);
+    districtPartyToggle.textContent = districtPartyExpanded
+      ? `Show top ${DISTRICT_PARTY_VISIBLE_COUNT}`
+      : 'Show all';
+    districtPartyToggle.setAttribute('aria-expanded', districtPartyExpanded.toString());
+  });
+}
+
 function updateDistrictDrawerContent(profile = null) {
   if (
     !districtHomeNameValue ||
@@ -12194,6 +12340,15 @@ function updateDistrictDrawerContent(profile = null) {
     ? `Keep showing up in ${homeName} to fortify it.`
     : `Visit ${homeName} and defend on location to boost its resilience.`;
   districtPerformanceBlurb.textContent = `You have contributed ${localContributionPoints.toLocaleString()} pts directly to ${homeName} through ${localCheckinsLabel}. ${defendText}`;
+
+  const homeCode =
+    (resolvedProfile.homeDistrictId ? safeId(resolvedProfile.homeDistrictId) : null) ||
+    (resolvedProfile.homeDistrictCode ? safeId(resolvedProfile.homeDistrictCode) : null);
+  if (homeCode) {
+    refreshDistrictPartyActivity(homeCode, { silent: true, force: true });
+  } else {
+    updateDistrictPartySection([]);
+  }
 }
 
 function openDistrictDrawer(trigger = null) {
@@ -14301,6 +14456,12 @@ if (friendsPartyAddButton) {
 if (friendsPartyDisbandButton) {
   friendsPartyDisbandButton.addEventListener('click', () => {
     disbandActiveParty();
+  });
+}
+
+if (friendsPartySelect) {
+  friendsPartySelect.addEventListener('change', () => {
+    friendsPartySelect.dataset.selectedFriend = (friendsPartySelect.value || '').trim();
   });
 }
 

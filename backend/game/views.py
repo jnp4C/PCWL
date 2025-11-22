@@ -26,6 +26,7 @@ from .models import (
     District,
     DistrictContributionStat,
     DistrictEngagement,
+    DistrictPartyStat,
     FriendLink,
     FriendRequest,
     Party,
@@ -1195,6 +1196,21 @@ class DistrictActivityView(APIView):
             "top_contributors": top_contributors,
             "recent_checkins": serialized_checkins,
         }
+        party_rankings = _build_district_party_rankings({district_code}, limit_per_district=50)
+        top_parties = party_rankings.get(district_code, [])
+        response_data["top_parties"] = [
+            {
+                "code": entry.get("party_code", ""),
+                "name": entry.get("party_name", ""),
+                "leader": entry.get("leader", ""),
+                "color": entry.get("color", ""),
+                "score": entry.get("score", 0),
+                "member_count": entry.get("member_count", 0),
+                "last_active_at": entry.get("last_activity_at"),
+            }
+            for entry in top_parties
+        ]
+        response_data["leading_party"] = response_data["top_parties"][0] if response_data["top_parties"] else None
         return Response(response_data, status=status.HTTP_200_OK)
 
 
@@ -1725,12 +1741,63 @@ def _build_player_leaderboard(limit=100):
     return payload
 
 
-def _build_district_leaderboard(limit: Optional[int] = None):
-    def _build_district_party_leaders(district_codes: Set[str]) -> Dict[str, Dict[str, Any]]:
-        """Return the leading party per district based on party contributions."""
-        if not district_codes:
-            return {}
+def _build_district_party_rankings(
+    district_codes: Set[str], limit_per_district: int = 50
+) -> Dict[str, List[Dict[str, Any]]]:
+    if not district_codes:
+        return {}
 
+    stats = (
+        DistrictPartyStat.objects.filter(district__code__in=district_codes)
+        .select_related("district", "party", "party__leader")
+        .order_by("district__code", "-prestige_points", "-last_activity_at")
+    )
+    rankings: Dict[str, List[Dict[str, Any]]] = {}
+    counts: Dict[str, int] = {}
+    party_ids: Set[int] = set()
+    for stat in stats:
+        code = (stat.district.code or "").strip()
+        if not code:
+            continue
+        current_count = counts.get(code, 0)
+        if current_count >= limit_per_district:
+            continue
+        party = stat.party
+        entry = {
+            "party_id": party.id if party else None,
+            "party_code": party.code if party else "",
+            "party_name": party.name if party else "",
+            "leader": party.leader.username if party and party.leader_id else "",
+            "color": party.leader.map_marker_color if party and party.leader else "",
+            "score": int(stat.prestige_points or 0),
+            "last_activity_at": stat.last_activity_at,
+        }
+        rankings.setdefault(code, []).append(entry)
+        counts[code] = current_count + 1
+        if party and party.id:
+            party_ids.add(party.id)
+
+    if party_ids:
+        member_counts = {
+            row["party_id"]: row["total"]
+            for row in (
+                PartyMembership.objects.filter(party_id__in=party_ids, left_at__isnull=True)
+                .values("party_id")
+                .annotate(total=Count("id"))
+            )
+        }
+        for entries in rankings.values():
+            for entry in entries:
+                party_id = entry.get("party_id")
+                entry["member_count"] = member_counts.get(party_id, 0)
+
+    return rankings
+
+
+def _build_district_party_leaders(district_codes: Set[str]) -> Dict[str, Dict[str, Any]]:
+    rankings = _build_district_party_rankings(district_codes, limit_per_district=1)
+    fallback = {}
+    if district_codes:
         rows = (
             CheckIn.objects.filter(is_party_contribution=True, district_code__in=district_codes)
             .values("district_code", "party_id", "party_code")
@@ -1740,7 +1807,6 @@ def _build_district_leaderboard(limit: Optional[int] = None):
                 last_activity=Max("occurred_at"),
             )
         )
-
         best_by_district: Dict[str, Dict[str, Any]] = {}
         party_ids: Set[int] = set()
         for row in rows:
@@ -1764,42 +1830,56 @@ def _build_district_leaderboard(limit: Optional[int] = None):
             if row.get("party_id"):
                 party_ids.add(row["party_id"])
 
-        if not best_by_district:
-            return {}
-
-        parties = {
-            party.id: party
-            for party in Party.objects.filter(id__in=party_ids).select_related("leader")
-        }
-        member_counts = {
-            row["party_id"]: row["total"]
-            for row in (
-                PartyMembership.objects.filter(party_id__in=party_ids, left_at__isnull=True)
-                .values("party_id")
-                .annotate(total=Count("id"))
-            )
-        }
-
-        enriched: Dict[str, Dict[str, Any]] = {}
-        for district_code, info in best_by_district.items():
-            party_id = info.get("party_id")
-            party = parties.get(party_id) if party_id else None
-            party_code = info.get("party_code") or (party.code if party else "")
-            party_name = party.name if party else ""
-            leader_name = party.leader.username if party and party.leader_id else ""
-            color = party.leader.map_marker_color if party and party.leader else ""
-            enriched[district_code] = {
-                "code": party_code,
-                "name": party_name or "",
-                "leader": leader_name,
-                "color": color or "",
-                "score": info.get("contribution", 0),
-                "checkins": info.get("checkins", 0),
-                "member_count": member_counts.get(party_id, 0),
+        if best_by_district:
+            parties = {
+                party.id: party
+                for party in Party.objects.filter(id__in=party_ids).select_related("leader")
             }
+            member_counts = {
+                row["party_id"]: row["total"]
+                for row in (
+                    PartyMembership.objects.filter(party_id__in=party_ids, left_at__isnull=True)
+                    .values("party_id")
+                    .annotate(total=Count("id"))
+                )
+            }
+            for district_code, info in best_by_district.items():
+                party_id = info.get("party_id")
+                party = parties.get(party_id) if party_id else None
+                party_code = info.get("party_code") or (party.code if party else "")
+                party_name = party.name if party else ""
+                leader_name = party.leader.username if party and party.leader_id else ""
+                color = party.leader.map_marker_color if party and party.leader else ""
+                fallback[district_code] = {
+                    "code": party_code,
+                    "name": party_name or "",
+                    "leader": leader_name,
+                    "color": color or "",
+                    "score": info.get("contribution", 0),
+                    "checkins": info.get("checkins", 0),
+                    "member_count": member_counts.get(party_id, 0),
+                }
+    enriched: Dict[str, Dict[str, Any]] = {}
+    for code in district_codes:
+        if code in rankings and rankings[code]:
+            entry = rankings[code][0]
+            enriched[code] = {
+                "code": entry.get("party_code", ""),
+                "name": entry.get("party_name", ""),
+                "leader": entry.get("leader", ""),
+                "color": entry.get("color", ""),
+                "score": entry.get("score", 0),
+                "checkins": 0,
+                "member_count": entry.get("member_count", 0),
+            }
+        elif code in fallback:
+            enriched[code] = fallback[code]
+    return enriched
 
-        return enriched
 
+
+
+def _build_district_leaderboard(limit: Optional[int] = None):
     now = timezone.now()
     recent_cutoff = now - timedelta(hours=24)
     recent_rows = CheckIn.objects.filter(district_code__isnull=False, occurred_at__gte=recent_cutoff).values(
@@ -1987,7 +2067,6 @@ def _build_district_leaderboard(limit: Optional[int] = None):
             continue
         combined.append(item)
         seen_ids.add(item["id"])
-
     if len(combined) < limit:
         for item in districts_by_score[primary_count:]:
             if item["id"] in seen_ids:

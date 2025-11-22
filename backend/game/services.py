@@ -22,6 +22,7 @@ from .models import (
     Player,
     PlayerDistrictContribution,
     PlayerPartyBond,
+    DistrictPartyStat,
 )
 
 POINTS_PER_CHECKIN = 10
@@ -187,6 +188,37 @@ def _apply_district_activity(
         last_activity_at=when,
         updated_at=when,
     )
+
+
+def _update_district_party_prestige(
+    code: Optional[str],
+    name: Optional[str],
+    *,
+    party: Optional[Party],
+    points: int,
+    occurred_at: Optional[timezone.datetime] = None,
+) -> None:
+    if not party or not code or points <= 0:
+        return
+    district = _get_or_create_district_record(code, name)
+    if district is None:
+        return
+    when = occurred_at or timezone.now()
+    updated = (
+        DistrictPartyStat.objects.filter(district=district, party=party)
+        .update(
+            prestige_points=F("prestige_points") + points,
+            last_activity_at=when,
+            updated_at=when,
+        )
+    )
+    if not updated:
+        DistrictPartyStat.objects.create(
+            district=district,
+            party=party,
+            prestige_points=points,
+            last_activity_at=when,
+        )
 
 
 def _ensure_dict(value: Any) -> Dict[str, Any]:
@@ -1179,6 +1211,16 @@ def apply_checkin(
             is_party_contribution=is_party_contribution,
             metadata=payload_meta,
         )
+        if party:
+            prestige_delta = abs(district_points_delta) or abs(points_awarded)
+            if prestige_delta:
+                _update_district_party_prestige(
+                    code,
+                    name,
+                    party=party,
+                    points=prestige_delta,
+                    occurred_at=now,
+                )
 
         _apply_district_activity(code, name, district_points_delta, occurred_at=now)
 

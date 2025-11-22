@@ -518,6 +518,38 @@ class DistrictContributionStat(models.Model):
         return f"{self.supporter.username} -> {self.district_code} ({self.contribution_points} pts)"
 
 
+class DistrictPartyStat(models.Model):
+    """Track how much prestige each party has amassed within a district."""
+
+    district = models.ForeignKey(
+        District,
+        on_delete=models.CASCADE,
+        related_name="party_stats",
+    )
+    party = models.ForeignKey(
+        "Party",
+        on_delete=models.CASCADE,
+        related_name="district_stats",
+    )
+    prestige_points = models.PositiveBigIntegerField(default=0)
+    last_activity_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("district", "party")
+        indexes = [
+            models.Index(fields=["district"], name="district_party_stat_district_idx"),
+            models.Index(fields=["party"], name="district_party_stat_party_idx"),
+            models.Index(fields=["last_activity_at"], name="district_party_stat_activity_idx"),
+        ]
+
+    def __str__(self):
+        party_code = self.party.code if self.party_id and self.party else None
+        district_code = self.district.code if self.district_id else None
+        return f"{party_code or 'Party'} in {district_code or 'District'} ({self.prestige_points} pts)"
+
+
 class PlayerPartyBond(models.Model):
     """Tracks how frequently two players squad together."""
 
