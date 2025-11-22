@@ -7975,6 +7975,7 @@ function updatePartySelectOptions(friends, excludedSet) {
   if (!friendsPartySelect) {
     return;
   }
+  const previousSelection = friendsPartySelect.value;
   friendsPartySelect.innerHTML = '';
   const placeholder = document.createElement('option');
   placeholder.value = '';
@@ -7997,7 +7998,16 @@ function updatePartySelectOptions(friends, excludedSet) {
     option.textContent = `@${username}`;
     friendsPartySelect.appendChild(option);
   });
-  friendsPartySelect.disabled = friendsPartySelect.options.length <= 1;
+  const hasChoices = friendsPartySelect.options.length > 1;
+  friendsPartySelect.disabled = !hasChoices;
+  if (hasChoices && previousSelection) {
+    const candidate = Array.from(friendsPartySelect.options).find(
+      (opt) => opt && opt.value && opt.value.toLowerCase() === previousSelection.toLowerCase(),
+    );
+    if (candidate) {
+      friendsPartySelect.value = candidate.value;
+    }
+  }
 }
 
 function formatPartyMultiplier(value) {
