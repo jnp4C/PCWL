@@ -373,6 +373,29 @@ class PartyApiTests(TestCase):
         self.assertEqual(checkin.party_size_snapshot, 1)
         self.assertEqual(int(checkin.party_multiplier_snapshot), 1)
 
+    def test_party_multiplier_only_counts_leader_district(self):
+        party = create_party(self.host)
+        invite = invite_player_to_party(self.host, self.friend)
+        respond_to_party_invitation(invite, self.friend, accept=True)
+
+        now_ms = int(timezone.now().timestamp() * 1000)
+        self.host.last_known_location = {"districtId": "1300", "districtName": "Prague 3", "timestamp": now_ms}
+        self.friend.last_known_location = {"districtId": "1400", "districtName": "Prague 4", "timestamp": now_ms}
+        self.host.save(update_fields=["last_known_location"])
+        self.friend.save(update_fields=["last_known_location"])
+
+        result = apply_checkin(
+            self.host,
+            district_code="1300",
+            district_name="Prague 3",
+            mode=CheckIn.Mode.LOCAL,
+            precision="precise",
+        )
+        checkin = result.checkin
+        self.assertEqual(checkin.party_code, party.code)
+        self.assertEqual(checkin.party_size_snapshot, 1)
+        self.assertEqual(int(checkin.party_multiplier_snapshot), 1)
+
     def test_create_party_and_leave(self):
         self.client.force_login(self.host.user)
         response = self.client.post(reverse("party"))

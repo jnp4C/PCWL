@@ -1015,10 +1015,9 @@ def apply_checkin(
         party = party_context["party"]
         party_members: List[Player] = party_context["members"]
         party_code_value = party_context["code"] if party else ""
-        # Determine active district by majority presence (>=2) among members
-        active_info = _determine_party_active_district(party, party_members) if party else {"code": None, "name": None, "count": 0}
-        active_code = active_info.get("code")
-        active_count = int(active_info.get("count") or 0)
+        leader_district_code = _member_inferred_district(party.leader, party_code_value) if party and party.leader_id else None
+        active_code = leader_district_code
+        active_count = 0
         initiator_in_active = bool(active_code and code and active_code.lower() == code.lower())
 
         # For home-member contribution logic, consider only members in the active district
@@ -1032,9 +1031,10 @@ def apply_checkin(
                     result.append(m)
             return result
 
-        members_in_active: List[Player] = _members_in_active(party_members) if party else []
-        party_size = len(members_in_active) if (party and initiator_in_active) else 0
-        # Compute has_home_member within the active district only
+        members_in_active: List[Player] = _members_in_active(party_members) if party and active_code else []
+        active_count = len(members_in_active)
+        party_size = active_count if (party and initiator_in_active) else 0
+        # Compute has_home_member within the leader's active district only
         has_home_member = False
         home_members: List[Player] = []
         if party and initiator_in_active and active_code:
