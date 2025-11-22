@@ -10,16 +10,11 @@ __pycache__/
 .DS_Store
 _pcwl_staticfiles
 backend/db.sqlite3
+# Keep topojson/pmtiles assets for the map; only drop the largest raw geojsons to speed context
 frontend/public/data/prague-building-polygons.geojson
-frontend/public/data/prague-building-polygons.topo.json
 frontend/public/data/prague-cycling-routes.geojson
-frontend/public/data/prague-cycling-routes.topo.json
 frontend/public/data/prague-districts.geojson
-frontend/public/data/prague-districts.topo.json
 frontend/public/data/prague-parks.geojson
-frontend/public/data/prague-parks.topo.json
 frontend/public/data/prague-boundary.geojson
-frontend/public/data/prague-boundary.topo.json
 frontend/public/data/prague-basemap.geojson
 frontend/public/data/urban-planning.geojson
-frontend/public/data/urban-planning.topo.json
