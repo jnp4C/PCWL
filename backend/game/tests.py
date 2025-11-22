@@ -1,3 +1,6 @@
+from decimal import Decimal, ROUND_HALF_UP
+from datetime import timedelta
+
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -19,6 +22,7 @@ from .services import (
     create_party,
     invite_player_to_party,
     leave_party,
+    POINTS_PER_CHECKIN,
     _normalise_district_code,
     respond_to_party_invitation,
 )
@@ -617,6 +621,70 @@ class CheckInApiTests(TestCase):
         self.player.refresh_from_db()
         self.assertEqual(self.player.next_checkin_multiplier, 3)
         self.assertIn("charge", self.player.cooldowns)
+
+
+class StreakMechanicTests(TestCase):
+    def setUp(self):
+        self.player = Player.objects.create(
+            username="streaker",
+            home_district_code="1100",
+            home_district_name="Prague 1",
+            home_district="Prague 1",
+        )
+
+    def test_streak_bonus_applies_to_points(self):
+        today = timezone.localdate()
+        self.player.streak_days = 5
+        self.player.streak_last_day = today
+        self.player.streak_progress_date = today
+        self.player.streak_day_attack_done = True
+        self.player.streak_day_defend_done = True
+        self.player.save(
+            update_fields=[
+                "streak_days",
+                "streak_last_day",
+                "streak_progress_date",
+                "streak_day_attack_done",
+                "streak_day_defend_done",
+            ]
+        )
+
+        result = apply_checkin(
+            self.player,
+            district_code="1200",
+            district_name="Prague 2",
+            mode=CheckIn.Mode.RANGED,
+        )
+        checkin = result.checkin
+        streak_multiplier = Decimal("1") + (Decimal("5") / Decimal("30"))
+        expected_points = int(
+            (Decimal(POINTS_PER_CHECKIN) * streak_multiplier).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        )
+        self.assertEqual(checkin.points_awarded, expected_points)
+
+    def test_streak_resets_after_missed_day(self):
+        today = timezone.localdate()
+        two_days_ago = today - timedelta(days=2)
+        self.player.streak_days = 4
+        self.player.streak_last_day = two_days_ago
+        self.player.save(update_fields=["streak_days", "streak_last_day"])
+
+        apply_checkin(
+            self.player,
+            district_code="1200",
+            district_name="Prague 2",
+            mode=CheckIn.Mode.RANGED,
+        )
+        apply_checkin(
+            self.player,
+            district_code="1100",
+            district_name="Prague 1",
+            mode=CheckIn.Mode.LOCAL,
+            precision="precise",
+        )
+        self.player.refresh_from_db()
+        self.assertEqual(self.player.streak_days, 1)
+        self.assertEqual(self.player.streak_last_day, today)
 
 
 class FriendApiTests(TestCase):

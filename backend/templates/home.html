@@ -270,13 +270,23 @@
       </header>
       <div class="sheet-body">
         <section class="character-summary">
-          <div class="character-avatar" aria-hidden="true">
-            <span class="character-avatar-initial" id="character-avatar-initial">G</span>
+          <div class="character-card character-identity" id="character-identity-card">
+            <div class="character-avatar" aria-hidden="true">
+              <span class="character-avatar-initial" id="character-avatar-initial">G</span>
+            </div>
+            <div class="character-meta">
+              <h3 id="character-name">Guest</h3>
+              <p id="character-tagline" class="character-tagline">Sign in to personalise your character.</p>
+            </div>
           </div>
-          <div class="character-meta">
-            <h3 id="character-name">Guest</h3>
-            <p id="character-tagline" class="character-tagline">Sign in to personalise your character.</p>
-          </div>
+          <button class="character-card character-streak" id="character-streak-card" type="button" aria-label="View streak details">
+            <div class="streak-label-row">
+              <span class="streak-chip">Streak</span>
+              <span class="streak-days" id="character-streak-days">0 days</span>
+            </div>
+            <div class="streak-value" id="character-streak-multiplier">x1.00</div>
+            <p class="streak-hint">Days alive while keeping attack &amp; defend going.</p>
+          </button>
         </section>
         <section class="character-customisation">
           <h3 class="character-section-title">Appearance</h3>

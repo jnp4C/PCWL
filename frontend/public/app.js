@@ -122,6 +122,9 @@ const characterChargeValue = document.getElementById('character-charge');
 const characterCooldownValue = document.getElementById('character-cooldown');
 const characterInteractionsList = document.getElementById('character-interactions-list');
 const characterInteractionsEmpty = document.getElementById('character-interactions-empty');
+const characterStreakCard = document.getElementById('character-streak-card');
+const characterStreakMultiplier = document.getElementById('character-streak-multiplier');
+const characterStreakDays = document.getElementById('character-streak-days');
 const friendsDrawer = document.getElementById('friends-drawer');
 const friendsOverlay = document.getElementById('friends-overlay');
 const friendsCloseButton = document.getElementById('friends-close');
@@ -1801,6 +1804,16 @@ function ensurePlayerProfile(username) {
   if (typeof profile.preferredPartyName !== 'string') {
     profile.preferredPartyName = '';
   }
+  profile.streakDays = Math.max(0, normaliseNumber(profile.streakDays, 0));
+  profile.streakMultiplier = Math.max(1, normaliseNumber(profile.streakMultiplier, 1));
+  if (typeof profile.streakLastDay !== 'string') {
+    profile.streakLastDay = profile.streak_last_day || null;
+  }
+  if (typeof profile.streakProgressDate !== 'string') {
+    profile.streakProgressDate = profile.streak_progress_date || null;
+  }
+  profile.streakDayAttackDone = Boolean(profile.streak_day_attack_done || profile.streakDayAttackDone);
+  profile.streakDayDefendDone = Boolean(profile.streak_day_defend_done || profile.streakDayDefendDone);
   const rememberOnDevice = Boolean(profile.auth && profile.auth.rememberOnDevice);
   if (profile.auth && typeof profile.auth === 'object') {
     const passwordHash = typeof profile.auth.passwordHash === 'string' ? profile.auth.passwordHash : null;
@@ -2001,6 +2014,23 @@ function applyServerPlayerData(profile, apiPlayer) {
   profile.points = Math.max(0, normaliseNumber(apiPlayer.score, profile.points || 0));
   profile.attackPoints = Math.max(0, normaliseNumber(apiPlayer.attack_points, profile.attackPoints || 0));
   profile.defendPoints = Math.max(0, normaliseNumber(apiPlayer.defend_points, profile.defendPoints || 0));
+
+  profile.streakDays = Math.max(0, normaliseNumber(apiPlayer.streak_days, profile.streakDays || 0));
+  const serverStreakMultiplier = normaliseNumber(apiPlayer.streak_multiplier, profile.streakMultiplier || 1);
+  const fallbackStreakMultiplier = 1 + Math.min(profile.streakDays, 30) / 30;
+  profile.streakMultiplier = Math.max(1, serverStreakMultiplier || fallbackStreakMultiplier);
+  if (typeof apiPlayer.streak_last_day === 'string') {
+    profile.streakLastDay = apiPlayer.streak_last_day;
+  }
+  if (typeof apiPlayer.streak_progress_date === 'string') {
+    profile.streakProgressDate = apiPlayer.streak_progress_date;
+  }
+  if (typeof apiPlayer.streak_day_attack_done === 'boolean') {
+    profile.streakDayAttackDone = apiPlayer.streak_day_attack_done;
+  }
+  if (typeof apiPlayer.streak_day_defend_done === 'boolean') {
+    profile.streakDayDefendDone = apiPlayer.streak_day_defend_done;
+  }
 
   if (Array.isArray(apiPlayer.checkin_history)) {
     profile.checkins = sanitizeApiCheckinHistory(apiPlayer.checkin_history);
@@ -11697,7 +11727,9 @@ function updateCharacterDrawerContent(profile = null) {
     !characterChargeValue ||
     !characterCooldownValue ||
     !characterInteractionsList ||
-    !characterInteractionsEmpty
+    !characterInteractionsEmpty ||
+    !characterStreakMultiplier ||
+    !characterStreakDays
   ) {
     return;
   }
@@ -11712,6 +11744,8 @@ function updateCharacterDrawerContent(profile = null) {
     characterAttackDefendValue.textContent = '0 / 0';
     characterChargeValue.textContent = 'x1';
     characterCooldownValue.textContent = 'Ready';
+    characterStreakMultiplier.textContent = 'x1.00';
+    characterStreakDays.textContent = '0 days';
     characterInteractionsList.innerHTML = '';
     characterInteractionsList.hidden = true;
     characterInteractionsEmpty.hidden = false;
@@ -11751,6 +11785,16 @@ function updateCharacterDrawerContent(profile = null) {
 
   const multiplier = Math.max(1, Number(resolvedProfile.nextCheckinMultiplier) || 1);
   characterChargeValue.textContent = `x${multiplier}`;
+
+  const streakDays = Math.max(0, Math.round(Number(resolvedProfile.streakDays) || 0));
+  const computedStreakMult = 1 + Math.min(streakDays, 30) / 30;
+  const streakMultiplier = Math.max(
+    1,
+    Number(resolvedProfile.streakMultiplier) || computedStreakMult
+  );
+  const streakLabel = streakDays === 1 ? '1 day' : `${streakDays} days`;
+  characterStreakMultiplier.textContent = `x${streakMultiplier.toFixed(2)}`;
+  characterStreakDays.textContent = `${streakLabel} alive`;
 
   ensureProfileCooldownState(resolvedProfile);
   const now = Date.now();

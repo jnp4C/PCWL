@@ -87,6 +87,11 @@ class Player(models.Model):
         default=None,
         help_text="Last confirmed location payload from the client (lng/lat, district metadata, timestamp).",
     )
+    streak_days = models.PositiveIntegerField(default=0)
+    streak_last_day = models.DateField(null=True, blank=True)
+    streak_progress_date = models.DateField(null=True, blank=True)
+    streak_day_attack_done = models.BooleanField(default=False)
+    streak_day_defend_done = models.BooleanField(default=False)
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,

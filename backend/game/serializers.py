@@ -2,10 +2,11 @@ import math
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from django.utils import timezone
 from rest_framework import serializers
 
 from .models import CheckIn, District, FriendLink, FriendRequest, Player
-from .services import _normalise_district_code
+from .services import _normalise_district_code, _streak_effective_days, _streak_multiplier
 
 
 DEFAULT_MAP_MARKER_COLOR = "#6366f1"
@@ -55,6 +56,12 @@ class PlayerSerializer(serializers.ModelSerializer):
             "password",
             "next_checkin_multiplier",
             "preferred_party_name",
+            "streak_days",
+            "streak_last_day",
+            "streak_progress_date",
+            "streak_day_attack_done",
+            "streak_day_defend_done",
+            "streak_multiplier",
         ]
         extra_kwargs = {
             "last_known_location": {"required": False, "allow_null": True},
@@ -75,7 +82,19 @@ class PlayerSerializer(serializers.ModelSerializer):
             "defend_ratio": {"read_only": True},
             "next_checkin_multiplier": {"read_only": True},
             "preferred_party_name": {"read_only": True},
+            "streak_days": {"read_only": True},
+            "streak_last_day": {"read_only": True},
+            "streak_progress_date": {"read_only": True},
+            "streak_day_attack_done": {"read_only": True},
+            "streak_day_defend_done": {"read_only": True},
+            "streak_multiplier": {"read_only": True},
         }
+    streak_multiplier = serializers.SerializerMethodField()
+
+    def get_streak_multiplier(self, obj: Player):
+        today = timezone.localdate()
+        days = _streak_effective_days(obj, today)
+        return float(_streak_multiplier(days))
 
     def create(self, validated_data):
         password = validated_data.pop("password", None)

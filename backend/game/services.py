@@ -47,6 +47,8 @@ PARTY_CONTRIBUTION_PLAYER_MULTIPLIER = Decimal("5")
 MAX_PARTY_MEMBERS = 4
 PARTY_NAME_MIN_LENGTH = 3
 PARTY_NAME_MAX_LENGTH = 48
+STREAK_MAX_DAYS = 30
+STREAK_DAILY_BONUS = Decimal("1") / Decimal(STREAK_MAX_DAYS)
 
 LEGACY_DISTRICT_CODE_ALIASES = {
     "1100": "500054",
@@ -190,6 +192,72 @@ def _ensure_dict(value: Any) -> Dict[str, Any]:
         return value
     return {}
 
+
+def _streak_effective_days(player: Player, today: timezone.datetime.date) -> int:
+    """Return streak days only if the streak is still valid for today."""
+    last_day = player.streak_last_day
+    if not last_day:
+        return 0
+    try:
+        delta = (today - last_day).days
+    except Exception:
+        return 0
+    if delta < 0 or delta > 1:
+        return 0
+    return max(0, player.streak_days or 0)
+
+
+def _streak_multiplier(days: int) -> Decimal:
+    capped = min(max(0, days), STREAK_MAX_DAYS)
+    bonus = STREAK_DAILY_BONUS * Decimal(capped)
+    return (Decimal("1") + bonus).quantize(Decimal("0.0001"))
+
+
+def _compute_party_streak_multiplier(members: List[Player], today: timezone.datetime.date) -> Decimal:
+    if not members:
+        return Decimal("1")
+    multipliers: List[Decimal] = []
+    for m in members:
+        days = _streak_effective_days(m, today)
+        multipliers.append(_streak_multiplier(days))
+    total = sum(multipliers, Decimal("0"))
+    average = total / Decimal(len(multipliers))
+    return average.quantize(Decimal("0.0001"))
+
+
+def _reset_daily_streak_progress(player: Player, today: timezone.datetime.date) -> None:
+    """Reset daily streak progress flags when the date changes."""
+    if player.streak_progress_date != today:
+        player.streak_progress_date = today
+        player.streak_day_attack_done = False
+        player.streak_day_defend_done = False
+
+
+def _update_streak_progress(player: Player, action: str, now: timezone.datetime) -> None:
+    """Update the player's streak state based on today's actions."""
+    today = timezone.localdate(now)
+    last_day = player.streak_last_day
+    if last_day:
+        delta_days = (today - last_day).days
+        if delta_days > 1 or delta_days < 0:
+            player.streak_days = 0
+            player.streak_last_day = None
+    _reset_daily_streak_progress(player, today)
+
+    if action == CheckIn.Action.ATTACK:
+        player.streak_day_attack_done = True
+    elif action == CheckIn.Action.DEFEND:
+        player.streak_day_defend_done = True
+
+    if player.streak_day_attack_done and player.streak_day_defend_done:
+        if player.streak_last_day == today:
+            return
+        expected_prev = today - timedelta(days=1)
+        if player.streak_last_day == expected_prev:
+            player.streak_days += 1
+        else:
+            player.streak_days = 1
+        player.streak_last_day = today
 
 def _end_party(party: Party, when: Optional[timezone.datetime] = None) -> None:
     """Mark a party as ended and release all active memberships."""
@@ -943,6 +1011,9 @@ def apply_checkin(
         if action == CheckIn.Action.DEFEND and _is_on_cooldown(locked, COOLDOWN_KEYS["defend"], now_ms):
             raise CooldownActive("Defend cooldown is still active.")
 
+        _update_streak_progress(locked, action, now)
+        today = timezone.localdate(now)
+
         charge_multiplier = Decimal(max(1, locked.next_checkin_multiplier or 1))
 
         party_multiplier_player = Decimal("1")
@@ -964,7 +1035,12 @@ def apply_checkin(
             if action == CheckIn.Action.ATTACK or is_party_contribution:
                 local_bonus = Decimal(2)
 
-        effective_multiplier = charge_multiplier * local_bonus
+        participants_for_streak = (
+            members_in_active if party and initiator_in_active and members_in_active else [locked]
+        )
+        streak_multiplier = _compute_party_streak_multiplier(participants_for_streak, today)
+
+        effective_multiplier = charge_multiplier * local_bonus * streak_multiplier
         base_points_decimal = Decimal(POINTS_PER_CHECKIN)
         total_player_multiplier = effective_multiplier * party_multiplier_player
         total_district_multiplier = effective_multiplier * party_multiplier_district
@@ -1168,6 +1244,11 @@ def apply_checkin(
             "cooldown_details",
             "checkin_history",
             "last_known_location",
+            "streak_days",
+            "streak_last_day",
+            "streak_progress_date",
+            "streak_day_attack_done",
+            "streak_day_defend_done",
             "updated_at",
         ]
         if home_ref_changed:
@@ -1208,6 +1289,7 @@ def apply_checkin(
                     # Lock each member row for update to avoid races
                     m_locked = Player.objects.select_for_update().get(pk=member.pk)
                     m_now_ms = now_ms
+                    _update_streak_progress(m_locked, initiator_action, now)
                     share_value = (
                         participant_player_shares[member_index]
                         if member_index < len(participant_player_shares)
@@ -1303,6 +1385,11 @@ def apply_checkin(
                             "cooldowns",
                             "cooldown_details",
                             "checkin_history",
+                            "streak_days",
+                            "streak_last_day",
+                            "streak_progress_date",
+                            "streak_day_attack_done",
+                            "streak_day_defend_done",
                             "updated_at",
                         ]
                     )
