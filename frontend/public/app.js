@@ -6284,6 +6284,7 @@ function updateDistrictFeatureStates() {
         }
       });
     }
+    const fillExpression = ['match', ['to-string', ['id']]];
     districtStrengthState.byId.forEach((info, id) => {
       if (!id) {
         return;
@@ -6310,10 +6311,17 @@ function updateDistrictFeatureStates() {
           },
         );
         appliedIds.add(id);
+        fillExpression.push(String(featureId), fillColor);
       } catch (_) {
         // Feature not ready yet; ignore until loaded.
       }
     });
+    fillExpression.push('#9f9be9');
+    try {
+      map.setPaintProperty('districts-fill', 'fill-color', fillExpression);
+    } catch (_) {
+      // ignore paint updates if layer is not ready yet
+    }
     appliedIds.forEach((id) => {
       if (seenIds.has(id)) {
         return;
