@@ -73,11 +73,11 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="partymembership",
-            index=models.Index(fields=["party", "left_at"], name="party_membership_party_left_idx"),
+            index=models.Index(fields=["party", "left_at"], name="party_mem_left_idx"),
         ),
         migrations.AddIndex(
             model_name="partymembership",
-            index=models.Index(fields=["player"], name="party_membership_player_idx"),
+            index=models.Index(fields=["player"], name="party_mem_player_idx"),
         ),
         migrations.AddIndex(
             model_name="partyinvitation",

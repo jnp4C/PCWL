@@ -395,8 +395,8 @@ class PartyMembership(models.Model):
             )
         ]
         indexes = [
-            models.Index(fields=["party", "left_at"], name="party_membership_party_left_idx"),
-            models.Index(fields=["player"], name="party_membership_player_idx"),
+            models.Index(fields=["party", "left_at"], name="party_mem_left_idx"),
+            models.Index(fields=["player"], name="party_mem_player_idx"),
         ]
 
     def __str__(self):
