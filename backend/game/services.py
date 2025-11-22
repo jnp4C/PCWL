@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.db.models import F
@@ -49,6 +50,7 @@ PARTY_NAME_MIN_LENGTH = 3
 PARTY_NAME_MAX_LENGTH = 48
 STREAK_MAX_DAYS = 30
 STREAK_DAILY_BONUS = Decimal("1") / Decimal(STREAK_MAX_DAYS)
+STREAK_TIMEZONE = ZoneInfo("Europe/Prague")
 
 LEGACY_DISTRICT_CODE_ALIASES = {
     "1100": "500054",
@@ -193,6 +195,14 @@ def _ensure_dict(value: Any) -> Dict[str, Any]:
     return {}
 
 
+def _streak_today(now: Optional[timezone.datetime] = None) -> timezone.datetime.date:
+    current = now or timezone.now()
+    try:
+        return timezone.localdate(current, tz=STREAK_TIMEZONE)
+    except Exception:
+        return timezone.localdate(current)
+
+
 def _streak_effective_days(player: Player, today: timezone.datetime.date) -> int:
     """Return streak days only if the streak is still valid for today."""
     last_day = player.streak_last_day
@@ -235,7 +245,7 @@ def _reset_daily_streak_progress(player: Player, today: timezone.datetime.date) 
 
 def _update_streak_progress(player: Player, action: str, now: timezone.datetime) -> None:
     """Update the player's streak state based on today's actions."""
-    today = timezone.localdate(now)
+    today = _streak_today(now)
     last_day = player.streak_last_day
     if last_day:
         delta_days = (today - last_day).days
@@ -258,6 +268,36 @@ def _update_streak_progress(player: Player, action: str, now: timezone.datetime)
         else:
             player.streak_days = 1
         player.streak_last_day = today
+
+
+def _refresh_streak_state(player: Player, now: Optional[timezone.datetime] = None, *, save: bool = False) -> bool:
+    """Ensure streak bookkeeping is aligned to the current Prague day."""
+    today = _streak_today(now or timezone.now())
+    changed = False
+    last_day = player.streak_last_day
+    if last_day:
+        delta = (today - last_day).days
+        if delta > 1 or delta < 0:
+            player.streak_days = 0
+            player.streak_last_day = None
+            changed = True
+    if player.streak_progress_date != today:
+        player.streak_progress_date = today
+        player.streak_day_attack_done = False
+        player.streak_day_defend_done = False
+        changed = True
+    if changed and save:
+        player.save(
+            update_fields=[
+                "streak_days",
+                "streak_last_day",
+                "streak_progress_date",
+                "streak_day_attack_done",
+                "streak_day_defend_done",
+                "updated_at",
+            ]
+        )
+    return changed
 
 def _end_party(party: Party, when: Optional[timezone.datetime] = None) -> None:
     """Mark a party as ended and release all active memberships."""
@@ -937,13 +977,14 @@ def apply_checkin(
 ) -> CheckInResult:
     with transaction.atomic():
         locked = Player.objects.select_for_update().get(pk=player.pk)
+        now = timezone.now()
+        _refresh_streak_state(locked, now, save=False)
         code = _normalise_district_code(district_code)
         name = _normalise_district_name(district_name)
         if not code:
             raise ValueError("District code is required.")
         _get_or_create_district_record(code, name)
 
-        now = timezone.now()
         now_ms = _now_ms()
 
         home_code = _normalise_district_code(locked.home_district_code)
@@ -1012,7 +1053,7 @@ def apply_checkin(
             raise CooldownActive("Defend cooldown is still active.")
 
         _update_streak_progress(locked, action, now)
-        today = timezone.localdate(now)
+        today = _streak_today(now)
 
         charge_multiplier = Decimal(max(1, locked.next_checkin_multiplier or 1))
 

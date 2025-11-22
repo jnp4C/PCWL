@@ -9083,6 +9083,8 @@ function renderFriendCard(friend) {
     name.style.color = markerColor;
   }
   header.appendChild(name);
+  const streakBadge = createFriendStreakBadge(friend);
+  header.appendChild(streakBadge);
   const displayName =
     typeof friend.display_name === 'string' && friend.display_name.trim() ? friend.display_name.trim() : '';
   if (displayName) {
@@ -9181,6 +9183,29 @@ function describeFriendHomeRelation(homeMeta) {
     return 'Different from your home.';
   }
   return 'Set via profile.';
+}
+
+function getFriendStreakMeta(friend) {
+  const days = Math.max(
+    0,
+    Math.round(normaliseNumber(friend?.streak_days, normaliseNumber(friend?.streakDays, 0))),
+  );
+  const computedFallback = 1 + Math.min(days, 30) / 30;
+  const multiplier = Math.max(
+    1,
+    normaliseNumber(friend?.streak_multiplier, normaliseNumber(friend?.streakMultiplier, computedFallback)),
+  );
+  return { days, multiplier };
+}
+
+function createFriendStreakBadge(friend) {
+  const streak = getFriendStreakMeta(friend);
+  const badge = document.createElement('span');
+  badge.className = 'friend-streak-badge';
+  badge.textContent = `${streak.days}d`;
+  badge.title = `Streak multiplier x${streak.multiplier.toFixed(2)}`;
+  badge.setAttribute('aria-label', `Streak ${streak.days} days`);
+  return badge;
 }
 
 function createFriendDetailElement({ label, value, meta = '', status = '' }) {
@@ -9412,6 +9437,30 @@ function renderFriendProfileContent(friend) {
   }
 
   friendProfileBody.appendChild(header);
+
+  const streak = getFriendStreakMeta(friend);
+  const streakCard = document.createElement('div');
+  streakCard.className = 'friend-profile-streak character-card';
+  const streakLabelRow = document.createElement('div');
+  streakLabelRow.className = 'streak-label-row';
+  const streakChip = document.createElement('span');
+  streakChip.className = 'streak-chip';
+  streakChip.textContent = 'Streak';
+  const streakDays = document.createElement('span');
+  streakDays.className = 'streak-days';
+  streakDays.textContent = `${streak.days} ${streak.days === 1 ? 'day' : 'days'} alive`;
+  streakLabelRow.appendChild(streakChip);
+  streakLabelRow.appendChild(streakDays);
+  const streakValue = document.createElement('div');
+  streakValue.className = 'streak-value';
+  streakValue.textContent = `x${streak.multiplier.toFixed(2)}`;
+  const streakHint = document.createElement('p');
+  streakHint.className = 'streak-hint';
+  streakHint.textContent = 'Earned by daily attack + defend check-ins (Prague time).';
+  streakCard.appendChild(streakLabelRow);
+  streakCard.appendChild(streakValue);
+  streakCard.appendChild(streakHint);
+  friendProfileBody.appendChild(streakCard);
 
   const profileActions = document.createElement('div');
   profileActions.className = 'friend-profile-actions';

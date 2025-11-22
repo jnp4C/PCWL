@@ -318,6 +318,7 @@ def _build_party_payload(party: Party, player: Player) -> Optional[Dict[str, Any
     )
     attack_points = int(attack_agg.get("total") or 0)
     contribution_points = int(contribution_agg.get("total") or 0)
+    total_score = attack_points + contribution_points
     attack_checkins = attack_agg.get("count", 0)
     contribution_checkins = contribution_agg.get("count", 0)
 
@@ -344,6 +345,7 @@ def _build_party_payload(party: Party, player: Player) -> Optional[Dict[str, Any
         "player_contribution_multiplier": player_contribution_multiplier,
         "attack_points": attack_points,
         "contribution_points": contribution_points,
+        "score": total_score,
         "attack_checkins": attack_checkins,
         "contribution_checkins": contribution_checkins,
         "focus": focus,

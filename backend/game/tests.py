@@ -18,12 +18,13 @@ from .models import (
     PlayerPartyBond,
 )
 from .services import (
+    POINTS_PER_CHECKIN,
+    _normalise_district_code,
+    _streak_today,
     apply_checkin,
     create_party,
     invite_player_to_party,
     leave_party,
-    POINTS_PER_CHECKIN,
-    _normalise_district_code,
     respond_to_party_invitation,
 )
 
@@ -633,7 +634,7 @@ class StreakMechanicTests(TestCase):
         )
 
     def test_streak_bonus_applies_to_points(self):
-        today = timezone.localdate()
+        today = _streak_today()
         self.player.streak_days = 5
         self.player.streak_last_day = today
         self.player.streak_progress_date = today
@@ -663,7 +664,7 @@ class StreakMechanicTests(TestCase):
         self.assertEqual(checkin.points_awarded, expected_points)
 
     def test_streak_resets_after_missed_day(self):
-        today = timezone.localdate()
+        today = _streak_today()
         two_days_ago = today - timedelta(days=2)
         self.player.streak_days = 4
         self.player.streak_last_day = two_days_ago

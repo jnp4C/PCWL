@@ -6,7 +6,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from .models import CheckIn, District, FriendLink, FriendRequest, Player
-from .services import _normalise_district_code, _streak_effective_days, _streak_multiplier
+from .services import _normalise_district_code, _refresh_streak_state, _streak_effective_days, _streak_multiplier
 
 
 DEFAULT_MAP_MARKER_COLOR = "#6366f1"
@@ -125,6 +125,10 @@ class PlayerSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         # Ensure home district fields are populated in responses even if legacy data was incomplete.
         self._ensure_home_district(instance)
+        try:
+            _refresh_streak_state(instance, save=True)
+        except Exception:
+            pass
         return super().to_representation(instance)
 
     def _ensure_home_district(self, instance: Player) -> None:
@@ -344,6 +348,8 @@ class FriendLinkSerializer(serializers.ModelSerializer):
     defend_ratio = serializers.DecimalField(
         source="friend.defend_ratio", max_digits=5, decimal_places=2, read_only=True
     )
+    streak_days = serializers.IntegerField(source="friend.streak_days", read_only=True)
+    streak_multiplier = serializers.FloatField(source="friend.streak_multiplier", read_only=True)
     checkins = serializers.IntegerField(source="friend.checkins", read_only=True)
     checkin_counts = serializers.SerializerMethodField()
     recent_checkins = serializers.SerializerMethodField()
@@ -371,6 +377,8 @@ class FriendLinkSerializer(serializers.ModelSerializer):
             "last_known_location",
             "map_marker_color",
             "active_party",
+            "streak_days",
+            "streak_multiplier",
             "is_favorite",
             "created_at",
             "updated_at",
@@ -393,6 +401,8 @@ class FriendLinkSerializer(serializers.ModelSerializer):
             "last_known_location",
             "map_marker_color",
             "active_party",
+            "streak_days",
+            "streak_multiplier",
             "created_at",
             "updated_at",
         ]

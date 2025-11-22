@@ -1274,6 +1274,21 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   flex-wrap: wrap;
 }
 
+.friend-streak-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-panel-bg) 80%, rgba(99, 102, 241, 0.2));
+  color: var(--color-text-strong);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.35);
+}
+
 .friend-detail-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -1393,6 +1408,22 @@ body.dark .friend-marker-swatch {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+}
+
+.friend-profile-streak {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0.9rem 1rem;
+  border-radius: 14px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-panel-bg) 90%, rgba(99, 102, 241, 0.16)),
+    color-mix(in srgb, var(--color-panel-bg) 96%, rgba(76, 29, 149, 0.12))
+  );
+  box-shadow:
+    inset 0 0 0 1px rgba(99, 102, 241, 0.22),
+    0 10px 30px rgba(19, 9, 48, 0.12);
 }
 
 .friend-profile-header {
