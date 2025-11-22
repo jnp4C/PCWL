@@ -19,6 +19,7 @@ from .services import (
     create_party,
     invite_player_to_party,
     leave_party,
+    _normalise_district_code,
     respond_to_party_invitation,
 )
 
@@ -510,6 +511,12 @@ class PartyApiTests(TestCase):
         invite = invite_player_to_party(self.host, self.friend)
         respond_to_party_invitation(invite, self.friend, accept=True)
 
+        now_ms = int(timezone.now().timestamp() * 1000)
+        self.host.last_known_location = {"districtId": "1300", "districtName": "Prague 3", "timestamp": now_ms}
+        self.friend.last_known_location = {"districtId": "1300", "districtName": "Prague 3", "timestamp": now_ms}
+        self.host.save(update_fields=["last_known_location"])
+        self.friend.save(update_fields=["last_known_location"])
+
         result = apply_checkin(
             self.host,
             district_code="1300",
@@ -533,6 +540,13 @@ class PartyApiTests(TestCase):
         invite = invite_player_to_party(self.host, self.friend)
         respond_to_party_invitation(invite, self.friend, accept=True)
 
+        now_ms = int(timezone.now().timestamp() * 1000)
+        loc_payload = {"districtId": "1400", "districtName": "Prague 4", "timestamp": now_ms}
+        self.host.last_known_location = loc_payload
+        self.friend.last_known_location = loc_payload
+        self.host.save(update_fields=["last_known_location"])
+        self.friend.save(update_fields=["last_known_location"])
+
         result = apply_checkin(
             self.host,
             district_code="1400",
@@ -544,8 +558,9 @@ class PartyApiTests(TestCase):
         self.assertTrue(checkin.is_party_contribution)
         self.assertEqual(checkin.party_size_snapshot, 2)
         self.assertEqual(checkin.district_points_delta, 50)
-        self.assertEqual(checkin.points_awarded, 50)
-        stat = DistrictContributionStat.objects.get(district_code="1400", supporter=self.host)
+        self.assertEqual(checkin.points_awarded, 250)
+        code = _normalise_district_code("1400")
+        stat = DistrictContributionStat.objects.get(district_code=code, supporter=self.host)
         self.assertEqual(stat.contribution_points, 50)
         bond = PlayerPartyBond.objects.get(player=self.host, partner=self.friend)
         self.assertEqual(bond.shared_checkins, 1)

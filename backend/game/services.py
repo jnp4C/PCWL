@@ -972,31 +972,41 @@ def apply_checkin(
         player_points_decimal = base_points_decimal * total_player_multiplier
         district_points_decimal = base_points_decimal * total_district_multiplier
 
-        district_points_delta = int(district_points_decimal.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        total_player_points = int(player_points_decimal.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        total_district_delta = int(district_points_decimal.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
         if action == CheckIn.Action.ATTACK:
-            district_points_delta = -abs(district_points_delta)
+            total_district_delta = -abs(total_district_delta)
         else:
-            district_points_delta = abs(district_points_delta)
+            total_district_delta = abs(total_district_delta)
 
-        total_district_delta = district_points_delta
+        total_player_abs = abs(total_player_points)
         total_damage_abs = abs(total_district_delta)
         participant_count = 1
-        share_points: List[int] = [total_damage_abs]
+
+        player_share_points: List[int] = [total_player_abs]
+        district_share_points: List[int] = [total_damage_abs]
         if party and initiator_in_active and party_size > 1:
             participant_count = party_size
-            base_share, remainder = divmod(total_damage_abs, participant_count)
-            share_points = [base_share] * participant_count
-            for index in range(remainder):
-                share_points[index] += 1
-        else:
-            share_points = [total_damage_abs]
-        signed_share_points = (
-            [-value for value in share_points] if total_district_delta < 0 else list(share_points)
+
+            base_player_share, player_remainder = divmod(total_player_abs, participant_count)
+            player_share_points = [base_player_share] * participant_count
+            for index in range(player_remainder):
+                player_share_points[index] += 1
+
+            base_district_share, district_remainder = divmod(total_damage_abs, participant_count)
+            district_share_points = [base_district_share] * participant_count
+            for index in range(district_remainder):
+                district_share_points[index] += 1
+
+        signed_district_shares = (
+            [-value for value in district_share_points] if total_district_delta < 0 else list(district_share_points)
         )
 
-        points_awarded = share_points[0] if share_points else total_damage_abs
-        district_points_delta = signed_share_points[0] if signed_share_points else total_district_delta
-        if points_awarded <= 0 and total_damage_abs > 0:
+        points_awarded = player_share_points[0] if player_share_points else total_player_abs
+        district_points_delta = signed_district_shares[0] if signed_district_shares else total_district_delta
+        if points_awarded <= 0 and total_player_abs > 0:
+            points_awarded = 1
+        elif points_awarded <= 0 and total_damage_abs > 0:
             points_awarded = 1
 
         if base_points_decimal > 0:
@@ -1191,15 +1201,23 @@ def apply_checkin(
                 party_code_for_others = party_value
                 home_code_snapshot = home_snapshot_code
                 home_name_snapshot = home_snapshot_name
-                participant_shares = share_points[1:]
-                participant_signed_shares = signed_share_points[1:]
+                participant_player_shares = player_share_points[1:]
+                participant_signed_shares = signed_district_shares[1:]
 
                 for member_index, member in enumerate(same_district_members):
                     # Lock each member row for update to avoid races
                     m_locked = Player.objects.select_for_update().get(pk=member.pk)
                     m_now_ms = now_ms
-                    share_value = participant_shares[member_index] if member_index < len(participant_shares) else 0
-                    share_signed = participant_signed_shares[member_index] if member_index < len(participant_signed_shares) else 0
+                    share_value = (
+                        participant_player_shares[member_index]
+                        if member_index < len(participant_player_shares)
+                        else 0
+                    )
+                    share_signed = (
+                        participant_signed_shares[member_index]
+                        if member_index < len(participant_signed_shares)
+                        else 0
+                    )
                     if share_value <= 0:
                         share_value = 0
                     if others_base_points > 0:
