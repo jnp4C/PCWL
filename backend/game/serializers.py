@@ -48,12 +48,13 @@ class PlayerSerializer(serializers.ModelSerializer):
             "defend_points",
             "is_active",
             "checkin_history",
-             "cooldowns",
+            "cooldowns",
             "cooldown_details",
             "created_at",
             "updated_at",
             "password",
             "next_checkin_multiplier",
+            "preferred_party_name",
         ]
         extra_kwargs = {
             "last_known_location": {"required": False, "allow_null": True},
@@ -73,6 +74,7 @@ class PlayerSerializer(serializers.ModelSerializer):
             "attack_ratio": {"read_only": True},
             "defend_ratio": {"read_only": True},
             "next_checkin_multiplier": {"read_only": True},
+            "preferred_party_name": {"read_only": True},
         }
 
     def create(self, validated_data):

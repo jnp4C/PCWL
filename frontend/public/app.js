@@ -1798,6 +1798,9 @@ function ensurePlayerProfile(username) {
   ensureProfileCooldownState(profile);
   profile.nextCheckinMultiplier = Math.max(1, normaliseNumber(profile.nextCheckinMultiplier, 1));
   profile.skipCooldown = Boolean(profile.skipCooldown);
+  if (typeof profile.preferredPartyName !== 'string') {
+    profile.preferredPartyName = '';
+  }
   const rememberOnDevice = Boolean(profile.auth && profile.auth.rememberOnDevice);
   if (profile.auth && typeof profile.auth === 'object') {
     const passwordHash = typeof profile.auth.passwordHash === 'string' ? profile.auth.passwordHash : null;
@@ -1988,6 +1991,11 @@ function applyServerPlayerData(profile, apiPlayer) {
     profile.mapMarkerColor = normaliseMarkerColor(apiPlayer.map_marker_color);
   } else {
     profile.mapMarkerColor = normaliseMarkerColor(profile.mapMarkerColor);
+  }
+  if (typeof apiPlayer.preferred_party_name === 'string') {
+    profile.preferredPartyName = apiPlayer.preferred_party_name.trim();
+  } else if (typeof profile.preferredPartyName !== 'string') {
+    profile.preferredPartyName = '';
   }
 
   profile.points = Math.max(0, normaliseNumber(apiPlayer.score, profile.points || 0));
@@ -3622,6 +3630,20 @@ function persistPartyDraftName(value) {
       window.localStorage.removeItem(PARTY_NAME_DRAFT_STORAGE_KEY);
     }
   } catch (_) {}
+}
+
+function getPreferredPartyName(profile) {
+  if (!profile || typeof profile !== 'object') {
+    return '';
+  }
+  return typeof profile.preferredPartyName === 'string' ? profile.preferredPartyName.trim() : '';
+}
+
+function setProfilePreferredPartyName(profile, value) {
+  if (!profile || typeof profile !== 'object') {
+    return;
+  }
+  profile.preferredPartyName = typeof value === 'string' ? value.trim() : '';
 }
 
 const activePartyInviteNotices = new Map();
@@ -5827,6 +5849,7 @@ function completeLogoutTransition() {
     outgoing: [],
   };
   resetPartyState();
+  persistPartyDraftName('');
   stopPartyPolling();
   clearFriendLocationMarkers();
   updateFriendLocationsLayer();
@@ -8102,8 +8125,9 @@ function refreshPartyNameControls(activeParty, profile) {
   const partyName = activeParty && activeParty.name ? activeParty.name : '';
   const isLeader = Boolean(activeParty && activeParty.isLeader);
   const inputFocused = document.activeElement === friendsPartyNameInput;
+  const preferredName = getPreferredPartyName(profile);
 
-  if (!profile) {
+  if (!profile || !currentUser || !isSessionAuthenticated) {
     friendsPartyNameRow.classList.add('hidden');
     friendsPartyNameInput.disabled = true;
     friendsPartyNameInput.value = '';
@@ -8116,6 +8140,7 @@ function refreshPartyNameControls(activeParty, profile) {
 
   if (activeParty) {
     friendsPartyNameInput.dataset.currentName = partyName;
+    friendsPartyNameInput.dataset.mode = 'party';
     if (!isLeader) {
       friendsPartyNameRow.classList.add('hidden');
       friendsPartyNameInput.disabled = true;
@@ -8153,17 +8178,32 @@ function refreshPartyNameControls(activeParty, profile) {
     return;
   }
 
-  // No active party: allow drafting a name for the next party but hide the save button.
   friendsPartyNameRow.classList.remove('hidden');
   friendsPartyNameInput.disabled = false;
-  friendsPartyNameInput.dataset.currentName = '';
-  friendsPartyNameSaveButton.classList.add('hidden');
-  friendsPartyNameSaveButton.disabled = true;
-  friendsPartyNameSaveButton.title = 'Start a party to save this name.';
+  friendsPartyNameInput.dataset.currentName = preferredName;
+  friendsPartyNameInput.dataset.mode = 'preference';
   const storedDraft = loadPartyDraftName();
-  if (!inputFocused) {
-    friendsPartyNameInput.value = storedDraft;
+  const prefill = storedDraft || preferredName;
+  if (!inputFocused || !friendsPartyNameInput.value.trim()) {
+    friendsPartyNameInput.value = prefill;
   }
+  const trimmed = friendsPartyNameInput.value.trim();
+  let title = 'Save preferred party name.';
+  let canSave = false;
+  if (!trimmed) {
+    title = 'Enter a party name to save.';
+  } else if (trimmed.length < PARTY_NAME_MIN_LENGTH) {
+    title = `Party name must be at least ${PARTY_NAME_MIN_LENGTH} characters.`;
+  } else if (trimmed.length > PARTY_NAME_MAX_LENGTH) {
+    title = `Party name must be at most ${PARTY_NAME_MAX_LENGTH} characters.`;
+  } else if (trimmed === preferredName) {
+    title = 'Party name already saved.';
+  } else {
+    canSave = true;
+  }
+  friendsPartyNameSaveButton.classList.remove('hidden');
+  friendsPartyNameSaveButton.disabled = !canSave;
+  friendsPartyNameSaveButton.title = title;
 }
 
 function renderPartyPanelChip(now = Date.now()) {
@@ -8747,27 +8787,31 @@ async function savePartyName() {
   if (!friendsPartyNameInput || !friendsPartyNameSaveButton) {
     return;
   }
+  if (!currentUser || !isSessionAuthenticated) {
+    updateStatus('Sign in to save your party name.');
+    return;
+  }
+  const profile = ensurePlayerProfile(currentUser);
   const activeParty = getActivePartyState();
-  if (!currentUser || !isSessionAuthenticated || !activeParty || !activeParty.isLeader) {
-    updateStatus('Only the party leader can name the party.');
+  const isLeader = Boolean(activeParty && activeParty.isLeader);
+  const shouldSyncActiveParty = Boolean(activeParty && isLeader);
+  if (activeParty && !isLeader) {
+    updateStatus('Only the party leader can rename the current party.');
     return;
   }
   const trimmed = friendsPartyNameInput.value.trim();
   if (!trimmed) {
     updateStatus('Enter a party name to save.');
-    const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
     refreshPartyNameControls(activeParty, profile);
     return;
   }
   if (trimmed.length < PARTY_NAME_MIN_LENGTH) {
     updateStatus(`Party name must be at least ${PARTY_NAME_MIN_LENGTH} characters.`);
-    const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
     refreshPartyNameControls(activeParty, profile);
     return;
   }
   if (trimmed.length > PARTY_NAME_MAX_LENGTH) {
     updateStatus(`Party name must be at most ${PARTY_NAME_MAX_LENGTH} characters.`);
-    const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
     refreshPartyNameControls(activeParty, profile);
     return;
   }
@@ -8776,12 +8820,23 @@ async function savePartyName() {
   button.disabled = true;
   button.textContent = 'Saving…';
   try {
-    await apiRequest('party/', {
-      method: 'PATCH',
-      body: { name: trimmed },
-    });
-    persistPartyDraftName(trimmed);
-    updateStatus(`Party name saved as ${trimmed}.`);
+    if (shouldSyncActiveParty) {
+      await apiRequest('party/', {
+        method: 'PATCH',
+        body: { name: trimmed },
+      });
+      setProfilePreferredPartyName(profile, trimmed);
+      persistPartyDraftName(trimmed);
+      updateStatus(`Party name saved as ${trimmed}.`);
+    } else {
+      await apiRequest('party/name-preference/', {
+        method: 'POST',
+        body: { name: trimmed },
+      });
+      setProfilePreferredPartyName(profile, trimmed);
+      persistPartyDraftName(trimmed);
+      updateStatus(`Party name saved for future parties as ${trimmed}.`);
+    }
   } catch (error) {
     const detail = error?.data?.detail || error?.message || 'Unable to save party name.';
     updateStatus(detail);
@@ -8789,8 +8844,9 @@ async function savePartyName() {
   } finally {
     button.textContent = originalLabel;
     button.disabled = false;
-    await refreshPartyState(false, { silent: true });
-    const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+    if (shouldSyncActiveParty) {
+      await refreshPartyState(false, { silent: true });
+    }
     refreshPartyNameControls(getActivePartyState(), profile);
   }
 }
@@ -12095,6 +12151,7 @@ function completeAuthenticatedLogin(username, profile, options = {}) {
   ensureProfileCooldownState(profile);
   currentUser = username;
   players[username] = profile;
+  persistPartyDraftName(getPreferredPartyName(profile));
   applyMarkerColorTheme(profile.mapMarkerColor || DEFAULT_MARKER_COLOR);
   friendsState = {
     loading: false,

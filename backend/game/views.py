@@ -54,6 +54,7 @@ from .services import (
     invite_player_to_party,
     leave_party,
     set_party_name,
+    save_party_name_preference,
     request_party_join,
     respond_to_party_join_request,
     PartyError,
@@ -815,6 +816,19 @@ class PartyView(PlayerScopedAPIView):
         player = self.get_current_player(request)
         leave_party(player)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PartyNamePreferenceView(PlayerScopedAPIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        player = self.get_current_player(request)
+        name = request.data.get("name") if hasattr(request, "data") else None
+        try:
+            preferred = save_party_name_preference(player, name)
+        except PartyError as exc:
+            raise ValidationError({"detail": str(exc)})
+        return Response({"preferred_name": preferred}, status=status.HTTP_200_OK)
 
 
 class PartyInviteView(PlayerScopedAPIView):

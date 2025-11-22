@@ -397,6 +397,22 @@ class PartyApiTests(TestCase):
         party = Party.objects.get(code=payload["code"])
         self.assertEqual(party.name, "Guardians")
 
+    def test_party_name_preference_applies_to_new_party(self):
+        self.client.force_login(self.host.user)
+        pref_response = self.client.post(
+            reverse("party-name-preference"),
+            {"name": "Dawn Patrol"},
+            content_type="application/json",
+        )
+        self.assertEqual(pref_response.status_code, 200)
+        self.host.refresh_from_db()
+        self.assertEqual(self.host.preferred_party_name, "Dawn Patrol")
+
+        create_response = self.client.post(reverse("party"))
+        self.assertEqual(create_response.status_code, 201)
+        payload = create_response.json()["party"]
+        self.assertEqual(payload["name"], "Dawn Patrol")
+
     def test_leader_can_set_party_name(self):
         self.client.force_login(self.host.user)
         self.client.post(reverse("party"))
@@ -410,6 +426,19 @@ class PartyApiTests(TestCase):
         self.assertEqual(payload["name"], "Night Watch")
         party = Party.objects.get(code=payload["code"])
         self.assertEqual(party.name, "Night Watch")
+        self.host.refresh_from_db()
+        self.assertEqual(self.host.preferred_party_name, "Night Watch")
+
+    def test_can_save_party_name_preference_without_active_party(self):
+        self.client.force_login(self.host.user)
+        response = self.client.post(
+            reverse("party-name-preference"),
+            {"name": "Night Owls"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.host.refresh_from_db()
+        self.assertEqual(self.host.preferred_party_name, "Night Owls")
 
     def test_party_name_requires_min_length(self):
         self.client.force_login(self.host.user)

@@ -95,6 +95,7 @@ class Player(models.Model):
         blank=True,
     )
     next_checkin_multiplier = models.PositiveIntegerField(default=1)
+    preferred_party_name = models.CharField(max_length=48, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

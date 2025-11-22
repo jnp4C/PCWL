@@ -127,6 +127,13 @@ def _normalise_party_name(value: Optional[str]) -> str:
     return text
 
 
+def _update_player_preferred_party_name(player: Player, name: str) -> None:
+    if player.preferred_party_name == name:
+        return
+    player.preferred_party_name = name
+    player.save(update_fields=["preferred_party_name", "updated_at"])
+
+
 def _get_or_create_district_record(code: Optional[str], name: Optional[str]) -> Optional[District]:
     """Ensure a District row exists for the given identifiers."""
     normalised_code = _normalise_district_code(code)
@@ -237,6 +244,8 @@ def create_party(
     normalised_name = ""
     if name is not None:
         normalised_name = _normalise_party_name(name)
+    elif leader.preferred_party_name:
+        normalised_name = leader.preferred_party_name
     with transaction.atomic():
         _ensure_no_active_party(leader)
         party = Party.objects.create(
@@ -422,7 +431,18 @@ def set_party_name(player: Player, name: Optional[str]) -> Party:
             return party
         party.name = normalised_name
         party.save(update_fields=["name", "updated_at"])
+        _update_player_preferred_party_name(player, normalised_name)
         return party
+
+
+def save_party_name_preference(player: Player, name: Optional[str]) -> str:
+    """Persist a preferred party name for future parties."""
+    normalised_name = _normalise_party_name(name)
+    if not normalised_name:
+        raise PartyError("Party name cannot be empty.")
+    with transaction.atomic():
+        _update_player_preferred_party_name(player, normalised_name)
+    return normalised_name
 
 
 def leave_party(player: Player) -> None:
