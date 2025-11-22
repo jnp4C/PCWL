@@ -1023,8 +1023,10 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   margin: 0 0 1rem;
   padding: 0.85rem 1rem;
   border-radius: 14px;
-  background: rgba(14, 165, 233, 0.08);
-  box-shadow: inset 0 0 0 1px var(--color-border-soft);
+  background: linear-gradient(135deg, rgba(255, 140, 66, 0.12), rgba(255, 184, 94, 0.08));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 178, 102, 0.35),
+    0 10px 26px rgba(255, 140, 66, 0.18);
 }
 
 .friend-party-heading {
@@ -1040,13 +1042,13 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
 .friend-party-heading-name {
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--color-text-muted);
+  color: #f97316;
 }
 
 .friend-party-heading-name::before {
   content: '•';
   margin-right: 0.35rem;
-  color: var(--color-text-muted);
+  color: #f97316;
 }
 
 .friend-party-status {

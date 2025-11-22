@@ -8,6 +8,7 @@ const districtsToggle = document.getElementById('districts-toggle');
 const parksToggle = document.getElementById('parks-toggle');
 const urbanToggle = document.getElementById('urban-toggle');
 const cyclingToggle = document.getElementById('cycling-toggle');
+const districtRankingToggle = document.getElementById('district-ranking-toggle');
 
 const mapContainer = document.getElementById('map');
 const loginForm = document.getElementById('login-form');
@@ -409,6 +410,37 @@ const FRIEND_LOCATIONS_SOURCE_ID = 'friend-locations';
 const FRIEND_LOCATIONS_LAYER_ID = 'friend-locations';
 const FRIEND_LOCATIONS_GLOW_LAYER_ID = 'friend-locations-glow';
 const DISTRICT_STRENGTH_CACHE_KEY = 'districtStrengthSnapshot';
+const DISTRICT_RANKING_OVERLAY_STORAGE_KEY = 'districtRankingOverlayAlwaysOn';
+const DISTRICT_OVERLAY_FADE_EXPRESSION = [
+  'interpolate',
+  ['linear'],
+  ['zoom'],
+  8,
+  0.8,
+  10,
+  0.85,
+  11,
+  0.6,
+  11.6,
+  0.25,
+  12,
+  0.05,
+  12.4,
+  0,
+];
+const DISTRICT_OVERLAY_FORCED_EXPRESSION = [
+  'interpolate',
+  ['linear'],
+  ['zoom'],
+  8,
+  0.75,
+  11,
+  0.7,
+  14,
+  0.55,
+  18,
+  0.55,
+];
 const FRIEND_DELTA_FORMATTER = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 0,
 });
@@ -426,6 +458,29 @@ function buildApiUrl(path) {
   const trimmed = path.startsWith('/') ? path.slice(1) : path;
   return `${API_BASE_URL}/${trimmed}`;
 }
+
+function loadDistrictRankingOverlayPreference() {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return false;
+  }
+  const stored = window.localStorage.getItem(DISTRICT_RANKING_OVERLAY_STORAGE_KEY);
+  if (stored === '1') {
+    return true;
+  }
+  if (stored === '0') {
+    return false;
+  }
+  return false;
+}
+
+function saveDistrictRankingOverlayPreference(enabled) {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+  window.localStorage.setItem(DISTRICT_RANKING_OVERLAY_STORAGE_KEY, enabled ? '1' : '0');
+}
+
+let districtOverlayAlwaysVisible = loadDistrictRankingOverlayPreference();
 
 function getCookie(name) {
   if (typeof document === 'undefined' || !name) {
@@ -6372,7 +6427,10 @@ function ensureDistrictFeatureStateSyncHooks() {
       }
     };
     map.on('sourcedata', scheduleIfDistrictSource);
-    map.on('styledata', ensureSourceReady);
+    map.on('styledata', () => {
+      ensureSourceReady();
+      applyDistrictOverlayOpacityExpression();
+    });
     map.on('moveend', ensureSourceReady);
     map.on('idle', ensureSourceReady);
     ensureSourceReady();
@@ -6473,6 +6531,21 @@ function updateDistrictFeatureStates() {
       appliedIds.delete(id);
     });
     districtStrengthState.appliedIds = appliedIds;
+  });
+}
+
+function applyDistrictOverlayOpacityExpression() {
+  ensureMap(() => {
+    if (!map || typeof map.setPaintProperty !== 'function' || typeof map.getLayer !== 'function') {
+      return;
+    }
+    if (!map.getLayer('districts-fill')) {
+      return;
+    }
+    const expression = districtOverlayAlwaysVisible
+      ? DISTRICT_OVERLAY_FORCED_EXPRESSION
+      : DISTRICT_OVERLAY_FADE_EXPRESSION;
+    map.setPaintProperty('districts-fill', 'fill-opacity', expression);
   });
 }
 
@@ -13349,23 +13422,7 @@ function addSourcesAndLayers() {
     },
     paint: {
       'fill-color': ['coalesce', ['feature-state', 'fillColor'], '#9f9be9'],
-      'fill-opacity': [
-        'interpolate',
-        ['linear'],
-        ['zoom'],
-        8,
-        0.8,
-        10,
-        0.85,
-        11,
-        0.6,
-        11.6,
-        0.25,
-        12,
-        0.05,
-        12.4,
-        0,
-      ],
+      'fill-opacity': DISTRICT_OVERLAY_FADE_EXPRESSION,
     },
   });
 
@@ -13424,12 +13481,14 @@ function addSourcesAndLayers() {
           ['linear'],
           ['zoom'],
           8,
-          0.95,
+          0.9,
           10,
           1,
+          11.5,
+          0.6,
           12,
-          0.55,
-          12.4,
+          0.25,
+          12.2,
           0,
         ],
       ],
@@ -13899,6 +13958,7 @@ function initialiseMap() {
       clearStoredHoverState();
     }
 
+    applyDistrictOverlayOpacityExpression();
     applyThemeToMap(activeTheme);
 
     while (pendingActions.length) {
@@ -14438,6 +14498,9 @@ if (districtsToggle) {
       if (map.getLayer('districts-outline')) {
         map.setLayoutProperty('districts-outline', 'visibility', visibility);
       }
+      if (map.getLayer('district-party-label')) {
+        map.setLayoutProperty('district-party-label', 'visibility', visibility);
+      }
       if (map.getLayer('district-hover-glow')) {
         map.setLayoutProperty('district-hover-glow', 'visibility', visibility);
         if (!visible) {
@@ -14497,6 +14560,16 @@ if (cyclingToggle) {
         map.setLayoutProperty('cycling-routes', 'visibility', visible ? 'visible' : 'none');
       }
     });
+  });
+}
+
+if (districtRankingToggle) {
+  districtRankingToggle.checked = districtOverlayAlwaysVisible;
+  districtRankingToggle.addEventListener('change', (event) => {
+    const alwaysVisible = Boolean(event.target.checked);
+    districtOverlayAlwaysVisible = alwaysVisible;
+    saveDistrictRankingOverlayPreference(alwaysVisible);
+    applyDistrictOverlayOpacityExpression();
   });
 }
 
