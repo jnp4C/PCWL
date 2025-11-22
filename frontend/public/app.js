@@ -3721,8 +3721,6 @@ let districtFeatureStateRefreshQueued = false;
 let districtSourceListenersBound = false;
 let districtFeatureIdSet = new Set();
 let districtFeatureNameMap = new Map();
-let districtFeatureIdSet = new Set();
-let districtFeatureNameMap = new Map();
 let musicAudio = null;
 let musicState = {
   muted: false,
