@@ -328,6 +328,41 @@ const DISTRICT_FILL_COLOR_LOW = '#f87171';
 const DISTRICT_FILL_COLOR_MID = '#facc15';
 const DISTRICT_FILL_COLOR_HIGH = '#22c55e';
 const DISTRICT_FILL_COLOR_WINNER = '#00f27a';
+function hslToHex(h, s, l) {
+  const hue = Math.max(0, Math.min(360, Number(h) || 0));
+  const sat = Math.max(0, Math.min(100, Number(s) || 0)) / 100;
+  const light = Math.max(0, Math.min(100, Number(l) || 0)) / 100;
+  const c = (1 - Math.abs(2 * light - 1)) * sat;
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = light - c / 2;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (hue >= 0 && hue < 60) {
+    r = c;
+    g = x;
+  } else if (hue >= 60 && hue < 120) {
+    r = x;
+    g = c;
+  } else if (hue >= 120 && hue < 180) {
+    g = c;
+    b = x;
+  } else if (hue >= 180 && hue < 240) {
+    g = x;
+    b = c;
+  } else if (hue >= 240 && hue < 300) {
+    r = x;
+    b = c;
+  } else {
+    r = c;
+    b = x;
+  }
+  const toHex = (channel) =>
+    Math.round((channel + m) * 255)
+      .toString(16)
+      .padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
 function hexToRgb(hex) {
   if (typeof hex !== 'string' || !hex.startsWith('#') || hex.length !== 7) {
     return { r: 0, g: 0, b: 0 };
@@ -356,6 +391,18 @@ function blendHexColors(fromHex, toHex, t) {
     .toString(16)
     .padStart(2, '0');
   return `#${r}${g}${b}`;
+}
+function derivePartyColorFromCode(code, fallback = DEFAULT_MARKER_COLOR) {
+  if (typeof code !== 'string' || !code.trim()) {
+    return fallback;
+  }
+  let hash = 0;
+  for (let index = 0; index < code.length; index += 1) {
+    hash = (hash << 5) - hash + code.charCodeAt(index);
+    hash |= 0; // keep 32-bit int
+  }
+  const hue = Math.abs(hash) % 360;
+  return hslToHex(hue, 78, 54);
 }
 const MARKER_COLOR_PATTERN = /^#(?:[0-9a-fA-F]{6})$/;
 const FRIEND_LOCATIONS_SOURCE_ID = 'friend-locations';
@@ -3771,6 +3818,7 @@ function loadDistrictStrengthCache() {
       const strength = Number(entry.strength);
       const defended = Number(entry.defended);
       const attacked = Number(entry.attacked);
+      const leadingParty = normaliseLeadingParty(entry.leading_party || entry.leadingParty);
       if (!id || !Number.isFinite(strength)) {
         return;
       }
@@ -3779,6 +3827,7 @@ function loadDistrictStrengthCache() {
         name: typeof entry.name === 'string' ? entry.name : '',
         defended: Number.isFinite(defended) ? defended : 0,
         attacked: Number.isFinite(attacked) ? attacked : 0,
+        leadingParty,
       });
       if (strength > maxStrength) {
         maxStrength = strength;
@@ -3815,6 +3864,7 @@ function saveDistrictStrengthCache() {
         name: typeof info.name === 'string' ? info.name : '',
         defended: Number(info.defended) || 0,
         attacked: Number(info.attacked) || 0,
+        leading_party: info.leadingParty || null,
       });
     });
     const payload = {
@@ -4432,6 +4482,7 @@ function showDistrictTooltip(feature, lngLat) {
   const attackedValue = strengthInfo ? Number(strengthInfo.attacked) : NaN;
   const attackedPoints =
     strengthInfo && Number.isFinite(attackedValue) ? Math.max(0, Math.round(attackedValue)) : null;
+  const leadingParty = strengthInfo && strengthInfo.leadingParty ? strengthInfo.leadingParty : null;
 
   const popup = ensureDistrictPopup();
   const content = document.createElement('div');
@@ -4476,6 +4527,26 @@ function showDistrictTooltip(feature, lngLat) {
       metrics.appendChild(attackedRow);
     }
     content.appendChild(metrics);
+  }
+  if (leadingParty) {
+    const partyRow = document.createElement('div');
+    partyRow.className = 'district-tooltip-metric district-tooltip-metric-party';
+    const label = document.createElement('span');
+    label.className = 'district-tooltip-metric-label';
+    label.textContent = 'Top party';
+    const value = document.createElement('strong');
+    value.className = 'district-tooltip-metric-value';
+    const partyName = leadingParty.name || (leadingParty.code ? `Party ${leadingParty.code}` : 'Party');
+    const contribution = Number.isFinite(Number(leadingParty.score))
+      ? Math.round(Number(leadingParty.score)).toLocaleString()
+      : null;
+    value.textContent = contribution ? `${partyName} (+${contribution} pts)` : partyName;
+    if (leadingParty.color && MARKER_COLOR_PATTERN.test(leadingParty.color)) {
+      value.style.color = leadingParty.color;
+    }
+    partyRow.appendChild(label);
+    partyRow.appendChild(value);
+    content.appendChild(partyRow);
   }
 
   popup.setDOMContent(content).setLngLat(lngLat).addTo(map);
@@ -6143,17 +6214,51 @@ function getDistrictStrengthInfo(districtId) {
   return districtStrengthState.byId.get(id) || null;
 }
 
-function calculateDistrictFillColor(strength, maxStrength, minStrength, isWinner) {
+function normaliseLeadingParty(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const code = typeof raw.code === 'string' ? raw.code.trim() : '';
+  const name = typeof raw.name === 'string' ? raw.name.trim() : '';
+  const leader = typeof raw.leader === 'string' ? raw.leader.trim() : '';
+  const memberCountRaw = raw.member_count ?? raw.memberCount;
+  const memberCount = Number.isFinite(Number(memberCountRaw)) ? Number(memberCountRaw) : 0;
+  const contributionRaw = raw.score ?? raw.contribution ?? raw.points ?? raw.activity;
+  const score = Number.isFinite(Number(contributionRaw)) ? Number(contributionRaw) : 0;
+  const checkinsRaw = raw.checkins ?? raw.count;
+  const checkins = Number.isFinite(Number(checkinsRaw)) ? Number(checkinsRaw) : 0;
+  const rawColor =
+    typeof raw.color === 'string' && MARKER_COLOR_PATTERN.test(raw.color.trim())
+      ? raw.color.trim().toLowerCase()
+      : '';
+  const color = rawColor || (code ? derivePartyColorFromCode(code, '') : '');
+  if (!code && !name && !leader && !score) {
+    return null;
+  }
+  return {
+    code,
+    name,
+    leader,
+    memberCount,
+    score,
+    checkins,
+    color: color || '',
+  };
+}
+
+function calculateDistrictFillColor(strength, maxStrength, minStrength, isWinner, partyColor) {
   if (isWinner && maxStrength > DISTRICT_BASE_SCORE) {
-    return DISTRICT_FILL_COLOR_WINNER;
+    const winnerBase = DISTRICT_FILL_COLOR_WINNER;
+    return partyColor ? blendHexColors(winnerBase, partyColor, 0.55) : winnerBase;
   }
   const normalizedStrength = Number.isFinite(strength) ? strength : DISTRICT_BASE_SCORE;
   const positiveMax = Number.isFinite(maxStrength) ? Math.max(DISTRICT_BASE_SCORE, maxStrength) : DISTRICT_BASE_SCORE;
   const negativeMin = Number.isFinite(minStrength) ? Math.min(DISTRICT_BASE_SCORE, minStrength) : DISTRICT_BASE_SCORE;
+  const partyTint = partyColor && MARKER_COLOR_PATTERN.test(partyColor) ? partyColor : null;
 
   if (normalizedStrength >= DISTRICT_BASE_SCORE) {
     if (positiveMax <= DISTRICT_BASE_SCORE) {
-      return DISTRICT_FILL_COLOR_MID;
+      return partyTint ? blendHexColors(DISTRICT_FILL_COLOR_MID, partyTint, 0.5) : DISTRICT_FILL_COLOR_MID;
     }
     const ratio = Math.min(
       1,
@@ -6161,14 +6266,15 @@ function calculateDistrictFillColor(strength, maxStrength, minStrength, isWinner
         Math.max(1, positiveMax - DISTRICT_BASE_SCORE),
     );
     if (ratio <= 0) {
-      return DISTRICT_FILL_COLOR_MID;
+      return partyTint ? blendHexColors(DISTRICT_FILL_COLOR_MID, partyTint, 0.5) : DISTRICT_FILL_COLOR_MID;
     }
-    return blendHexColors(DISTRICT_FILL_COLOR_MID, DISTRICT_FILL_COLOR_HIGH, ratio);
+    const baseHigh = blendHexColors(DISTRICT_FILL_COLOR_MID, DISTRICT_FILL_COLOR_HIGH, ratio);
+    return partyTint ? blendHexColors(baseHigh, partyTint, 0.45) : baseHigh;
   }
 
   if (normalizedStrength < DISTRICT_BASE_SCORE) {
     if (negativeMin >= DISTRICT_BASE_SCORE) {
-      return DISTRICT_FILL_COLOR_MID;
+      return partyTint ? blendHexColors(DISTRICT_FILL_COLOR_MID, partyTint, 0.5) : DISTRICT_FILL_COLOR_MID;
     }
     const ratio = Math.min(
       1,
@@ -6176,9 +6282,10 @@ function calculateDistrictFillColor(strength, maxStrength, minStrength, isWinner
         Math.max(1, DISTRICT_BASE_SCORE - negativeMin),
     );
     if (ratio <= 0) {
-      return DISTRICT_FILL_COLOR_MID;
+      return partyTint ? blendHexColors(DISTRICT_FILL_COLOR_MID, partyTint, 0.5) : DISTRICT_FILL_COLOR_MID;
     }
-    return blendHexColors(DISTRICT_FILL_COLOR_MID, DISTRICT_FILL_COLOR_LOW, ratio);
+    const baseLow = blendHexColors(DISTRICT_FILL_COLOR_MID, DISTRICT_FILL_COLOR_LOW, ratio);
+    return partyTint ? blendHexColors(baseLow, partyTint, 0.45) : baseLow;
   }
 
   return DISTRICT_FILL_COLOR_MID;
@@ -6300,11 +6407,19 @@ function updateDistrictFeatureStates() {
       seenIds.add(id);
       const strength = Number(info?.strength) || 0;
       const featureId = Number.isFinite(Number(id)) ? Number(id) : id;
+      const leadingParty = normaliseLeadingParty(info?.leadingParty);
+      const partyColor =
+        (leadingParty && leadingParty.color && MARKER_COLOR_PATTERN.test(leadingParty.color)
+          ? leadingParty.color
+          : leadingParty && leadingParty.code
+          ? derivePartyColorFromCode(leadingParty.code, '')
+          : null) || null;
       const fillColor = calculateDistrictFillColor(
         strength,
         maxStrength,
         districtStrengthState.minStrength,
         winnerIds.has(id),
+        partyColor,
       );
       try {
         map.setFeatureState(
@@ -6313,6 +6428,11 @@ function updateDistrictFeatureStates() {
             strength,
             fillColor,
             isWinner: winnerIds.has(id),
+            partyCode: leadingParty ? leadingParty.code : '',
+            partyName: leadingParty ? leadingParty.name : '',
+            partyScore: leadingParty ? Number(leadingParty.score) || 0 : 0,
+            partyColor: partyColor || '',
+            partyLeader: leadingParty ? leadingParty.leader || '' : '',
           },
         );
         appliedIds.add(id);
@@ -6342,6 +6462,11 @@ function updateDistrictFeatureStates() {
             strength: null,
             fillColor: null,
             isWinner: false,
+            partyCode: '',
+            partyName: '',
+            partyScore: 0,
+            partyColor: '',
+            partyLeader: '',
           },
         );
       } catch (_) {}
@@ -6371,11 +6496,13 @@ function applyDistrictStrengthEntries(entries) {
     const attackedValue = Number(entry.attacked);
     const defended = Number.isFinite(defendedValue) ? defendedValue : 0;
     const attacked = Number.isFinite(attackedValue) ? attackedValue : 0;
+    const leadingParty = normaliseLeadingParty(entry.leading_party || entry.leadingParty);
     map.set(id, {
       strength: strengthValue,
       name: typeof entry.name === 'string' ? entry.name : '',
       defended,
       attacked,
+      leadingParty,
     });
     if (strengthValue > maxStrength) {
       maxStrength = strengthValue;
@@ -13254,6 +13381,58 @@ function addSourcesAndLayers() {
       'line-color': '#514cb3',
       'line-width': 1.4,
       'line-opacity': 0.9,
+    },
+  });
+
+  map.addLayer({
+    id: 'district-party-label',
+    type: 'symbol',
+    source: 'prague-districts',
+    'source-layer': DISTRICT_SOURCE_LAYER,
+    layout: {
+      visibility: 'visible',
+      'symbol-placement': 'point',
+      'text-field': [
+        'concat',
+        'HELD by ',
+        [
+          'coalesce',
+          ['feature-state', 'partyName'],
+          ['feature-state', 'partyCode'],
+          '',
+        ],
+      ],
+      'text-size': 11,
+      'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+      'text-letter-spacing': 0.05,
+      'text-optional': true,
+    },
+    paint: {
+      'text-color': [
+        'coalesce',
+        ['feature-state', 'partyColor'],
+        '#0f172a',
+      ],
+      'text-halo-color': '#0b0b13',
+      'text-halo-width': 1.6,
+      'text-opacity': [
+        'case',
+        ['==', ['coalesce', ['feature-state', 'partyCode'], ''], ''],
+        0,
+        [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          8,
+          0.95,
+          10,
+          1,
+          12,
+          0.55,
+          12.4,
+          0,
+        ],
+      ],
     },
   });
 

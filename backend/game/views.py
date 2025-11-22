@@ -1726,6 +1726,80 @@ def _build_player_leaderboard(limit=100):
 
 
 def _build_district_leaderboard(limit: Optional[int] = None):
+    def _build_district_party_leaders(district_codes: Set[str]) -> Dict[str, Dict[str, Any]]:
+        """Return the leading party per district based on party contributions."""
+        if not district_codes:
+            return {}
+
+        rows = (
+            CheckIn.objects.filter(is_party_contribution=True, district_code__in=district_codes)
+            .values("district_code", "party_id", "party_code")
+            .annotate(
+                contribution=Coalesce(Sum("district_points_delta"), 0),
+                checkins=Count("id"),
+                last_activity=Max("occurred_at"),
+            )
+        )
+
+        best_by_district: Dict[str, Dict[str, Any]] = {}
+        party_ids: Set[int] = set()
+        for row in rows:
+            code = (row.get("district_code") or "").strip()
+            if not code:
+                continue
+            contribution = int(row.get("contribution") or 0)
+            if contribution <= 0:
+                continue
+            checkins = int(row.get("checkins") or 0)
+            previous = best_by_district.get(code)
+            if previous is None or contribution > previous["contribution"] or (
+                contribution == previous["contribution"] and checkins > previous.get("checkins", 0)
+            ):
+                best_by_district[code] = {
+                    "party_id": row.get("party_id"),
+                    "party_code": (row.get("party_code") or "").strip(),
+                    "contribution": contribution,
+                    "checkins": checkins,
+                }
+            if row.get("party_id"):
+                party_ids.add(row["party_id"])
+
+        if not best_by_district:
+            return {}
+
+        parties = {
+            party.id: party
+            for party in Party.objects.filter(id__in=party_ids).select_related("leader")
+        }
+        member_counts = {
+            row["party_id"]: row["total"]
+            for row in (
+                PartyMembership.objects.filter(party_id__in=party_ids, left_at__isnull=True)
+                .values("party_id")
+                .annotate(total=Count("id"))
+            )
+        }
+
+        enriched: Dict[str, Dict[str, Any]] = {}
+        for district_code, info in best_by_district.items():
+            party_id = info.get("party_id")
+            party = parties.get(party_id) if party_id else None
+            party_code = info.get("party_code") or (party.code if party else "")
+            party_name = party.name if party else ""
+            leader_name = party.leader.username if party and party.leader_id else ""
+            color = party.leader.map_marker_color if party and party.leader else ""
+            enriched[district_code] = {
+                "code": party_code,
+                "name": party_name or "",
+                "leader": leader_name,
+                "color": color or "",
+                "score": info.get("contribution", 0),
+                "checkins": info.get("checkins", 0),
+                "member_count": member_counts.get(party_id, 0),
+            }
+
+        return enriched
+
     now = timezone.now()
     recent_cutoff = now - timedelta(hours=24)
     recent_rows = CheckIn.objects.filter(district_code__isnull=False, occurred_at__gte=recent_cutoff).values(
@@ -1767,6 +1841,7 @@ def _build_district_leaderboard(limit: Optional[int] = None):
     district_map = {district.code: district for district in base_queryset if district.code}
     district_codes: Set[str] = set(district_map.keys())
     district_codes.update(recent_map.keys())
+    leading_parties = _build_district_party_leaders(district_codes)
 
     if not district_codes:
         return []
@@ -1847,6 +1922,7 @@ def _build_district_leaderboard(limit: Optional[int] = None):
             recent_attacked,
             DISTRICT_RECENT_THRESHOLD,
         )
+        top_party = leading_parties.get(district_code)
 
         districts.append(
             {
@@ -1865,6 +1941,7 @@ def _build_district_leaderboard(limit: Optional[int] = None):
                 "recent_status": recent_status,
                 "recent_defended": recent_defended,
                 "recent_attacked": recent_attacked,
+                "leading_party": top_party,
             }
         )
     districts_by_score = sorted(
