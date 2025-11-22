@@ -932,6 +932,49 @@ function isFileOrigin() {
   }
 }
 
+function unregisterLegacyServiceWorkers() {
+  if (typeof navigator !== 'undefined' && navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+    navigator.serviceWorker
+      .getRegistrations()
+      .then((registrations) => {
+        registrations.forEach((registration) => {
+          if (!registration) {
+            return;
+          }
+          const activeScript =
+            (registration.active && registration.active.scriptURL) ||
+            (registration.waiting && registration.waiting.scriptURL) ||
+            (registration.installing && registration.installing.scriptURL) ||
+            '';
+          const shouldUnregister =
+            !activeScript ||
+            activeScript.endsWith('/service-worker.js') ||
+            activeScript.includes('pcwl-sw');
+          if (shouldUnregister) {
+            registration.unregister().catch(() => null);
+          }
+        });
+      })
+      .catch(() => null);
+  }
+  if (typeof window !== 'undefined' && window.caches && typeof window.caches.keys === 'function') {
+    window.caches
+      .keys()
+      .then((cacheNames) => {
+        cacheNames.forEach((name) => {
+          if (name && name.startsWith('pcwl-sw')) {
+            window.caches.delete(name).catch(() => null);
+          }
+        });
+      })
+      .catch(() => null);
+  }
+}
+
+try {
+  unregisterLegacyServiceWorkers();
+} catch (_) {}
+
 function setGeolocationUiState(isAvailable) {
   if (findMeButton) {
     findMeButton.disabled = !isAvailable;
@@ -8924,22 +8967,36 @@ function renderFriendCard(friend) {
     header.appendChild(display);
   }
   const homeMeta = resolveFriendHomeMeta(friend);
-  if (homeMeta) {
-    const homeTag = document.createElement('span');
-    homeTag.className = `friend-home-tag ${homeMeta.statusClass}`;
-    homeTag.textContent = homeMeta.label;
-    if (homeMeta.statusClass === 'home') {
-      homeTag.title = 'Matches your home district.';
-    } else if (homeMeta.statusClass === 'enemy') {
-      homeTag.title = 'Different from your home district.';
-    } else {
-      homeTag.title = 'Home district not set.';
-    }
-    header.appendChild(homeTag);
-  }
   main.appendChild(header);
 
-  card.appendChild(main);
+  const detailGrid = document.createElement('div');
+  detailGrid.className = 'friend-detail-grid';
+
+  const homeDetail = createFriendDetailElement({
+    label: 'Home district',
+    value: homeMeta ? homeMeta.label : 'Not set',
+    meta: describeFriendHomeRelation(homeMeta),
+    status: homeMeta ? homeMeta.statusClass : 'neutral',
+  });
+  detailGrid.appendChild(homeDetail);
+
+  const lastCheckinSummary = getFriendLastCheckinSummary(friend);
+  const lastCheckinDetail = createFriendDetailElement({
+    label: 'Last check-in',
+    value: lastCheckinSummary ? lastCheckinSummary.value : 'No activity yet',
+    meta: lastCheckinSummary ? lastCheckinSummary.meta : 'No check-ins logged yet.',
+    status: lastCheckinSummary ? lastCheckinSummary.status : 'neutral',
+  });
+  detailGrid.appendChild(lastCheckinDetail);
+
+  main.appendChild(detailGrid);
+
+  const footer = document.createElement('div');
+  footer.className = 'friend-footer';
+  const locationMeta = document.createElement('div');
+  locationMeta.className = 'friend-location-meta';
+  locationMeta.textContent = getFriendLocationSummaryText(friend);
+  footer.appendChild(locationMeta);
 
   const actions = document.createElement('div');
   actions.className = 'friend-actions';
@@ -8973,8 +9030,11 @@ function renderFriendCard(friend) {
   }
 
   if (hasActions) {
-    card.appendChild(actions);
+    footer.appendChild(actions);
   }
+
+  main.appendChild(footer);
+  card.appendChild(main);
 
   const favoriteBadge = document.createElement('span');
   favoriteBadge.className = 'friend-favorite';
@@ -8983,6 +9043,127 @@ function renderFriendCard(friend) {
   card.appendChild(favoriteBadge);
 
   return card;
+}
+
+function describeFriendHomeRelation(homeMeta) {
+  if (!homeMeta) {
+    return 'No home set yet.';
+  }
+  if (homeMeta.statusClass === 'home') {
+    return 'Matches your home.';
+  }
+  if (homeMeta.statusClass === 'enemy') {
+    return 'Different from your home.';
+  }
+  return 'Set via profile.';
+}
+
+function createFriendDetailElement({ label, value, meta = '', status = '' }) {
+  const detail = document.createElement('div');
+  detail.className = 'friend-detail';
+  if (status) {
+    detail.dataset.status = status;
+  }
+  const labelEl = document.createElement('span');
+  labelEl.className = 'friend-detail-label';
+  labelEl.textContent = label || '';
+  detail.appendChild(labelEl);
+  const valueEl = document.createElement('span');
+  valueEl.className = 'friend-detail-value';
+  valueEl.textContent = value || '—';
+  detail.appendChild(valueEl);
+  if (meta) {
+    const metaEl = document.createElement('span');
+    metaEl.className = 'friend-detail-meta';
+    metaEl.textContent = meta;
+    detail.appendChild(metaEl);
+  }
+  return detail;
+}
+
+function getFriendLastCheckinSummary(friend) {
+  const history = getFriendRecentCheckins(friend);
+  if (!Array.isArray(history) || !history.length) {
+    return null;
+  }
+  const entry = history[0];
+  const district =
+    typeof entry.districtName === 'string' && entry.districtName.trim()
+      ? entry.districtName.trim()
+      : entry.districtId
+      ? `District ${entry.districtId}`
+      : 'Unknown district';
+  const timestamp = normaliseTimestampMs(entry.timestamp);
+  const when = timestamp ? formatTimeAgo(timestamp) : '';
+  const type = typeof entry.type === 'string' ? entry.type.toLowerCase() : '';
+  let actionLabel = 'Check-in';
+  if (type === 'attack') {
+    actionLabel = 'Attack';
+  } else if (type === 'defend') {
+    actionLabel = 'Defend';
+  }
+  const meta = when ? `${actionLabel} • ${when}` : actionLabel;
+  return {
+    value: district,
+    meta,
+    status: type || 'neutral',
+  };
+}
+
+function getFriendLocationSummaryText(friend) {
+  const lastKnown = friend.last_known_location;
+  if (
+    lastKnown &&
+    typeof lastKnown === 'object' &&
+    Number.isFinite(Number(lastKnown.lng)) &&
+    Number.isFinite(Number(lastKnown.lat))
+  ) {
+    const district =
+      typeof lastKnown.districtName === 'string' && lastKnown.districtName.trim()
+        ? lastKnown.districtName.trim()
+        : lastKnown.districtId
+        ? `District ${lastKnown.districtId}`
+        : '';
+    const timestamp = normaliseTimestampMs(lastKnown.timestamp || lastKnown.updatedAt);
+    const when = timestamp ? formatTimeAgo(timestamp) : '';
+    if (district && when) {
+      return `Last seen near ${district} (${when})`;
+    }
+    if (district) {
+      return `Last seen near ${district}`;
+    }
+    if (when) {
+      return `Last seen ${when}`;
+    }
+    return 'Last seen recently.';
+  }
+  const lastCheckin = getFriendLastCheckinSummary(friend);
+  if (lastCheckin) {
+    const suffix = lastCheckin.meta ? ` — ${lastCheckin.meta}` : '';
+    return `Last check-in • ${lastCheckin.value}${suffix}`;
+  }
+  return 'No recent location data.';
+}
+
+function normaliseTimestampMs(value) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    if (numeric > 1e12) {
+      return numeric;
+    }
+    if (numeric > 1e9) {
+      return numeric * 1000;
+    }
+    return numeric;
+  }
+  const parsed = Date.parse(value);
+  if (!Number.isNaN(parsed)) {
+    return parsed;
+  }
+  return null;
 }
 
 function resolveFriendMarkerColor(friend) {
