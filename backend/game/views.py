@@ -198,7 +198,17 @@ def _gather_party_previews(
         PartyMembership.objects.select_related("party", "party__leader")
         .filter(player_id__in=candidate_ids, is_leader=True, left_at__isnull=True)
     )
+    # Include the viewer's active party so members (even if not leaders) surface their shared party.
+    viewer_membership = (
+        PartyMembership.objects.select_related("party")
+        .filter(player=viewer, left_at__isnull=True)
+        .first()
+    )
+    viewer_party_id = viewer_membership.party_id if viewer_membership else None
+
     party_ids = {membership.party_id for membership in leader_memberships if membership.party_id}
+    if viewer_party_id:
+        party_ids.add(viewer_party_id)
     if not party_ids:
         return {}
 
@@ -267,13 +277,6 @@ def _gather_party_previews(
             status=PartyInvitation.Status.PENDING,
         )
     }
-    viewer_membership = (
-        PartyMembership.objects.select_related("party")
-        .filter(player=viewer, left_at__isnull=True)
-        .first()
-    )
-    viewer_party_id = viewer_membership.party_id if viewer_membership else None
-
     previews: Dict[int, Dict[str, Any]] = {}
     for membership in leader_memberships:
         party = membership.party
@@ -309,6 +312,32 @@ def _gather_party_previews(
             leader_location_name=leader_location_name,
             party_stats=party_stats.get(party.id),
         )
+    # Also attach the viewer's active party preview to any party members in the candidate list.
+    if viewer_membership and viewer_party_id and viewer_party_id in party_ids:
+        viewer_party = viewer_membership.party
+        if viewer_party and viewer_party.is_active():
+            same_party_memberships = PartyMembership.objects.select_related("player").filter(
+                party_id=viewer_party_id,
+                left_at__isnull=True,
+                player_id__in=candidate_ids,
+            )
+            for membership in same_party_memberships:
+                member = membership.player
+                if not member:
+                    continue
+                previews[member.id] = _build_party_preview_for_viewer(
+                    viewer_party,
+                    viewer_party.leader_id or viewer.id,
+                    viewer,
+                    member_count=member_counts.get(viewer_party_id, 1),
+                    viewer_party_id=viewer_party_id,
+                    pending_join_party_ids=pending_join_party_ids,
+                    pending_invite_party_ids=pending_invite_party_ids,
+                    is_requestable=membership.player_id in requestable_ids,
+                    member_usernames=member_usernames.get(viewer_party_id, []),
+                    leader_location_name="",
+                    party_stats=party_stats.get(viewer_party_id),
+                )
     return previews
 
 
