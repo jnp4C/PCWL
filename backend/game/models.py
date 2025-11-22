@@ -218,6 +218,13 @@ class CheckIn(models.Model):
     base_points = models.PositiveIntegerField(default=10)
     points_awarded = models.IntegerField()
     district_points_delta = models.IntegerField(default=0)
+    party = models.ForeignKey(
+        "Party",
+        on_delete=models.SET_NULL,
+        related_name="checkins",
+        null=True,
+        blank=True,
+    )
     party_size_snapshot = models.PositiveIntegerField(default=1)
     party_multiplier_snapshot = models.DecimalField(max_digits=8, decimal_places=2, default=1)
     home_district_code_snapshot = models.CharField(max_length=64, blank=True)
@@ -230,6 +237,12 @@ class CheckIn(models.Model):
 
     class Meta:
         ordering = ["-occurred_at"]
+        indexes = [
+            models.Index(fields=["party_code"], name="checkin_party_code_idx"),
+            models.Index(fields=["party"], name="checkin_party_idx"),
+            models.Index(fields=["player", "occurred_at"], name="checkin_player_time_idx"),
+            models.Index(fields=["district_code"], name="checkin_district_idx"),
+        ]
 
     def __str__(self):
         return f"{self.player.username} {self.action} {self.district_code or '?'} ({self.points_awarded} pts)"
@@ -314,11 +327,16 @@ class Party(models.Model):
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.ACTIVE)
     expires_at = models.DateTimeField()
     ended_at = models.DateTimeField(null=True, blank=True)
+    last_active_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["leader"], name="party_leader_idx"),
+            models.Index(fields=["status"], name="party_status_idx"),
+        ]
 
     def save(self, *args, **kwargs):
         if not self.code:
@@ -376,6 +394,10 @@ class PartyMembership(models.Model):
                 name="unique_active_party_membership",
             )
         ]
+        indexes = [
+            models.Index(fields=["party", "left_at"], name="party_membership_party_left_idx"),
+            models.Index(fields=["player"], name="party_membership_player_idx"),
+        ]
 
     def __str__(self):
         return f"{self.player.username} in {self.party.code}"
@@ -418,6 +440,10 @@ class PartyInvitation(models.Model):
                 name="unique_pending_party_invite",
             )
         ]
+        indexes = [
+            models.Index(fields=["party", "status"], name="party_invite_status_idx"),
+            models.Index(fields=["to_player"], name="party_invite_target_idx"),
+        ]
 
     def __str__(self):
         return f"Invite {self.party.code} -> {self.to_player.username} ({self.status})"
@@ -454,6 +480,10 @@ class PartyJoinRequest(models.Model):
                 condition=models.Q(status="pending"),
                 name="unique_active_party_join_request",
             )
+        ]
+        indexes = [
+            models.Index(fields=["party", "status"], name="party_join_status_idx"),
+            models.Index(fields=["from_player"], name="party_join_from_idx"),
         ]
 
     def __str__(self):

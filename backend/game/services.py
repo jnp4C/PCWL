@@ -1174,6 +1174,7 @@ def apply_checkin(
             party_multiplier_snapshot=party_multiplier_snapshot,
             home_district_code_snapshot=home_snapshot_code,
             home_district_name_snapshot=home_snapshot_name,
+            party=party,
             party_code=party_value,
             is_party_contribution=is_party_contribution,
             metadata=payload_meta,
@@ -1295,6 +1296,9 @@ def apply_checkin(
         if home_ref_changed:
             player_update_fields.append("home_district_ref")
         locked.save(update_fields=player_update_fields)
+        if party:
+            party.last_active_at = now
+            party.save(update_fields=["last_active_at", "updated_at"])
 
         # Party synchronized check-ins: propagate only within the party's active district (majority)
         if party and initiator_in_active and active_count >= 2 and party_size > 1:
@@ -1368,6 +1372,7 @@ def apply_checkin(
                         party_multiplier_snapshot=party_mult_player_dec.quantize(Decimal("0.01")),
                         home_district_code_snapshot=home_code_snapshot,
                         home_district_name_snapshot=home_name_snapshot,
+                        party=party,
                         party_code=party_code_for_others,
                         is_party_contribution=others_is_contribution,
                         metadata={

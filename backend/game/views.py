@@ -207,12 +207,11 @@ def _gather_party_previews(
         if membership.party and membership.party.code:
             party_codes[membership.party_id] = membership.party.code
 
-    code_to_party_id = {code: pid for pid, code in party_codes.items()}
     party_stats: Dict[int, Dict[str, int]] = {}
-    if party_codes:
+    if party_ids:
         aggregates = (
-            CheckIn.objects.filter(party_code__in=party_codes.values())
-            .values("party_code")
+            CheckIn.objects.filter(Q(party_id__in=party_ids) | Q(party_code__in=party_codes.values()))
+            .values("party_id", "party_code")
             .annotate(
                 attack_points=Coalesce(Sum(-F("district_points_delta"), filter=Q(action=CheckIn.Action.ATTACK)), 0),
                 contribution_points=Coalesce(Sum("district_points_delta", filter=Q(is_party_contribution=True)), 0),
@@ -222,8 +221,10 @@ def _gather_party_previews(
             )
         )
         for row in aggregates:
-            code = row.get("party_code")
-            party_id = code_to_party_id.get(code or "")
+            party_id = row.get("party_id") or None
+            code = row.get("party_code") or ""
+            if not party_id and code:
+                party_id = next((pid for pid, pcode in party_codes.items() if pcode == code), None)
             if not party_id:
                 continue
             party_stats[party_id] = {
@@ -360,7 +361,7 @@ def _build_party_payload(party: Party, player: Player) -> Optional[Dict[str, Any
     if party.expires_at:
         seconds_remaining = max(0, int((party.expires_at - now).total_seconds()))
 
-    party_checkins = CheckIn.objects.filter(party_code=party.code)
+    party_checkins = CheckIn.objects.filter(Q(party=party) | Q(party_code=party.code))
     attack_agg = party_checkins.filter(action=CheckIn.Action.ATTACK).aggregate(
         total=Coalesce(Sum(-F("district_points_delta")), 0),
         count=Count("id"),
