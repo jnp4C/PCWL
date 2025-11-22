@@ -13222,7 +13222,23 @@ function addSourcesAndLayers() {
     },
     paint: {
       'fill-color': ['coalesce', ['feature-state', 'fillColor'], '#9f9be9'],
-      'fill-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.48, 12, 0.6, 13.5, 0.2, 14.5, 0],
+      'fill-opacity': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        8,
+        0.8,
+        10,
+        0.85,
+        11,
+        0.6,
+        11.6,
+        0.25,
+        12,
+        0.05,
+        12.4,
+        0,
+      ],
     },
   });
 
@@ -13586,7 +13602,7 @@ function addSourcesAndLayers() {
     type: 'line',
     source: 'prague-streets',
     paint: {
-      'line-color': '#8087cc',
+      'line-color': '#000000',
       'line-width': 0.6,
       'line-opacity': 0.35,
     },
