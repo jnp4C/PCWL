@@ -7363,6 +7363,11 @@ function createFriendLocationFeature(friend) {
   if (typeof friend.display_name === 'string' && friend.display_name.trim()) {
     feature.properties.displayName = friend.display_name.trim();
   }
+  if (friend.activeParty) {
+    feature.properties.activePartyCode = friend.activeParty.code || '';
+    feature.properties.activePartyName = friend.activeParty.name || '';
+    feature.properties.activePartyScore = Number(friend.activeParty.score) || 0;
+  }
   const recentCheckins = getFriendRecentCheckins(friend);
   if (recentCheckins.length) {
     const latest = recentCheckins[0];
@@ -7437,14 +7442,36 @@ function rebuildFriendLocationMarkers() {
     const username = feature.properties && typeof feature.properties.username === 'string' ? feature.properties.username : '';
     const label = username ? `@${username}` : 'Friend';
     const markerColor = feature.properties && feature.properties.markerColor ? normaliseMarkerColor(feature.properties.markerColor) : DEFAULT_MARKER_COLOR;
+    const partyCode = feature.properties && typeof feature.properties.activePartyCode === 'string' ? feature.properties.activePartyCode : '';
+    const partyName = feature.properties && typeof feature.properties.activePartyName === 'string' ? feature.properties.activePartyName : '';
 
     const el = document.createElement('div');
     el.className = 'friend-location-label';
     el.style.setProperty('--friend-label-color', markerColor);
-    const nameSpan = document.createElement('span');
-    nameSpan.className = 'friend-label-name';
-    nameSpan.textContent = label;
-    el.appendChild(nameSpan);
+    if (partyCode) {
+      el.classList.add('friend-location-party');
+      const badge = document.createElement('div');
+      badge.className = 'friend-party-chip';
+      badge.style.background = markerColor;
+      badge.style.boxShadow = `0 0 14px ${markerColor}55`;
+      const title = document.createElement('div');
+      title.className = 'friend-party-chip-title';
+      title.textContent = partyName || 'Party';
+      badge.appendChild(title);
+      const avatar = document.createElement('div');
+      avatar.className = 'friend-party-chip-avatar';
+      avatar.style.background = '#0f0f1a';
+      avatar.style.color = markerColor;
+      const initial = username ? username.charAt(0).toUpperCase() : 'P';
+      avatar.textContent = initial;
+      badge.appendChild(avatar);
+      el.appendChild(badge);
+    } else {
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'friend-label-name';
+      nameSpan.textContent = label;
+      el.appendChild(nameSpan);
+    }
 
     const deltaRaw =
       feature.properties && feature.properties.lastActionDelta !== undefined
