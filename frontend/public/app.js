@@ -6993,6 +6993,9 @@ function applyUrbanOverlayVisibility(forceToggleValue = null) {
 function buildPartyPrestigeCardElement({ partyCode, partyName, prestigePoints, statusLabel, detailParts }) {
   const prestigeCard = document.createElement('div');
   prestigeCard.className = 'character-card friend-profile-party';
+  if (partyCode) {
+    prestigeCard.dataset.partyCode = partyCode;
+  }
 
   const labelRow = document.createElement('div');
   labelRow.className = 'streak-label-row';
@@ -13416,6 +13419,24 @@ function updateStreakProgress(streakDays = 0, streakMultiplier = 1, elements = n
   }
 }
 
+function handlePartyCardActivate(event) {
+  const isKey = event.type === 'keydown';
+  if (isKey && event.key !== 'Enter' && event.key !== ' ') {
+    return;
+  }
+  const target = event.target instanceof HTMLElement ? event.target : null;
+  const card = target ? target.closest('[data-party-code]') : null;
+  if (!card) {
+    return;
+  }
+  const code = card.dataset.partyCode;
+  if (!code) {
+    return;
+  }
+  event.preventDefault();
+  openPartyProfileDrawer(code, card);
+}
+
 function renderCharacterPartyPrestige(profile = null) {
   if (!characterPartyGrid) {
     return;
@@ -16217,6 +16238,11 @@ if (characterStreakCard) {
     const showBack = !characterStreakCard.classList.contains('is-flipped');
     setStreakCardFace(characterStreakCard, showBack ? 'back' : 'front');
   });
+}
+
+if (characterPartyGrid) {
+  characterPartyGrid.addEventListener('click', handlePartyCardActivate);
+  characterPartyGrid.addEventListener('keydown', handlePartyCardActivate);
 }
 
 if (friendsInviteButton) {
