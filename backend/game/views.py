@@ -155,12 +155,18 @@ def _build_party_profile_payload(party: Party) -> Dict[str, Any]:
         .filter(party=party)
         .order_by("-prestige_points", "-last_activity_at")
     )
+    total_prestige = 0
+    latest_activity = None
     for stat in stats:
+        pts = int(stat.prestige_points or 0)
+        total_prestige += pts
+        if stat.last_activity_at and (latest_activity is None or stat.last_activity_at > latest_activity):
+            latest_activity = stat.last_activity_at
         districts.append(
             {
                 "code": stat.district.code if stat.district_id else "",
                 "name": stat.district.name if stat.district_id else "",
-                "prestige_points": int(stat.prestige_points or 0),
+                "prestige_points": pts,
                 "last_active_at": stat.last_activity_at,
             }
         )
@@ -173,7 +179,8 @@ def _build_party_profile_payload(party: Party) -> Dict[str, Any]:
             "member_count": member_count,
             "status": party.status,
             "expires_at": party.expires_at,
-            "last_active_at": party.last_active_at,
+            "last_active_at": party.last_active_at or latest_activity,
+            "prestige_total": total_prestige,
         },
         "districts": districts,
         "top_players": top_players,
@@ -1262,9 +1269,19 @@ class PartyHighlightsView(APIView):
             return Response({"detail": "Player not found."}, status=status.HTTP_404_NOT_FOUND)
 
         leader_party_payload = None
+        leader_party_profile = None
         leader_party = get_active_party(player)
         if leader_party:
             leader_party_payload = _build_party_payload(leader_party, player)
+            leader_party_profile = _build_party_profile_payload(leader_party)
+        else:
+            latest_led_party = (
+                Party.objects.filter(leader=player)
+                .order_by("-last_active_at", "-created_at")
+                .first()
+            )
+            if latest_led_party:
+                leader_party_profile = _build_party_profile_payload(latest_led_party)
 
         top_other_map = _build_top_other_party_map({player.id})
         top_other = top_other_map.get(player.id) if top_other_map else None
@@ -1283,6 +1300,7 @@ class PartyHighlightsView(APIView):
         return Response(
             {
                 "leader_party": leader_party_payload,
+                "leader_party_profile": leader_party_profile,
                 "top_other_party": top_other,
                 "top_other_party_profile": top_other_profile,
             },
