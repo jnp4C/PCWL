@@ -10464,11 +10464,12 @@ function renderFriendProfileContent(friend) {
     prestigeCard.appendChild(prestigeValueEl);
     prestigeCard.appendChild(hint);
 
-    if (partyCode) {
-      prestigeCard.dataset.partyCode = partyCode;
+    const normalisedCode = normalisePartyCode(partyCode);
+    if (normalisedCode) {
+      prestigeCard.dataset.partyCode = normalisedCode;
       prestigeCard.tabIndex = 0;
       prestigeCard.setAttribute('role', 'button');
-      const openDrawer = () => openPartyProfileDrawer(partyCode, prestigeCard);
+      const openDrawer = () => openPartyProfileDrawer(normalisedCode, prestigeCard);
       prestigeCard.addEventListener('click', openDrawer);
       prestigeCard.addEventListener('keypress', (event) => {
         if (event && (event.key === 'Enter' || event.key === ' ')) {
@@ -10512,7 +10513,7 @@ function renderFriendProfileContent(friend) {
       detailParts.push(`Updated ${formatTimeAgo(lastActiveTs)}`);
     }
     const leaderCard = buildPartyPrestigeCard({
-      partyCode: liveParty.code,
+      partyCode: liveParty.code || liveParty.partyCode || liveParty.party_code,
       partyName:
         typeof liveParty.name === 'string' && liveParty.name.trim()
           ? liveParty.name.trim()
