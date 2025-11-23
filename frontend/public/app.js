@@ -5607,9 +5607,13 @@ function renderPartyBoostBox() {
   if (!partyBoostSection || !partyBoostSummary || !partyBoostList) {
     return;
   }
-  const party = getActivePartyState();
   const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
-  if (!party || !profile) {
+  const party = getActivePartyState();
+  const fallbackPartyName =
+    (party && party.name) ||
+    (profile && profile.preferredPartyName ? profile.preferredPartyName : '') ||
+    (profile && profile.username ? `${profile.username}'s party` : '');
+  if (!profile) {
     partyBoostSection.classList.add('hidden');
     partyBoostSection.setAttribute('aria-hidden', 'true');
     partyBoostList.innerHTML = '';
@@ -5627,61 +5631,72 @@ function renderPartyBoostBox() {
     'To be continued…',
   ];
   let headline = rotatingMessages[Math.floor(Date.now() / 4000) % rotatingMessages.length];
-  const partyName = party.name && party.name.trim() ? party.name.trim() : party.code;
+  const partyName =
+    party && party.name && party.name.trim()
+      ? party.name.trim()
+      : party?.code || fallbackPartyName || 'Your party';
   const activeDistrictCode =
-    typeof party.activeDistrictCode === 'string' && party.activeDistrictCode.trim()
+    party && typeof party.activeDistrictCode === 'string' && party.activeDistrictCode.trim()
       ? party.activeDistrictCode
       : '';
   const activeDistrictName =
-    typeof party.activeDistrictName === 'string' && party.activeDistrictName.trim()
+    party && typeof party.activeDistrictName === 'string' && party.activeDistrictName.trim()
       ? party.activeDistrictName
       : '';
   const activeDistrictLabel = activeDistrictName || (activeDistrictCode ? `District ${activeDistrictCode}` : '');
   const activeDistrictCount =
-    Number.isFinite(Number(party.activeDistrictCount)) && Number(party.activeDistrictCount) > 0
+    party && Number.isFinite(Number(party.activeDistrictCount)) && Number(party.activeDistrictCount) > 0
       ? Number(party.activeDistrictCount)
       : 0;
   const boostReady =
-    party.boostReady || party.activeDistrictReady || activeDistrictCount >= 2;
+    party && (party.boostReady || party.activeDistrictReady || activeDistrictCount >= 2);
   const districtPrestige = Math.max(
     0,
     Number(
-      typeof party.districtPrestige !== 'undefined' ? party.districtPrestige : party.score,
+      party && typeof party.districtPrestige !== 'undefined' ? party.districtPrestige : party?.score,
     ) || 0,
   );
-  const prestigeUpdatedAt = parseServerTimestamp(party.districtPrestigeUpdatedAt);
+  const prestigeUpdatedAt = parseServerTimestamp(party?.districtPrestigeUpdatedAt);
   if (activeDistrictLabel) {
     headline = `Active in ${activeDistrictLabel}`;
-  } else if (typeof party.focus === 'string' && party.focus.trim()) {
+  } else if (party && typeof party.focus === 'string' && party.focus.trim()) {
     headline = `Focus ${party.focus.trim()}`;
+  } else if (!party) {
+    headline = 'Ready to start a party';
   }
   partyBoostSummary.innerHTML = `<span class="party-chip party-chip-orange">${partyName}</span> ${headline}`;
 
   // Build summary line from party payload
-  const size = Number(party.size) || 1;
-  const atkMult = Number(party.attackMultiplier) || 0;
-  const contribMult = Number(party.contributionMultiplier) || 0;
-  const atkChecks = Number(party.attackCheckins) || 0;
-  const contribChecks = Number(party.contributionCheckins) || 0;
-  const attackPoints = Math.max(0, Number(party.attackPoints) || 0);
-  const defendPoints = Math.max(0, Number(party.contributionPoints) || 0);
-  const partyScore = Math.max(0, Number(party.score) || attackPoints + defendPoints);
+  const size = party ? Number(party.size) || 1 : 1;
+  const atkMult = party ? Number(party.attackMultiplier) || 0 : 0;
+  const contribMult = party ? Number(party.contributionMultiplier) || 0 : 0;
+  const atkChecks = party ? Number(party.attackCheckins) || 0 : 0;
+  const contribChecks = party ? Number(party.contributionCheckins) || 0 : 0;
+  const attackPoints = Math.max(0, Number(party?.attackPoints) || 0);
+  const defendPoints = Math.max(0, Number(party?.contributionPoints) || 0);
+  const partyScore = Math.max(0, Number(party?.score) || attackPoints + defendPoints);
   const parts = [];
-  if (party.name) parts.push(party.name);
-  parts.push(`Size ${size}`);
+  if (partyName) parts.push(partyName);
+  if (party) {
+    parts.push(`Size ${size}`);
+  }
   if (activeDistrictLabel) {
     parts.push(`Active in ${activeDistrictLabel}`);
   }
-  parts.push(`Prestige +${districtPrestige} pts`);
+  if (districtPrestige) {
+    parts.push(`Prestige +${districtPrestige} pts`);
+  }
   if (atkMult) parts.push(`Attack ${formatPartyMultiplier(atkMult)}`);
   if (contribMult) parts.push(`Defend ${formatPartyMultiplier(contribMult)}`);
-  if (!boostReady) {
+  if (!party) {
+    parts.push('Party not active');
+  } else if (!boostReady) {
     parts.push('Waiting for teammate to start 3h boost');
   } else if (partyScore) {
     parts.push(`+${partyScore} pts this party`);
   }
-  if (atkChecks || contribChecks) parts.push(`${atkChecks + contribChecks} party boosts`);
-  partyBoostSummary.textContent = parts.join(' • ');
+  if (party && (atkChecks || contribChecks)) parts.push(`${atkChecks + contribChecks} party boosts`);
+  partyBoostSummary.textContent = parts.filter(Boolean).join(' • ');
 
   // Recent party-affected check-ins from history
   const history = Array.isArray(profile.checkins) ? profile.checkins : [];
@@ -5699,10 +5714,12 @@ function renderPartyBoostBox() {
   prestigeMeta.className = 'recent-checkins-meta';
   const prestigePieces = [];
   prestigePieces.push(`+${districtPrestige.toLocaleString()} pts`);
-  if (boostReady) {
+  if (party && boostReady) {
     prestigePieces.push('Boost active');
-  } else {
+  } else if (party) {
     prestigePieces.push('Waiting for teammates to start boost');
+  } else {
+    prestigePieces.push('Party not active');
   }
   if (activeDistrictCount) {
     prestigePieces.push(`${activeDistrictCount} member${activeDistrictCount === 1 ? '' : 's'} present`);
@@ -5713,11 +5730,12 @@ function renderPartyBoostBox() {
   prestigeMeta.textContent = prestigePieces.filter(Boolean).join(' • ');
   prestigeItem.appendChild(prestigeTitle);
   prestigeItem.appendChild(prestigeMeta);
-  if (party.code) {
-    prestigeItem.dataset.partyCode = party.code;
+  const partyCodeForDrawer = (party && party.code) || '';
+  if (partyCodeForDrawer) {
+    prestigeItem.dataset.partyCode = partyCodeForDrawer;
     prestigeItem.tabIndex = 0;
     prestigeItem.setAttribute('role', 'button');
-    const openDrawer = () => openPartyProfileDrawer(party.code, prestigeItem);
+    const openDrawer = () => openPartyProfileDrawer(partyCodeForDrawer, prestigeItem);
     prestigeItem.addEventListener('click', openDrawer);
     prestigeItem.addEventListener('keypress', (event) => {
       if (event && (event.key === 'Enter' || event.key === ' ')) {
@@ -5729,40 +5747,49 @@ function renderPartyBoostBox() {
   partyBoostList.appendChild(prestigeItem);
 
   const topContributors =
-    (Array.isArray(party.topPrestigeContributors) && party.topPrestigeContributors.length
-      ? party.topPrestigeContributors
-      : (partyProfileCache.get(party.code || '') || {}).topPlayers) || [];
-  if (!topContributors.length && party.code) {
+    (party &&
+      Array.isArray(party.topPrestigeContributors) &&
+      party.topPrestigeContributors.length &&
+      party.topPrestigeContributors) ||
+    (party && (partyProfileCache.get(party.code || '') || {}).topPlayers) ||
+    [];
+  if (party && !topContributors.length && party.code) {
     fetchPartyProfile(party.code, { silent: true }).then((profile) => {
       if (profile) {
         renderPartyBoostBox();
       }
     });
   }
-  const contributorsItem = document.createElement('li');
-  contributorsItem.className = 'recent-checkins-item party-top-contributors';
-  const contribTitle = document.createElement('div');
-  contribTitle.className = 'recent-checkins-entry';
-  contribTitle.textContent = 'Top prestige earners';
-  const contribMeta = document.createElement('div');
-  contribMeta.className = 'recent-checkins-meta party-top-contributors-meta';
-  if (topContributors.length) {
-    const list = document.createElement('div');
-    list.className = 'party-top-contributors-list';
-    topContributors.slice(0, 5).forEach((player) => {
-      const chip = document.createElement('span');
-      chip.className = 'party-contributor-chip';
-      const name = player.displayName ? player.displayName : `@${player.username}`;
-      chip.textContent = `${name} • +${player.prestigePoints.toLocaleString()} pts`;
-      list.appendChild(chip);
-    });
-    contribMeta.appendChild(list);
-  } else {
-    contribMeta.textContent = 'No contributors yet (leader excluded).';
+  if (party) {
+    const contributorsItem = document.createElement('li');
+    contributorsItem.className = 'recent-checkins-item party-top-contributors';
+    const contribTitle = document.createElement('div');
+    contribTitle.className = 'recent-checkins-entry';
+    contribTitle.textContent = 'Top prestige earners';
+    const contribMeta = document.createElement('div');
+    contribMeta.className = 'recent-checkins-meta party-top-contributors-meta';
+    if (topContributors.length) {
+      const list = document.createElement('div');
+      list.className = 'party-top-contributors-list';
+      topContributors.slice(0, 5).forEach((player) => {
+        const chip = document.createElement('span');
+        chip.className = 'party-contributor-chip';
+        const name = player.displayName ? player.displayName : `@${player.username}`;
+        chip.textContent = `${name} • +${player.prestigePoints.toLocaleString()} pts`;
+        list.appendChild(chip);
+      });
+      contribMeta.appendChild(list);
+    } else {
+      contribMeta.textContent = 'No contributors yet (leader excluded).';
+    }
+    contributorsItem.appendChild(contribTitle);
+    contributorsItem.appendChild(contribMeta);
+    partyBoostList.appendChild(contributorsItem);
   }
-  contributorsItem.appendChild(contribTitle);
-  contributorsItem.appendChild(contribMeta);
-  partyBoostList.appendChild(contributorsItem);
+
+  if (!party) {
+    return;
+  }
 
   // Session totals (attack/defend) for the active party
   const totalsItem = document.createElement('li');
