@@ -2738,6 +2738,13 @@ body.dark .friend-profile-marker {
   color: var(--color-text-muted);
 }
 
+.character-party-section {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
 .character-customisation {
   margin: 1.5rem 0 0;
   padding: 1rem;
