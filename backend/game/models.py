@@ -539,9 +539,9 @@ class DistrictPartyStat(models.Model):
     class Meta:
         unique_together = ("district", "party")
         indexes = [
-            models.Index(fields=["district"], name="district_party_stat_district_idx"),
-            models.Index(fields=["party"], name="district_party_stat_party_idx"),
-            models.Index(fields=["last_activity_at"], name="district_party_stat_activity_idx"),
+            models.Index(fields=["district"], name="district_partystat_dist_idx"),
+            models.Index(fields=["party"], name="district_partystat_party_idx"),
+            models.Index(fields=["last_activity_at"], name="district_partystat_act_idx"),
         ]
 
     def __str__(self):
