@@ -10986,6 +10986,19 @@ async function openPartyProfileDrawer(partyCode, trigger = null) {
   if (!code || !partyProfileDrawer || !partyProfileOverlay) {
     return;
   }
+  // Ensure only one sheet is open at a time so overlays don't stack.
+  if (document.body.classList.contains('friend-profile-open')) {
+    closeFriendProfileDrawer({ restoreFocus: false });
+  }
+  if (document.body.classList.contains('character-open')) {
+    closeCharacterDrawer({ restoreFocus: false });
+  }
+  if (document.body.classList.contains('district-open')) {
+    closeDistrictDrawer({ restoreFocus: false });
+  }
+  if (document.body.classList.contains('friends-open')) {
+    closeFriendsDrawer({ restoreFocus: false });
+  }
   partyProfileLastTrigger = trigger instanceof HTMLElement ? trigger : null;
   partyProfileBody.innerHTML = '<p class="friend-profile-empty">Loading party profile…</p>';
   document.body.classList.add('party-profile-open');
