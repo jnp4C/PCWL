@@ -10228,7 +10228,19 @@ function renderFriendProfileContent(friend) {
 
   const streak = getFriendStreakMeta(friend);
   const streakCard = document.createElement('div');
-  streakCard.className = 'character-card character-streak friend-profile-streak';
+  streakCard.className = 'character-card character-streak friend-profile-streak streak-interactive';
+  streakCard.tabIndex = 0;
+  streakCard.setAttribute('role', 'button');
+  streakCard.setAttribute('aria-label', 'View streak details');
+  streakCard.setAttribute('aria-pressed', 'false');
+  if (markerColor) {
+    streakCard.style.setProperty('--player-marker-color', markerColor);
+  }
+  const streakInner = document.createElement('div');
+  streakInner.className = 'streak-card-inner';
+
+  const streakFront = document.createElement('div');
+  streakFront.className = 'streak-card-face streak-card-front';
   const streakLabelRow = document.createElement('div');
   streakLabelRow.className = 'streak-label-row';
   const streakChip = document.createElement('span');
@@ -10245,9 +10257,79 @@ function renderFriendProfileContent(friend) {
   const streakHint = document.createElement('p');
   streakHint.className = 'streak-hint';
   streakHint.textContent = 'Earned by daily attack + defend check-ins (Prague time).';
-  streakCard.appendChild(streakLabelRow);
-  streakCard.appendChild(streakValue);
-  streakCard.appendChild(streakHint);
+  streakFront.appendChild(streakLabelRow);
+  streakFront.appendChild(streakValue);
+  streakFront.appendChild(streakHint);
+
+  const streakBack = document.createElement('div');
+  streakBack.className = 'streak-card-face streak-card-back';
+  streakBack.setAttribute('aria-hidden', 'true');
+  const progressHeading = document.createElement('div');
+  progressHeading.className = 'streak-progress-heading';
+  const progressTitle = document.createElement('div');
+  progressTitle.className = 'streak-progress-title';
+  progressTitle.textContent = 'Streak boost path';
+  const progressNow = document.createElement('div');
+  progressNow.className = 'streak-progress-now';
+  progressNow.textContent = `x${streak.multiplier.toFixed(2)} now`;
+  progressHeading.appendChild(progressTitle);
+  progressHeading.appendChild(progressNow);
+
+  const progressTrack = document.createElement('div');
+  progressTrack.className = 'streak-progress-track';
+  progressTrack.setAttribute('role', 'img');
+  progressTrack.setAttribute('aria-label', 'Streak boost progress');
+  const progressFill = document.createElement('div');
+  progressFill.className = 'streak-progress-fill';
+  progressTrack.appendChild(progressFill);
+  const milestones = [0.25, 0.5, 0.75, 1];
+  milestones.forEach((ratio) => {
+    const marker = document.createElement('div');
+    marker.className = 'streak-progress-marker';
+    marker.dataset.streakMilestone = ratio.toString();
+    const markerLabel = document.createElement('span');
+    markerLabel.className = 'streak-marker-label';
+    markerLabel.textContent = `+${Math.round(ratio * 100)}%`;
+    const markerDay = document.createElement('span');
+    markerDay.className = 'streak-marker-day';
+    markerDay.textContent = `${Math.round(STREAK_MAX_DAYS * ratio)}d`;
+    marker.appendChild(markerLabel);
+    marker.appendChild(markerDay);
+    progressTrack.appendChild(marker);
+  });
+  const progressThumb = document.createElement('div');
+  progressThumb.className = 'streak-progress-thumb';
+  const thumbLabel = document.createElement('span');
+  thumbLabel.className = 'streak-thumb-label';
+  thumbLabel.textContent = friend.username ? friend.username : 'Player';
+  progressThumb.appendChild(thumbLabel);
+  progressTrack.appendChild(progressThumb);
+
+  const progressHint = document.createElement('p');
+  progressHint.className = 'streak-progress-hint';
+  progressHint.textContent = 'Keep daily attack + defend going to climb.';
+
+  streakBack.appendChild(progressHeading);
+  streakBack.appendChild(progressTrack);
+  streakBack.appendChild(progressHint);
+
+  streakInner.appendChild(streakFront);
+  streakInner.appendChild(streakBack);
+  streakCard.appendChild(streakInner);
+  setStreakCardFace(streakCard, 'front');
+  const friendStreakElements = resolveStreakElements(streakCard);
+  updateStreakProgress(streak.days, streak.multiplier, friendStreakElements);
+  const toggleStreakCard = () => {
+    const showBack = !streakCard.classList.contains('is-flipped');
+    setStreakCardFace(streakCard, showBack ? 'back' : 'front');
+  };
+  streakCard.addEventListener('click', toggleStreakCard);
+  streakCard.addEventListener('keypress', (event) => {
+    if (event && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      toggleStreakCard();
+    }
+  });
 
   summary.appendChild(identityCard);
   summary.appendChild(streakCard);
@@ -13127,15 +13209,17 @@ function closeDistrictDrawer({ restoreFocus = true } = {}) {
   districtLastTrigger = null;
 }
 
-function setStreakCardFace(face = 'front') {
-  if (!characterStreakCard || !characterStreakInner) {
-    return;
-  }
+function setStreakCardFace(card, face = 'front') {
+  if (!card) return;
+  const inner = card.querySelector('.streak-card-inner');
   const showBack = face === 'back';
-  characterStreakCard.classList.toggle('is-flipped', showBack);
-  characterStreakCard.setAttribute('aria-pressed', showBack ? 'true' : 'false');
-  const frontFace = characterStreakCard.querySelector('.streak-card-front');
-  const backFace = characterStreakCard.querySelector('.streak-card-back');
+  if (inner) {
+    inner.classList.toggle('flip-active', showBack);
+  }
+  card.classList.toggle('is-flipped', showBack);
+  card.setAttribute('aria-pressed', showBack ? 'true' : 'false');
+  const frontFace = card.querySelector('.streak-card-front');
+  const backFace = card.querySelector('.streak-card-back');
   if (frontFace) {
     frontFace.setAttribute('aria-hidden', showBack ? 'true' : 'false');
   }
@@ -13144,35 +13228,69 @@ function setStreakCardFace(face = 'front') {
   }
 }
 
-function updateStreakProgress(streakDays = 0, streakMultiplier = 1) {
+function resolveStreakElements(card = null) {
+  if (!card) {
+    return {
+      track: characterStreakTrack,
+      progressFill: characterStreakProgressFill,
+      thumb: characterStreakProgressThumb,
+      nowLabel: characterStreakProgressNow,
+      hint: characterStreakProgressHint,
+      milestoneMarkers: streakMilestoneMarkers,
+    };
+  }
+  return {
+    track: card.querySelector('.streak-progress-track'),
+    progressFill: card.querySelector('.streak-progress-fill'),
+    thumb: card.querySelector('.streak-progress-thumb'),
+    nowLabel: card.querySelector('.streak-progress-now'),
+    hint: card.querySelector('.streak-progress-hint'),
+    milestoneMarkers: card.querySelectorAll('[data-streak-milestone]'),
+  };
+}
+
+function updateStreakProgress(streakDays = 0, streakMultiplier = 1, elements = null) {
+  let resolvedElements = null;
+  if (elements && (elements.track || elements.progressFill || elements.thumb)) {
+    resolvedElements = elements;
+  } else if (elements instanceof Element) {
+    resolvedElements = resolveStreakElements(elements);
+  } else {
+    resolvedElements = resolveStreakElements(null);
+  }
+  const {
+    track,
+    progressFill,
+    thumb,
+    nowLabel,
+    hint: hintEl,
+    milestoneMarkers: markers,
+  } = resolvedElements;
   const clampedDays = Math.max(0, Math.min(STREAK_MAX_DAYS, Math.round(Number(streakDays) || 0)));
   const effectiveMultiplier = Math.max(1, Number(streakMultiplier) || 1);
   const currentRatio = clampedDays / STREAK_MAX_DAYS;
   const boostPercent = Math.round((effectiveMultiplier - 1) * 100);
 
-  if (characterStreakProgressFill) {
-    characterStreakProgressFill.style.width = `${Math.max(0, Math.min(100, currentRatio * 100))}%`;
+  if (progressFill) {
+    progressFill.style.width = `${Math.max(0, Math.min(100, currentRatio * 100))}%`;
   }
-  if (characterStreakProgressThumb) {
+  if (thumb) {
     const thumbLeft = Math.max(0, Math.min(100, currentRatio * 100));
-    characterStreakProgressThumb.style.left = `${thumbLeft}%`;
-    characterStreakProgressThumb.setAttribute(
-      'aria-label',
-      `You are at ${clampedDays} days with a ${boostPercent}% boost`
-    );
+    thumb.style.left = `${thumbLeft}%`;
+    thumb.setAttribute('aria-label', `At ${clampedDays} days with a ${boostPercent}% boost`);
   }
-  if (characterStreakProgressNow) {
-    characterStreakProgressNow.textContent = `x${effectiveMultiplier.toFixed(2)} now`;
+  if (nowLabel) {
+    nowLabel.textContent = `x${effectiveMultiplier.toFixed(2)} now`;
   }
-  if (characterStreakTrack) {
-    characterStreakTrack.setAttribute(
+  if (track) {
+    track.setAttribute(
       'aria-label',
       `Streak progress ${clampedDays} of ${STREAK_MAX_DAYS} days, ${boostPercent}% boost.`
     );
   }
 
-  if (streakMilestoneMarkers && streakMilestoneMarkers.length) {
-    streakMilestoneMarkers.forEach((marker) => {
+  if (markers && markers.length) {
+    markers.forEach((marker) => {
       const ratio = Number(marker.dataset.streakMilestone) || 0;
       const dayTarget = Math.round(STREAK_MAX_DAYS * ratio);
       marker.style.left = `${Math.max(0, Math.min(100, ratio * 100))}%`;
@@ -13206,8 +13324,8 @@ function updateStreakProgress(streakDays = 0, streakMultiplier = 1) {
   } else if (clampedDays >= STREAK_MAX_DAYS) {
     hint = 'Max streak reached: +100% boost. Keep it alive daily.';
   }
-  if (characterStreakProgressHint) {
-    characterStreakProgressHint.textContent = hint;
+  if (hintEl) {
+    hintEl.textContent = hint;
   }
 }
 
@@ -13243,7 +13361,7 @@ function updateCharacterDrawerContent(profile = null) {
     characterStreakMultiplier.textContent = 'x1.00';
     characterStreakDays.textContent = '0 days';
     updateStreakProgress(0, 1);
-    setStreakCardFace('front');
+    setStreakCardFace(characterStreakCard, 'front');
     characterInteractionsList.innerHTML = '';
     characterInteractionsList.hidden = true;
     characterInteractionsEmpty.hidden = false;
@@ -13294,7 +13412,10 @@ function updateCharacterDrawerContent(profile = null) {
   characterStreakMultiplier.textContent = `x${streakMultiplier.toFixed(2)}`;
   characterStreakDays.textContent = `${streakLabel} alive`;
   updateStreakProgress(streakDays, streakMultiplier);
-  setStreakCardFace(characterStreakCard && characterStreakCard.classList.contains('is-flipped') ? 'back' : 'front');
+  setStreakCardFace(
+    characterStreakCard,
+    characterStreakCard && characterStreakCard.classList.contains('is-flipped') ? 'back' : 'front'
+  );
 
   ensureProfileCooldownState(resolvedProfile);
   const now = Date.now();
@@ -15770,6 +15891,14 @@ if (characterOverlay) {
 if (characterCloseButton) {
   characterCloseButton.addEventListener('click', () => {
     closeCharacterDrawer();
+  });
+}
+
+if (characterStreakCard) {
+  setStreakCardFace(characterStreakCard, 'front');
+  characterStreakCard.addEventListener('click', () => {
+    const showBack = !characterStreakCard.classList.contains('is-flipped');
+    setStreakCardFace(characterStreakCard, showBack ? 'back' : 'front');
   });
 }
 
