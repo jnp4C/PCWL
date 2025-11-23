@@ -899,6 +899,11 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   box-shadow: inset 0 0 0 1px rgba(70, 130, 255, 0.32);
 }
 
+.recent-checkins-item.party-prestige {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.16), rgba(6, 182, 212, 0.14));
+  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.26);
+}
+
 .recent-checkins-item .recent-checkins-entry {
   font-weight: 600;
   font-size: 0.95rem;
@@ -1449,6 +1454,22 @@ body.dark .friend-marker-swatch {
   box-shadow:
     inset 0 0 0 1px rgba(99, 102, 241, 0.22),
     0 10px 30px rgba(19, 9, 48, 0.12);
+}
+
+.friend-profile-party {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0.9rem 1rem;
+  border-radius: 14px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-panel-bg) 88%, rgba(16, 185, 129, 0.2)),
+    color-mix(in srgb, var(--color-panel-bg) 94%, rgba(6, 182, 212, 0.16))
+  );
+  box-shadow:
+    inset 0 0 0 1px rgba(16, 185, 129, 0.28),
+    0 10px 30px rgba(4, 47, 46, 0.14);
 }
 
 .friend-profile-header {

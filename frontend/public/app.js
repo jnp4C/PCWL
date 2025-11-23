@@ -1516,7 +1516,10 @@ function renderCooldownStrip(now = Date.now()) {
   // Include active party 3h countdown chip in the main cooldown strip
   const activeParty = getActivePartyState ? getActivePartyState() : null;
   const partyEntries = [];
-  if (activeParty && Number.isFinite(activeParty.expiresAt)) {
+  const boostReady =
+    activeParty &&
+    (activeParty.boostReady || activeParty.activeDistrictReady || (activeParty.activeDistrictCount || 0) >= 2);
+  if (activeParty && boostReady && Number.isFinite(activeParty.expiresAt)) {
     const createdAt = Number.isFinite(activeParty.createdAt)
       ? activeParty.createdAt
       : activeParty.expiresAt - PARTY_DURATION_MS;
@@ -4944,6 +4947,24 @@ function sanitizePartyPayload(raw) {
   const attackPoints = Math.max(0, Math.round(Number(raw.attack_points) || 0));
   const contributionPoints = Math.max(0, Math.round(Number(raw.contribution_points) || 0));
   const score = Number(raw.score);
+  const activeDistrictCode =
+    typeof raw.active_district_code === 'string' && raw.active_district_code.trim()
+      ? safeId(raw.active_district_code)
+      : '';
+  const activeDistrictName =
+    typeof raw.active_district_name === 'string' && raw.active_district_name.trim()
+      ? raw.active_district_name.trim()
+      : '';
+  const activeDistrictCount = Number.isFinite(Number(raw.active_district_count))
+    ? Number(raw.active_district_count)
+    : 0;
+  const activeDistrictReady =
+    raw.active_district_ready === true || activeDistrictCount >= 2;
+  const districtPrestige = Math.max(
+    0,
+    Math.round(Number(raw.district_prestige_points) || 0),
+  );
+  const districtPrestigeUpdatedAt = parseServerTimestamp(raw.district_prestige_last_active_at);
   return {
     code: typeof raw.code === 'string' ? raw.code : '',
     name:
@@ -4974,12 +4995,13 @@ function sanitizePartyPayload(raw) {
     attackCheckins: Math.max(0, Math.round(Number(raw.attack_checkins) || 0)),
     contributionCheckins: Math.max(0, Math.round(Number(raw.contribution_checkins) || 0)),
     focus: typeof raw.focus === 'string' ? raw.focus : 'balanced',
-    activeDistrictCode: typeof raw.active_district_code === 'string' ? safeId(raw.active_district_code) : '',
-    activeDistrictName:
-      typeof raw.active_district_name === 'string' && raw.active_district_name.trim()
-        ? raw.active_district_name.trim()
-        : '',
-    activeDistrictCount: Number.isFinite(Number(raw.active_district_count)) ? Number(raw.active_district_count) : 0,
+    activeDistrictCode,
+    activeDistrictName,
+    activeDistrictCount,
+    activeDistrictReady,
+    boostReady: activeDistrictReady,
+    districtPrestige,
+    districtPrestigeUpdatedAt,
     joinRequests: Array.isArray(raw.join_requests)
       ? raw.join_requests.map(sanitizePartyJoinRequest).filter(Boolean)
       : [],
@@ -5058,6 +5080,24 @@ function sanitizePartyPreview(raw) {
   const attackCheckins = Number(raw.attack_checkins);
   const contributionCheckins = Number(raw.contribution_checkins);
   const lastActiveAt = parseServerTimestamp(raw.last_active_at || raw.lastActiveAt);
+  const activeDistrictCode =
+    typeof raw.active_district_code === 'string' && raw.active_district_code.trim()
+      ? safeId(raw.active_district_code)
+      : '';
+  const activeDistrictName =
+    typeof raw.active_district_name === 'string' && raw.active_district_name.trim()
+      ? raw.active_district_name.trim()
+      : '';
+  const activeDistrictCount = Number.isFinite(Number(raw.active_district_count))
+    ? Number(raw.active_district_count)
+    : 0;
+  const activeDistrictReady =
+    raw.active_district_ready === true || activeDistrictCount >= 2;
+  const districtPrestige = Math.max(
+    0,
+    Math.round(Number(raw.district_prestige_points) || 0),
+  );
+  const districtPrestigeUpdatedAt = parseServerTimestamp(raw.district_prestige_last_active_at);
   return {
     code,
     name: typeof raw.name === 'string' ? raw.name : '',
@@ -5092,6 +5132,13 @@ function sanitizePartyPreview(raw) {
         ? Math.round(contributionCheckins)
         : 0,
     lastActiveAt,
+    activeDistrictCode,
+    activeDistrictName,
+    activeDistrictCount,
+    activeDistrictReady,
+    boostReady: activeDistrictReady,
+    districtPrestige,
+    districtPrestigeUpdatedAt,
   };
 }
 
@@ -5347,10 +5394,34 @@ function renderPartyBoostBox() {
     'To be continued…',
   ];
   let headline = rotatingMessages[Math.floor(Date.now() / 4000) % rotatingMessages.length];
-  if (party.focus && typeof party.focus.name === 'string' && party.focus.name.trim()) {
-    headline = `Leading ${party.focus.name}`;
-  }
   const partyName = party.name && party.name.trim() ? party.name.trim() : party.code;
+  const activeDistrictCode =
+    typeof party.activeDistrictCode === 'string' && party.activeDistrictCode.trim()
+      ? party.activeDistrictCode
+      : '';
+  const activeDistrictName =
+    typeof party.activeDistrictName === 'string' && party.activeDistrictName.trim()
+      ? party.activeDistrictName
+      : '';
+  const activeDistrictLabel = activeDistrictName || (activeDistrictCode ? `District ${activeDistrictCode}` : '');
+  const activeDistrictCount =
+    Number.isFinite(Number(party.activeDistrictCount)) && Number(party.activeDistrictCount) > 0
+      ? Number(party.activeDistrictCount)
+      : 0;
+  const boostReady =
+    party.boostReady || party.activeDistrictReady || activeDistrictCount >= 2;
+  const districtPrestige = Math.max(
+    0,
+    Number(
+      typeof party.districtPrestige !== 'undefined' ? party.districtPrestige : party.score,
+    ) || 0,
+  );
+  const prestigeUpdatedAt = parseServerTimestamp(party.districtPrestigeUpdatedAt);
+  if (activeDistrictLabel) {
+    headline = `Active in ${activeDistrictLabel}`;
+  } else if (typeof party.focus === 'string' && party.focus.trim()) {
+    headline = `Focus ${party.focus.trim()}`;
+  }
   partyBoostSummary.innerHTML = `<span class="party-chip party-chip-orange">${partyName}</span> ${headline}`;
 
   // Build summary line from party payload
@@ -5365,9 +5436,15 @@ function renderPartyBoostBox() {
   const parts = [];
   if (party.name) parts.push(party.name);
   parts.push(`Size ${size}`);
+  if (activeDistrictLabel) {
+    parts.push(`Active in ${activeDistrictLabel}`);
+  }
+  parts.push(`Prestige +${districtPrestige} pts`);
   if (atkMult) parts.push(`Attack ${formatPartyMultiplier(atkMult)}`);
   if (contribMult) parts.push(`Defend ${formatPartyMultiplier(contribMult)}`);
-  if (partyScore) {
+  if (!boostReady) {
+    parts.push('Waiting for teammate to start 3h boost');
+  } else if (partyScore) {
     parts.push(`+${partyScore} pts this party`);
   }
   if (atkChecks || contribChecks) parts.push(`${atkChecks + contribChecks} party boosts`);
@@ -5379,6 +5456,31 @@ function renderPartyBoostBox() {
   const entriesToShow = partyEntries.slice(0, 3);
 
   partyBoostList.innerHTML = '';
+
+  const prestigeItem = document.createElement('li');
+  prestigeItem.className = 'recent-checkins-item party-prestige';
+  const prestigeTitle = document.createElement('div');
+  prestigeTitle.className = 'recent-checkins-entry';
+  prestigeTitle.textContent = activeDistrictLabel ? `Prestige in ${activeDistrictLabel}` : 'Party prestige';
+  const prestigeMeta = document.createElement('div');
+  prestigeMeta.className = 'recent-checkins-meta';
+  const prestigePieces = [];
+  prestigePieces.push(`+${districtPrestige.toLocaleString()} pts`);
+  if (boostReady) {
+    prestigePieces.push('Boost active');
+  } else {
+    prestigePieces.push('Waiting for teammates to start boost');
+  }
+  if (activeDistrictCount) {
+    prestigePieces.push(`${activeDistrictCount} member${activeDistrictCount === 1 ? '' : 's'} present`);
+  }
+  if (prestigeUpdatedAt) {
+    prestigePieces.push(`Updated ${formatTimeAgo(prestigeUpdatedAt)}`);
+  }
+  prestigeMeta.textContent = prestigePieces.filter(Boolean).join(' • ');
+  prestigeItem.appendChild(prestigeTitle);
+  prestigeItem.appendChild(prestigeMeta);
+  partyBoostList.appendChild(prestigeItem);
 
   // Session totals (attack/defend) for the active party
   const totalsItem = document.createElement('li');
@@ -8368,6 +8470,11 @@ function formatPartyStatus(activeState, pendingInvites = 0, firstPendingInvite =
     }
     return 'No active party. Start one to boost shared check-ins. At least 2 players required for boost to apply.';
   }
+  const activeDistrictLabel =
+    (activeState.activeDistrictName && activeState.activeDistrictName.trim()) ||
+    (activeState.activeDistrictCode ? `District ${activeState.activeDistrictCode}` : '');
+  const boostReady =
+    activeState.boostReady || activeState.activeDistrictReady || (activeState.activeDistrictCount || 0) >= 2;
   const expiresIn = formatPartyCountdown(activeState.expiresAt);
   const playerCount = Number.isFinite(activeState.size) && activeState.size > 0 ? activeState.size : activeState.members?.length || 1;
   const focusLabel =
@@ -8381,7 +8488,12 @@ function formatPartyStatus(activeState, pendingInvites = 0, firstPendingInvite =
   const fragments = [
     header,
     `${playerCount} player${playerCount === 1 ? '' : 's'}`,
-    expiresIn ? `${expiresIn} left` : null,
+    boostReady && expiresIn ? `${expiresIn} left` : null,
+    !boostReady ? 'Waiting for a teammate to start boost' : null,
+    activeDistrictLabel ? `Active in ${activeDistrictLabel}` : null,
+    Number.isFinite(activeState.districtPrestige) && activeState.districtPrestige > 0
+      ? `Prestige +${Math.round(activeState.districtPrestige)} pts`
+      : null,
     `Focus: ${focusLabel}`,
     `Attack ${formatPartyMultiplier(activeState.attackMultiplier)}`,
     `Contribute ${formatPartyMultiplier(activeState.contributionMultiplier)}`,
@@ -8680,12 +8792,42 @@ function renderPartyPanelChip(now = Date.now()) {
   }
 
   // If an active party exists, show a 3h countdown chip reflecting remaining time
-  if (activeParty && Number.isFinite(activeParty.expiresAt)) {
-    const remaining = Math.max(0, activeParty.expiresAt - now);
-    // Progress across full party duration
-    const createdAt = Number.isFinite(activeParty.createdAt) ? activeParty.createdAt : activeParty.expiresAt - PARTY_DURATION_MS;
-    const duration = Math.max(1, (activeParty.expiresAt - createdAt) || PARTY_DURATION_MS);
-    const ratio = Math.max(0, Math.min(1, remaining / duration));
+  if (activeParty) {
+    const boostReady =
+      activeParty.boostReady ||
+      activeParty.activeDistrictReady ||
+      (activeParty.activeDistrictCount || 0) >= 2;
+    const partyLabel = activeParty.name ? activeParty.name : 'Party boost';
+    const districtLabel =
+      (activeParty.activeDistrictName && activeParty.activeDistrictName.trim()) ||
+      (activeParty.activeDistrictCode ? `District ${activeParty.activeDistrictCode}` : '');
+    if (boostReady && Number.isFinite(activeParty.expiresAt)) {
+      const remaining = Math.max(0, activeParty.expiresAt - now);
+      // Progress across full party duration
+      const createdAt = Number.isFinite(activeParty.createdAt) ? activeParty.createdAt : activeParty.expiresAt - PARTY_DURATION_MS;
+      const duration = Math.max(1, (activeParty.expiresAt - createdAt) || PARTY_DURATION_MS);
+      const ratio = Math.max(0, Math.min(1, remaining / duration));
+
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'cooldown-item party-invite';
+      button.dataset.partyPanelChip = 'active-party';
+      const track = document.createElement('div');
+      track.className = 'cooldown-track';
+      const fill = document.createElement('div');
+      fill.className = 'cooldown-fill';
+      fill.style.transform = `scaleX(${ratio})`;
+      track.appendChild(fill);
+      const label = document.createElement('span');
+      label.className = 'cooldown-time';
+      const expiresText = formatPartyCountdown(activeParty.expiresAt);
+      label.textContent = `${partyLabel} • ${expiresText} left`;
+      button.setAttribute('aria-label', `${partyLabel} — ${expiresText} remaining`);
+      button.appendChild(track);
+      button.appendChild(label);
+      friendsPartyChip.appendChild(button);
+      return;
+    }
 
     const button = document.createElement('button');
     button.type = 'button';
@@ -8695,14 +8837,13 @@ function renderPartyPanelChip(now = Date.now()) {
     track.className = 'cooldown-track';
     const fill = document.createElement('div');
     fill.className = 'cooldown-fill';
-    fill.style.transform = `scaleX(${ratio})`;
+    fill.style.transform = 'scaleX(0)';
     track.appendChild(fill);
     const label = document.createElement('span');
     label.className = 'cooldown-time';
-    const expiresText = formatPartyCountdown(activeParty.expiresAt);
-    const partyLabel = activeParty.name ? activeParty.name : 'Party boost';
-    label.textContent = `${partyLabel} • ${expiresText} left`;
-    button.setAttribute('aria-label', `${partyLabel} — ${expiresText} remaining`);
+    const waitingLabel = districtLabel ? `Waiting in ${districtLabel}` : 'Waiting for teammates';
+    label.textContent = `${partyLabel} • ${waitingLabel}`;
+    button.setAttribute('aria-label', `${partyLabel} — waiting for teammates to start boost`);
     button.appendChild(track);
     button.appendChild(label);
     friendsPartyChip.appendChild(button);
@@ -9829,6 +9970,73 @@ function renderFriendProfileContent(friend) {
   summary.appendChild(streakCard);
   friendProfileBody.appendChild(summary);
 
+  const liveParty = friend.activeParty || friend.active_party || null;
+  if (liveParty && typeof liveParty === 'object') {
+    const prestigeCard = document.createElement('div');
+    prestigeCard.className = 'character-card friend-profile-party';
+
+    const labelRow = document.createElement('div');
+    labelRow.className = 'streak-label-row';
+    const chip = document.createElement('span');
+    chip.className = 'streak-chip';
+    const partyLabel =
+      typeof liveParty.name === 'string' && liveParty.name.trim()
+        ? liveParty.name.trim()
+        : liveParty.code
+        ? `Party ${liveParty.code}`
+        : 'Party prestige';
+    chip.textContent = partyLabel;
+    const activeDistrictLabel =
+      (typeof liveParty.activeDistrictName === 'string' && liveParty.activeDistrictName.trim()) ||
+      (liveParty.activeDistrictCode ? `District ${liveParty.activeDistrictCode}` : '');
+    const statusLabel = document.createElement('span');
+    statusLabel.className = 'streak-days';
+    statusLabel.textContent = activeDistrictLabel ? `Active in ${activeDistrictLabel}` : 'Prestige';
+    labelRow.appendChild(chip);
+    labelRow.appendChild(statusLabel);
+
+    const prestigeValue = document.createElement('div');
+    prestigeValue.className = 'streak-value';
+    const prestigePoints = Math.max(
+      0,
+      Math.round(
+        Number(
+          typeof liveParty.districtPrestige !== 'undefined'
+            ? liveParty.districtPrestige
+            : liveParty.score,
+        ) || 0,
+      ),
+    );
+    prestigeValue.textContent = `+${prestigePoints.toLocaleString()} pts`;
+
+    const prestigeHint = document.createElement('p');
+    prestigeHint.className = 'streak-hint';
+    const districtCount = Number.isFinite(Number(liveParty.activeDistrictCount))
+      ? Number(liveParty.activeDistrictCount)
+      : 0;
+    const boostReady =
+      liveParty.boostReady ||
+      liveParty.activeDistrictReady ||
+      districtCount >= 2;
+    const lastActiveTs = parseServerTimestamp(liveParty.districtPrestigeUpdatedAt || liveParty.lastActiveAt);
+    const activeText = boostReady ? 'Boost active' : 'Waiting for teammates';
+    const timeLabel = lastActiveTs ? `Updated ${formatTimeAgo(lastActiveTs)}` : null;
+    const detailParts = [];
+    detailParts.push(activeText);
+    if (districtCount) {
+      detailParts.push(`${districtCount} member${districtCount === 1 ? '' : 's'} present`);
+    }
+    if (timeLabel) {
+      detailParts.push(timeLabel);
+    }
+    prestigeHint.textContent = detailParts.filter(Boolean).join(' • ') || 'Party prestige in active district';
+
+    prestigeCard.appendChild(labelRow);
+    prestigeCard.appendChild(prestigeValue);
+    prestigeCard.appendChild(prestigeHint);
+    friendProfileBody.appendChild(prestigeCard);
+  }
+
   const tags = document.createElement('div');
   tags.className = 'friend-profile-tags';
 
@@ -9929,47 +10137,6 @@ function renderFriendProfileContent(friend) {
 
   if (statsGrid.children.length) {
     friendProfileBody.appendChild(statsGrid);
-  }
-
-  const liveParty = friend.activeParty || friend.active_party || null;
-  if (liveParty && typeof liveParty === 'object') {
-    const prestigeCard = document.createElement('div');
-    prestigeCard.className = 'friend-profile-streak character-card';
-
-    const labelRow = document.createElement('div');
-    labelRow.className = 'streak-label-row';
-    const chip = document.createElement('span');
-    chip.className = 'streak-chip';
-    chip.textContent = 'Party prestige';
-    const activeLabel = document.createElement('span');
-    activeLabel.className = 'streak-days';
-    const lastActiveTs = Number.isFinite(Number(liveParty.lastActiveAt)) ? Number(liveParty.lastActiveAt) : null;
-    const lastActiveLabel = lastActiveTs ? formatTimeAgo(lastActiveTs) : 'Recently';
-    activeLabel.textContent = `Last active ${lastActiveLabel}`;
-    labelRow.appendChild(chip);
-    labelRow.appendChild(activeLabel);
-
-    const prestigeValue = document.createElement('div');
-    prestigeValue.className = 'streak-value';
-    const prestigePoints = Math.max(0, Math.round(Number(liveParty.score) || 0));
-    prestigeValue.textContent = `+${prestigePoints.toLocaleString()} pts`;
-
-    const prestigeHint = document.createElement('p');
-    prestigeHint.className = 'streak-hint';
-    const atkPts = Math.max(0, Math.round(Number(liveParty.attackPoints) || 0));
-    const defPts = Math.max(0, Math.round(Number(liveParty.contributionPoints) || 0));
-    const totalChecks = Math.max(
-      0,
-      Math.round(Number(liveParty.attackCheckins) || 0) + Math.round(Number(liveParty.contributionCheckins) || 0),
-    );
-    const partyName =
-      typeof liveParty.name === 'string' && liveParty.name.trim() ? liveParty.name.trim() : `Party ${liveParty.code}`;
-    prestigeHint.textContent = `${partyName} has earned ${atkPts} attack pts and ${defPts} defend pts over ${totalChecks} boosts.`;
-
-    prestigeCard.appendChild(labelRow);
-    prestigeCard.appendChild(prestigeValue);
-    prestigeCard.appendChild(prestigeHint);
-    friendProfileBody.appendChild(prestigeCard);
   }
 
   const lastKnown = friend.last_known_location;
@@ -12171,9 +12338,13 @@ function renderDistrictPartyList(entries) {
     heading.textContent = entry.name || entry.code || 'Party';
     const score = document.createElement('span');
     score.className = 'district-party-score';
-    const scoreValue = Number(entry.score) || 0;
+    const prestigeValue = Number.isFinite(Number(entry.prestige_points))
+      ? Number(entry.prestige_points)
+      : Number(entry.score) || 0;
     score.textContent =
-      scoreValue > 0 ? `+${scoreValue.toLocaleString()} pts` : `${scoreValue.toLocaleString()} pts`;
+      prestigeValue > 0
+        ? `Prestige +${prestigeValue.toLocaleString()} pts`
+        : `Prestige ${prestigeValue.toLocaleString()} pts`;
     nameRow.appendChild(heading);
     nameRow.appendChild(score);
     const meta = document.createElement('p');

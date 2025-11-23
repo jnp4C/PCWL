@@ -366,6 +366,17 @@ def _ensure_no_active_party(player: Player) -> None:
         raise PartyError("Player is already in an active party.")
 
 
+def _restart_party_duration(party: Party, *, now: Optional[timezone.datetime] = None) -> None:
+    """Restart the party countdown when the first teammate joins the leader."""
+    if not party or not party.is_active():
+        return
+    when = now or timezone.now()
+    new_expiry = when + DEFAULT_PARTY_DURATION
+    party.expires_at = new_expiry
+    party.updated_at = when
+    party.save(update_fields=["expires_at", "updated_at"])
+
+
 def _are_direct_friends(player_a: Player, player_b: Player) -> bool:
     return FriendLink.objects.filter(player=player_a, friend=player_b).exists() or FriendLink.objects.filter(
         player=player_b, friend=player_a
@@ -450,11 +461,14 @@ def respond_to_party_invitation(invitation: PartyInvitation, player: Player, acc
             active_count = party.memberships.filter(left_at__isnull=True).count()
             if active_count >= MAX_PARTY_MEMBERS:
                 raise PartyInviteError("Party is already full.")
+            was_solo_party = active_count <= 1
             PartyMembership.objects.create(
                 party=party,
                 player=player,
                 joined_at=timezone.now(),
             )
+            if was_solo_party:
+                _restart_party_duration(party)
             # Cancel any pending join requests from this player to this party
             PartyJoinRequest.objects.filter(
                 party=party,
@@ -538,11 +552,14 @@ def respond_to_party_join_request(join_request: PartyJoinRequest, leader: Player
         active_count = party.memberships.filter(left_at__isnull=True).count()
         if active_count >= MAX_PARTY_MEMBERS:
             raise PartyInviteError("Party is already full.")
+        was_solo_party = active_count <= 1
         PartyMembership.objects.create(
             party=party,
             player=join_request.from_player,
             joined_at=timezone.now(),
         )
+        if was_solo_party:
+            _restart_party_duration(party)
         # Cancel any pending invitations to the requester for this same party
         PartyInvitation.objects.filter(
             party=party,
@@ -638,11 +655,12 @@ def _member_inferred_district(member: Player, party_code: Optional[str] = None) 
 def _determine_party_active_district(party: Party, members: Optional[List[Player]] = None) -> Dict[str, Any]:
     """Compute the party's active district based on majority presence.
 
-    Returns a dict: {"code": str|None, "name": str|None, "count": int}
-    Active if count >= 2. Name is a best-effort from members' last_known_location.
+    Returns a dict: {"code": str|None, "name": str|None, "count": int, "ready": bool}
+    The district is derived from where members are currently located (or last played).
+    A single member sets the active district; `ready` flags when 2+ are present.
     """
     if party is None:
-        return {"code": None, "name": None, "count": 0}
+        return {"code": None, "name": None, "count": 0, "ready": False}
 
     if members is None:
         active_memberships = (
@@ -675,7 +693,7 @@ def _determine_party_active_district(party: Party, members: Optional[List[Player
                     pass
 
     if not counts:
-        return {"code": None, "name": None, "count": 0}
+        return {"code": None, "name": None, "count": 0, "ready": False}
 
     # pick max count; if tie, pick most recent timestamp
     best_code = None
@@ -691,11 +709,13 @@ def _determine_party_active_district(party: Party, members: Optional[List[Player
                 best_code = code
                 best_count = cnt
 
-    if best_count < 2:
-        return {"code": None, "name": None, "count": best_count}
-
     name = names.get(best_code) or ""
-    return {"code": best_code, "name": name, "count": best_count}
+    return {
+        "code": best_code,
+        "name": name,
+        "count": best_count,
+        "ready": best_count >= 2,
+    }
 
 
 def _resolve_party_context(

@@ -1,7 +1,7 @@
 from django.contrib.auth import authenticate, login, logout
 from django.db import transaction
 from datetime import timedelta
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from django.db.models import Case, Count, F, Q, Sum, When, Max
 from django.db.models.functions import Coalesce
@@ -65,6 +65,7 @@ from .services import (
     PARTY_CONTRIBUTION_DISTRICT_PER_PLAYER,
     PARTY_CONTRIBUTION_PLAYER_MULTIPLIER,
     _normalise_district_code,
+    _determine_party_active_district,
     respond_to_party_invitation,
     start_charge,
 )
@@ -114,6 +115,7 @@ def _build_party_preview_for_viewer(
     member_usernames: Optional[List[str]] = None,
     leader_location_name: str = "",
     party_stats: Optional[Dict[str, int]] = None,
+    active_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     now = timezone.now()
     seconds_remaining = None
@@ -162,6 +164,23 @@ def _build_party_preview_for_viewer(
     except Exception:
         last_active_ts = None
 
+    active_details = active_context or {}
+    active_district_code = _clean_district_code(active_details.get("code") or None) or ""
+    active_district_name = (active_details.get("name") or "").strip()
+    try:
+        active_district_count = int(active_details.get("count") or 0)
+    except Exception:
+        active_district_count = 0
+    active_district_ready = bool(active_details.get("ready", active_district_count >= 2))
+    district_prestige_points = int(active_details.get("prestige_points") or 0)
+    prestige_last = active_details.get("prestige_last_active_at")
+    district_prestige_last_ts = None
+    try:
+        if prestige_last:
+            district_prestige_last_ts = int(prestige_last.timestamp() * 1000)
+    except Exception:
+        district_prestige_last_ts = None
+
     return {
         "code": party.code,
         "name": party.name or "",
@@ -183,6 +202,12 @@ def _build_party_preview_for_viewer(
         "attack_checkins": attack_checkins,
         "contribution_checkins": contribution_checkins,
         "last_active_at": last_active_ts,
+        "active_district_code": active_district_code,
+        "active_district_name": active_district_name,
+        "active_district_count": active_district_count,
+        "active_district_ready": active_district_ready,
+        "district_prestige_points": district_prestige_points,
+        "district_prestige_last_active_at": district_prestige_last_ts,
     }
 
 
@@ -217,6 +242,8 @@ def _gather_party_previews(
     for membership in leader_memberships:
         if membership.party and membership.party.code:
             party_codes[membership.party_id] = membership.party.code
+    if viewer_membership and viewer_membership.party and viewer_membership.party.code and viewer_party_id:
+        party_codes[viewer_party_id] = viewer_membership.party.code
 
     party_stats: Dict[int, Dict[str, int]] = {}
     if party_ids:
@@ -246,22 +273,65 @@ def _gather_party_previews(
                 "last_active_at": row.get("last_active_at"),
             }
 
-    member_counts = {
-        row["party_id"]: row["total"]
-        for row in (
-            PartyMembership.objects.filter(party_id__in=party_ids, left_at__isnull=True)
-            .values("party_id")
-            .annotate(total=Count("id"))
-        )
-    }
+    party_lookup: Dict[int, Party] = {}
+    for membership in leader_memberships:
+        if membership.party_id and membership.party:
+            party_lookup[membership.party_id] = membership.party
+    if viewer_membership and viewer_membership.party_id and viewer_membership.party:
+        party_lookup[viewer_membership.party_id] = viewer_membership.party
+
+    members_by_party: Dict[int, List[Player]] = {}
     member_usernames: Dict[int, List[str]] = {}
     if party_ids:
-        for membership in PartyMembership.objects.select_related("player").filter(
+        for membership in PartyMembership.objects.select_related("player", "party").filter(
             party_id__in=party_ids, left_at__isnull=True
         ):
-            if not membership.party_id or membership.player_id == membership.party.leader_id:
+            if not membership.party_id:
                 continue
-            member_usernames.setdefault(membership.party_id, []).append(membership.player.username)
+            members_by_party.setdefault(membership.party_id, []).append(membership.player)
+            if membership.party:
+                party_lookup.setdefault(membership.party_id, membership.party)
+                if membership.player_id != membership.party.leader_id:
+                    member_usernames.setdefault(membership.party_id, []).append(membership.player.username)
+
+    member_counts = {pid: len(members) for pid, members in members_by_party.items()}
+    if party_ids:
+        missing_ids = [pid for pid in party_ids if pid not in member_counts]
+        if missing_ids:
+            extras = {
+                row["party_id"]: row["total"]
+                for row in (
+                    PartyMembership.objects.filter(party_id__in=missing_ids, left_at__isnull=True)
+                    .values("party_id")
+                    .annotate(total=Count("id"))
+                )
+            }
+            member_counts.update(extras)
+
+    active_contexts: Dict[int, Dict[str, Any]] = {}
+    for pid, member_list in members_by_party.items():
+        party_obj = party_lookup.get(pid)
+        if not party_obj:
+            continue
+        active_contexts[pid] = _determine_party_active_district(party_obj, member_list) or {}
+
+    district_prestige_map: Dict[Tuple[int, str], DistrictPartyStat] = {}
+    if party_ids:
+        prestige_rows = DistrictPartyStat.objects.select_related("district").filter(party_id__in=party_ids)
+        for stat in prestige_rows:
+            code = _clean_district_code(stat.district.code if stat.district else None)
+            if not code:
+                continue
+            district_prestige_map[(stat.party_id, code)] = stat
+
+    for pid, ctx in active_contexts.items():
+        code = _clean_district_code(ctx.get("code") or None)
+        if code:
+            ctx["code"] = code
+            stat = district_prestige_map.get((pid, code))
+            if stat:
+                ctx["prestige_points"] = int(stat.prestige_points or 0)
+                ctx["prestige_last_active_at"] = stat.last_activity_at
     pending_join_party_ids = {
         jr.party_id
         for jr in PartyJoinRequest.objects.filter(
@@ -312,6 +382,7 @@ def _gather_party_previews(
             member_usernames=member_usernames.get(party.id, []),
             leader_location_name=leader_location_name,
             party_stats=party_stats.get(party.id),
+            active_context=active_contexts.get(party.id),
         )
     # Also attach the viewer's active party preview to any party members in the candidate list.
     if viewer_membership and viewer_party_id and viewer_party_id in party_ids:
@@ -338,6 +409,7 @@ def _gather_party_previews(
                     member_usernames=member_usernames.get(viewer_party_id, []),
                     leader_location_name="",
                     party_stats=party_stats.get(viewer_party_id),
+                    active_context=active_contexts.get(viewer_party_id),
                 )
     return previews
 
@@ -369,23 +441,31 @@ def _build_party_payload(party: Party, player: Player) -> Optional[Dict[str, Any
             )
         )
 
-    # Determine active district by majority presence among members (>= 2)
-    try:
-        from .services import _determine_party_active_district
-    except Exception:
-        _determine_party_active_district = None  # type: ignore
     active_district_code = None
     active_district_name = None
     active_district_count = 0
-    if _determine_party_active_district is not None:
-        active_info = _determine_party_active_district(party, member_players)
-        if isinstance(active_info, dict):
-            active_district_code = active_info.get("code") or None
-            active_district_name = active_info.get("name") or None
-            try:
-                active_district_count = int(active_info.get("count") or 0)
-            except (TypeError, ValueError):
-                active_district_count = 0
+    active_district_ready = False
+    active_info = _determine_party_active_district(party, member_players)
+    if isinstance(active_info, dict):
+        active_district_code = _clean_district_code(active_info.get("code") or None)
+        active_district_name = active_info.get("name") or None
+        try:
+            active_district_count = int(active_info.get("count") or 0)
+        except (TypeError, ValueError):
+            active_district_count = 0
+        active_district_ready = bool(active_info.get("ready", active_district_count >= 2))
+
+    district_prestige_points = 0
+    district_prestige_last_active_at = None
+    if active_district_code:
+        prestige_stat = (
+            DistrictPartyStat.objects.select_related("district")
+            .filter(party=party, district__code__iexact=active_district_code)
+            .first()
+        )
+        if prestige_stat:
+            district_prestige_points = int(prestige_stat.prestige_points or 0)
+            district_prestige_last_active_at = prestige_stat.last_activity_at
 
     seconds_remaining = None
     if party.expires_at:
@@ -439,6 +519,9 @@ def _build_party_payload(party: Party, player: Player) -> Optional[Dict[str, Any
         "active_district_code": active_district_code or "",
         "active_district_name": active_district_name or "",
         "active_district_count": active_district_count,
+        "active_district_ready": active_district_ready,
+        "district_prestige_points": district_prestige_points,
+        "district_prestige_last_active_at": district_prestige_last_active_at,
     }
 
 
@@ -1205,6 +1288,7 @@ class DistrictActivityView(APIView):
                 "leader": entry.get("leader", ""),
                 "color": entry.get("color", ""),
                 "score": entry.get("score", 0),
+                "prestige_points": entry.get("prestige_points", entry.get("score", 0)),
                 "member_count": entry.get("member_count", 0),
                 "last_active_at": entry.get("last_activity_at"),
             }
@@ -1756,7 +1840,7 @@ def _build_district_party_rankings(
     counts: Dict[str, int] = {}
     party_ids: Set[int] = set()
     for stat in stats:
-        code = (stat.district.code or "").strip()
+        code = _clean_district_code(stat.district.code if stat.district else None) or ""
         if not code:
             continue
         current_count = counts.get(code, 0)
@@ -1770,6 +1854,7 @@ def _build_district_party_rankings(
             "leader": party.leader.username if party and party.leader_id else "",
             "color": party.leader.map_marker_color if party and party.leader else "",
             "score": int(stat.prestige_points or 0),
+            "prestige_points": int(stat.prestige_points or 0),
             "last_activity_at": stat.last_activity_at,
         }
         rankings.setdefault(code, []).append(entry)
