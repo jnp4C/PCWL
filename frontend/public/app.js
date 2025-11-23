@@ -6990,6 +6990,17 @@ function applyUrbanOverlayVisibility(forceToggleValue = null) {
   });
 }
 
+function normalisePartyCode(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+  return safeId(trimmed);
+}
+
 function buildPartyPrestigeCardElement({ partyCode, partyName, prestigePoints, statusLabel, detailParts }) {
   const prestigeCard = document.createElement('div');
   prestigeCard.className = 'character-card friend-profile-party';
@@ -13461,6 +13472,9 @@ function renderCharacterPartyPrestige(profile = null) {
 
   let leaderCardRendered = false;
   if (liveParty && typeof liveParty === 'object') {
+    const partyCode = normalisePartyCode(
+      liveParty.code || liveParty.partyCode || liveParty.party_code || ''
+    );
     const activeDistrictLabel =
       (typeof liveParty.activeDistrictName === 'string' && liveParty.activeDistrictName.trim()) ||
       (liveParty.activeDistrictCode ? `District ${liveParty.activeDistrictCode}` : '');
@@ -13492,6 +13506,7 @@ function renderCharacterPartyPrestige(profile = null) {
     }
     const leaderCard = buildPartyPrestigeCardElement({
       partyCode: liveParty.code,
+      partyCode,
       partyName:
         typeof liveParty.name === 'string' && liveParty.name.trim()
           ? liveParty.name.trim()
@@ -13572,6 +13587,7 @@ function renderCharacterPartyPrestige(profile = null) {
     })();
 
   if (topOtherParty) {
+    const partyCode = normalisePartyCode(topOtherParty.code || '');
     const name = topOtherParty.name || (topOtherParty.code ? `Party ${topOtherParty.code}` : 'Party');
     const detailParts = [];
     const lastActive =
@@ -13587,7 +13603,7 @@ function renderCharacterPartyPrestige(profile = null) {
         ? Number(topOtherParty.prestigePoints)
         : Number(topOtherParty.points) || 0;
     const otherCard = buildPartyPrestigeCardElement({
-      partyCode: topOtherParty.code,
+      partyCode,
       partyName: name,
       prestigePoints,
       statusLabel: 'Top contributed party',
