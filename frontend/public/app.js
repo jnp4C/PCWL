@@ -10436,6 +10436,11 @@ function renderFriendProfileContent(friend) {
   const liveParty = leaderHighlight || friend.activeParty || friend.active_party || null;
   const partyCardGrid = document.createElement('div');
   partyCardGrid.className = 'friend-profile-party-grid';
+  if (!partyCardGrid.dataset.handlersAttached) {
+    partyCardGrid.addEventListener('click', handlePartyCardActivate);
+    partyCardGrid.addEventListener('keydown', handlePartyCardActivate);
+    partyCardGrid.dataset.handlersAttached = 'true';
+  }
 
   const buildPartyPrestigeCard = ({ partyCode, partyName, prestigePoints, statusLabel, detailParts }) => {
     const prestigeCard = document.createElement('div');
