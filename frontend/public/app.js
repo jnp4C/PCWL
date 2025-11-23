@@ -5315,6 +5315,25 @@ function sanitizePartyProfile(raw) {
   if (!code) {
     return null;
   }
+  const activeMembers = Array.isArray(raw.active_members)
+    ? raw.active_members
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') {
+            return null;
+          }
+          const username = typeof entry.username === 'string' ? entry.username : '';
+          if (!username) {
+            return null;
+          }
+          return {
+            username,
+            displayName:
+              typeof entry.display_name === 'string' ? entry.display_name : '',
+            isLeader: Boolean(entry.is_leader),
+          };
+        })
+        .filter(Boolean)
+    : [];
   const topPlayers = Array.isArray(raw.top_players)
     ? raw.top_players
         .map((entry) => {
@@ -5365,10 +5384,12 @@ function sanitizePartyProfile(raw) {
       name: typeof party.name === 'string' ? party.name : '',
       leader: typeof party.leader === 'string' ? party.leader : '',
       memberCount: Math.max(0, Number(party.member_count) || 0),
+      lifetimeMemberCount: Math.max(0, Number(party.lifetime_member_count) || 0),
       status: typeof party.status === 'string' ? party.status : '',
       expiresAt: parseServerTimestamp(party.expires_at),
       lastActiveAt: parseServerTimestamp(party.last_active_at),
       prestigeTotal: Number.isFinite(Number(party.prestige_total)) ? Number(party.prestige_total) : null,
+      activeMembers,
     },
     topPlayers,
     districts,
@@ -8135,15 +8156,51 @@ function buildFriendLocationsGeoJson(friends) {
   const activeParty = getActivePartyState ? getActivePartyState() : null;
   const viewerPartyCode = activeParty && activeParty.code ? activeParty.code : '';
   const partySeen = new Set();
+  const partyFeatureMap = new Map();
   friends.forEach((friend) => {
     const feature = createFriendLocationFeature(friend);
     if (feature) {
       const partyCode = feature.properties.activePartyCode || '';
-      if (viewerPartyCode && partyCode && partyCode === viewerPartyCode) {
-        if (partySeen.has(partyCode)) {
+      const coords = Array.isArray(feature.geometry && feature.geometry.coordinates)
+        ? feature.geometry.coordinates
+        : null;
+      if (partyCode && coords && coords.length === 2) {
+        if (viewerPartyCode && partyCode === viewerPartyCode && partySeen.has(partyCode)) {
           return;
         }
+        const partyKey = [
+          partyCode,
+          feature.properties && feature.properties.districtId ? feature.properties.districtId : '',
+          coords[0],
+          coords[1],
+        ].join(':');
+        const username =
+          feature.properties && typeof feature.properties.username === 'string'
+            ? feature.properties.username
+            : '';
+        const existing = partyFeatureMap.get(partyKey);
+        if (existing) {
+          const members = Array.isArray(existing.properties.partyMemberUsernames)
+            ? existing.properties.partyMemberUsernames
+            : [];
+          if (username && !members.includes(username)) {
+            members.push(username);
+          }
+          existing.properties.partyMemberUsernames = members;
+          const existingSize = Number(existing.properties.activePartySize) || members.length || 1;
+          const candidateSize = Number(feature.properties.activePartySize) || members.length || 1;
+          existing.properties.activePartySize = Math.max(existingSize, candidateSize);
+          existing.properties.activePartyScore = Math.max(
+            Number(existing.properties.activePartyScore) || 0,
+            Number(feature.properties.activePartyScore) || 0,
+          );
+          return;
+        }
+        feature.properties.partyMemberUsernames = username ? [username] : [];
+        partyFeatureMap.set(partyKey, feature);
         partySeen.add(partyCode);
+        features.push(feature);
+        return;
       }
       features.push(feature);
     }
@@ -8196,17 +8253,27 @@ function rebuildFriendLocationMarkers() {
       badge.className = 'friend-party-chip';
       badge.style.background = markerColor;
       badge.style.boxShadow = `0 0 14px ${markerColor}55`;
+      const dot = document.createElement('div');
+      dot.className = 'friend-party-chip-dot';
+      dot.style.background = '#0f0f1a';
+      dot.style.boxShadow = `0 0 0 2px ${markerColor}`;
+      badge.appendChild(dot);
       const title = document.createElement('div');
       title.className = 'friend-party-chip-title';
       title.textContent = partyName || 'Party';
       badge.appendChild(title);
-      const avatar = document.createElement('div');
-      avatar.className = 'friend-party-chip-avatar';
-      avatar.style.background = '#0f0f1a';
-      avatar.style.color = markerColor;
-      const initial = username ? username.charAt(0).toUpperCase() : 'P';
-      avatar.textContent = initial;
-      badge.appendChild(avatar);
+      const memberCount =
+        (feature.properties && Number(feature.properties.activePartySize)) ||
+        (feature.properties &&
+          Array.isArray(feature.properties.partyMemberUsernames) &&
+          feature.properties.partyMemberUsernames.length) ||
+        0;
+      if (memberCount > 1) {
+        const meta = document.createElement('div');
+        meta.className = 'friend-party-chip-meta';
+        meta.textContent = `${memberCount} members`;
+        badge.appendChild(meta);
+      }
       el.appendChild(badge);
     } else {
       const nameSpan = document.createElement('span');
@@ -8227,7 +8294,25 @@ function rebuildFriendLocationMarkers() {
       deltaSpan.textContent = `${prefix}${FRIEND_DELTA_FORMATTER.format(Math.abs(deltaRaw))}`;
       el.appendChild(deltaSpan);
     }
-    if (username) {
+    if (partyCode) {
+      el.dataset.partyCode = partyCode;
+      el.setAttribute('role', 'button');
+      el.setAttribute('aria-label', `Open ${partyName || 'party'} profile`);
+      el.tabIndex = 0;
+      const activatePartyProfile = (event) => {
+        if (event) {
+          event.stopPropagation();
+          event.preventDefault();
+        }
+        openPartyProfileDrawer(partyCode, el);
+      };
+      el.addEventListener('click', activatePartyProfile);
+      el.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+          activatePartyProfile(event);
+        }
+      });
+    } else if (username) {
       el.dataset.username = username;
       el.setAttribute('role', 'button');
       el.setAttribute('aria-label', `Open @${username}'s profile`);
@@ -10913,9 +10998,47 @@ function renderPartyProfileContent(profile) {
   title.textContent = party.name ? party.name : `Party ${party.code}`;
   const subtitle = document.createElement('p');
   subtitle.className = 'party-profile-subtitle';
-  subtitle.textContent = `Leader @${party.leader || 'unknown'} • ${party.memberCount} member${party.memberCount === 1 ? '' : 's'}`;
+  const lifetimeCount = Math.max(party.memberCount, party.lifetimeMemberCount || 0);
+  const subtitleParts = [`Leader @${party.leader || 'unknown'}`];
+  if (party.status === 'active' && party.memberCount) {
+    subtitleParts.push(`${party.memberCount} active`);
+  } else {
+    subtitleParts.push(`${party.memberCount} member${party.memberCount === 1 ? '' : 's'}`);
+  }
+  if (lifetimeCount && lifetimeCount !== party.memberCount) {
+    subtitleParts.push(`${lifetimeCount} all-time`);
+  }
+  subtitle.textContent = subtitleParts.filter(Boolean).join(' • ');
   header.appendChild(title);
   header.appendChild(subtitle);
+  if (party.status && typeof party.status === 'string') {
+    const statusTag = document.createElement('span');
+    statusTag.className = 'party-profile-status';
+    statusTag.textContent = party.status === 'active' ? 'Active' : party.status;
+    header.appendChild(statusTag);
+  }
+
+  const activeMembers = Array.isArray(party.activeMembers) ? party.activeMembers : [];
+  let membersCard = null;
+  if (party.status === 'active' && activeMembers.length) {
+    membersCard = document.createElement('div');
+    membersCard.className = 'character-card party-profile-card';
+    const membersTitle = document.createElement('div');
+    membersTitle.className = 'party-profile-card-title';
+    membersTitle.textContent = 'Current members';
+    membersCard.appendChild(membersTitle);
+    const membersList = document.createElement('ul');
+    membersList.className = 'party-profile-list';
+    activeMembers.forEach((member) => {
+      const li = document.createElement('li');
+      li.className = 'party-profile-list-item';
+      const display = member.displayName ? member.displayName : `@${member.username}`;
+      const role = member.isLeader ? 'Leader' : 'Member';
+      li.textContent = `${display} • ${role}`;
+      membersList.appendChild(li);
+    });
+    membersCard.appendChild(membersList);
+  }
 
   const districtsCard = document.createElement('div');
   districtsCard.className = 'character-card party-profile-card';
@@ -10977,6 +11100,9 @@ function renderPartyProfileContent(profile) {
   contributorsCard.appendChild(contribList);
 
   partyProfileBody.appendChild(header);
+  if (membersCard) {
+    partyProfileBody.appendChild(membersCard);
+  }
   partyProfileBody.appendChild(districtsCard);
   partyProfileBody.appendChild(contributorsCard);
 }

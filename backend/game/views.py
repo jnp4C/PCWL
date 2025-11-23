@@ -146,9 +146,25 @@ def _top_party_prestige_contributors(party: Party, *, limit: int = 5) -> List[Di
 
 
 def _build_party_profile_payload(party: Party) -> Dict[str, Any]:
-    member_count = (
-        PartyMembership.objects.filter(party=party, left_at__isnull=True).count()
+    active_memberships = list(
+        PartyMembership.objects.select_related("player").filter(
+            party=party, left_at__isnull=True
+        )
     )
+    member_count = len(active_memberships)
+    lifetime_member_count = (
+        PartyMembership.objects.filter(party=party)
+        .values("player_id")
+        .distinct()
+        .count()
+    )
+    active_members = [
+        _serialize_party_member(
+            membership.player, is_leader=membership.is_leader, is_self=False
+        )
+        for membership in active_memberships
+        if membership.player
+    ]
     checkin_rows = (
         CheckIn.objects.filter(Q(party=party) | Q(party_code__iexact=party.code))
         .values("district_code")
@@ -264,6 +280,7 @@ def _build_party_profile_payload(party: Party) -> Dict[str, Any]:
             "name": party.name or "",
             "leader": party.leader.username if party.leader_id else "",
             "member_count": member_count,
+            "lifetime_member_count": lifetime_member_count,
             "status": party.status,
             "expires_at": party.expires_at,
             "last_active_at": party.last_active_at or latest_activity,
@@ -271,6 +288,7 @@ def _build_party_profile_payload(party: Party) -> Dict[str, Any]:
         },
         "districts": districts,
         "top_players": top_players,
+        "active_members": active_members,
     }
 
 
