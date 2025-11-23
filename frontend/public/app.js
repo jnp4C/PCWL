@@ -12852,10 +12852,14 @@ function renderDistrictLeaderboard(data) {
       li.textContent = 'No attack activity yet.';
       districtLeaderboardAggressive.appendChild(li);
     } else {
+      const lastIndex = data.aggressive.length - 1;
       data.aggressive.forEach((item, index) => {
         const li = document.createElement('li');
         const rankClass = index === 0 ? 'rank-1' : index === 1 ? 'rank-2' : index === 2 ? 'rank-3' : 'rank-rest';
         li.classList.add(rankClass);
+        if (index === lastIndex && lastIndex > 0) {
+          li.classList.add('rank-last');
+        }
         const nameSpan = document.createElement('span');
         nameSpan.className = 'leaderboard-name';
         nameSpan.textContent = `@${item.username}`;
@@ -12877,10 +12881,14 @@ function renderDistrictLeaderboard(data) {
       li.textContent = 'No defensive activity yet.';
       districtLeaderboardSupport.appendChild(li);
     } else {
+      const lastIndex = data.supporters.length - 1;
       data.supporters.forEach((item, index) => {
         const li = document.createElement('li');
         const rankClass = index === 0 ? 'rank-1' : index === 1 ? 'rank-2' : index === 2 ? 'rank-3' : 'rank-rest';
         li.classList.add(rankClass);
+        if (index === lastIndex && lastIndex > 0) {
+          li.classList.add('rank-last');
+        }
         const nameSpan = document.createElement('span');
         nameSpan.className = 'leaderboard-name';
         nameSpan.textContent = `@${item.username}`;
