@@ -10507,6 +10507,10 @@ function renderFriendProfileContent(friend) {
   let leaderCardRendered = false;
   if (leaderHighlightProfile && leaderHighlightProfile.party) {
     const partyCode = leaderHighlightProfile.party.code || '';
+    const partyName =
+      (typeof leaderHighlightProfile.party.name === 'string' && leaderHighlightProfile.party.name.trim()
+        ? leaderHighlightProfile.party.name.trim()
+        : partyCode) || 'Party prestige';
     const prestigePoints = computeProfileTotalPrestige(leaderHighlightProfile);
     const detailParts = [];
     const lastActive = leaderHighlightProfile.party.lastActiveAt || leaderHighlightProfile.party.expiresAt;
@@ -10516,7 +10520,7 @@ function renderFriendProfileContent(friend) {
     detailParts.push('Total prestige across sessions');
     const leaderCard = buildPartyPrestigeCard({
       partyCode,
-      partyName: leaderHighlightProfile.party.name || partyCode || 'Party prestige',
+      partyName,
       prestigePoints,
       statusLabel: leaderHighlightProfile.party.leader ? `Leader @${leaderHighlightProfile.party.leader}` : 'Leader party',
       detailParts,
@@ -13548,6 +13552,10 @@ function renderCharacterPartyPrestige(profile = null) {
   let leaderCardRendered = false;
   if (leaderHighlightProfile && leaderHighlightProfile.party) {
     const partyCode = leaderHighlightProfile.party.code || '';
+    const hasCustomName =
+      typeof leaderHighlightProfile.party.name === 'string' && leaderHighlightProfile.party.name.trim();
+    const partyName =
+      hasCustomName ? leaderHighlightProfile.party.name.trim() : partyCode || 'Name your party';
     const prestigePoints = computeProfileTotalPrestige(leaderHighlightProfile);
     const detailParts = [];
     const lastActive = leaderHighlightProfile.party.lastActiveAt || leaderHighlightProfile.party.expiresAt;
@@ -13555,9 +13563,12 @@ function renderCharacterPartyPrestige(profile = null) {
       detailParts.push(`Updated ${formatTimeAgo(lastActive)}`);
     }
     detailParts.push('Total prestige across sessions');
+    if (!hasCustomName) {
+      detailParts.push('Name your party and start inviting friends in Party Boost.');
+    }
     const leaderCard = buildPartyPrestigeCardElement({
       partyCode,
-      partyName: leaderHighlightProfile.party.name || partyCode || 'Party prestige',
+      partyName,
       prestigePoints,
       statusLabel: leaderHighlightProfile.party.leader ? `Leader @${leaderHighlightProfile.party.leader}` : 'Leader party',
       detailParts,
