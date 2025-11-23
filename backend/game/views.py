@@ -2127,6 +2127,8 @@ def _build_district_party_rankings(
                 "prestige_points": 0,
                 "last_activity_at": stat.last_activity_at,
                 "member_count": 0,
+                "attack_points": 0,
+                "defend_points": 0,
             }
         current["prestige_points"] += int(stat.prestige_points or 0)
         # Keep latest activity metadata
@@ -2141,6 +2143,36 @@ def _build_district_party_rankings(
         if party_id and not current.get("party_id"):
             current["party_id"] = party_id
         district_parties[party_code] = current
+
+    # Enrich with attack/defend breakdown from check-ins
+    if party_ids:
+        checkins = (
+            CheckIn.objects.filter(district_code__in=district_codes, party_id__in=party_ids)
+            .values("district_code", "party_id", "action")
+            .annotate(total=Coalesce(Sum("district_points_delta"), 0))
+        )
+        for row in checkins:
+            district_code = _clean_district_code(row.get("district_code")) or ""
+            if not district_code or district_code not in aggregated:
+                continue
+            party_id = row.get("party_id")
+            if not party_id:
+                continue
+            parties = aggregated[district_code]
+            # Find entry by party_id
+            target_entry = None
+            for entry in parties.values():
+                if entry.get("party_id") == party_id:
+                    target_entry = entry
+                    break
+            if target_entry is None:
+                continue
+            action = row.get("action")
+            total = int(row.get("total") or 0)
+            if action == CheckIn.Action.ATTACK:
+                target_entry["attack_points"] = target_entry.get("attack_points", 0) + abs(total)
+            elif action == CheckIn.Action.DEFEND:
+                target_entry["defend_points"] = target_entry.get("defend_points", 0) + abs(total)
 
     member_counts: Dict[int, int] = {}
     if party_ids:
@@ -2161,6 +2193,8 @@ def _build_district_party_rankings(
             if party_id in member_counts:
                 entry["member_count"] = max(entry.get("member_count", 0), member_counts.get(party_id, 0))
             entry["score"] = int(entry.get("prestige_points") or 0)
+            entry["attack_points"] = int(entry.get("attack_points") or 0)
+            entry["defend_points"] = int(entry.get("defend_points") or 0)
             entries.append(entry)
         entries.sort(
             key=lambda e: (

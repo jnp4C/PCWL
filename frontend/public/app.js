@@ -13130,10 +13130,12 @@ function renderDistrictPartyList(entries) {
     const prestigeValue = Number.isFinite(Number(entry.prestige_points))
       ? Number(entry.prestige_points)
       : Number(entry.score) || 0;
-    score.textContent =
-      prestigeValue > 0
-        ? `Prestige +${prestigeValue.toLocaleString()} pts`
-        : `Prestige ${prestigeValue.toLocaleString()} pts`;
+    const attackPoints = Math.max(0, Math.round(Number(entry.attack_points) || 0));
+    const defendPoints = Math.max(0, Math.round(Number(entry.defend_points) || 0));
+    const totalLabel = prestigeValue.toLocaleString();
+    const attackLabel = `+${attackPoints.toLocaleString()}`;
+    const defendLabel = defendPoints ? `-${defendPoints.toLocaleString()}` : '-0';
+    score.textContent = `Prestige ${totalLabel} (${attackLabel} / ${defendLabel})`;
     nameRow.appendChild(heading);
     nameRow.appendChild(score);
     const meta = document.createElement('p');
