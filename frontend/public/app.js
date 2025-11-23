@@ -7001,65 +7001,6 @@ function normalisePartyCode(value) {
   return safeId(trimmed);
 }
 
-function aggregateDistrictParties(parties) {
-  if (!Array.isArray(parties) || !parties.length) {
-    return [];
-  }
-  const mapByCode = new Map();
-  parties.forEach((raw) => {
-    if (!raw || typeof raw !== 'object') {
-      return;
-    }
-    const code = normalisePartyCode(raw.code || raw.party_code);
-    if (!code) {
-      return;
-    }
-    const prestigeValue = Number.isFinite(Number(raw.prestige_points))
-      ? Number(raw.prestige_points)
-      : Number(raw.score) || 0;
-    const lastActive = Number(raw.last_active_at);
-    const memberCount = Number(raw.member_count);
-    const entry = mapByCode.get(code) || {
-      code,
-      prestige_points: 0,
-      name: '',
-      leader: '',
-      member_count: 0,
-      last_active_at: null,
-      color: '',
-    };
-    entry.prestige_points += Math.max(0, prestigeValue);
-    if (!entry.name && typeof raw.name === 'string' && raw.name.trim()) {
-      entry.name = raw.name.trim();
-    }
-    if (!entry.leader && typeof raw.leader === 'string' && raw.leader.trim()) {
-      entry.leader = raw.leader.trim();
-    }
-    if (Number.isFinite(memberCount)) {
-      entry.member_count = Math.max(entry.member_count || 0, memberCount);
-    }
-    if (Number.isFinite(lastActive)) {
-      entry.last_active_at = entry.last_active_at ? Math.max(entry.last_active_at, lastActive) : lastActive;
-    }
-    if (!entry.color && typeof raw.color === 'string' && raw.color) {
-      entry.color = raw.color;
-    }
-    mapByCode.set(code, entry);
-  });
-  const aggregated = Array.from(mapByCode.values());
-  aggregated.sort((a, b) => {
-    const prestigeA = Number.isFinite(Number(a.prestige_points)) ? Number(a.prestige_points) : 0;
-    const prestigeB = Number.isFinite(Number(b.prestige_points)) ? Number(b.prestige_points) : 0;
-    if (prestigeA !== prestigeB) {
-      return prestigeB - prestigeA;
-    }
-    const lastA = Number.isFinite(Number(a.last_active_at)) ? Number(a.last_active_at) : 0;
-    const lastB = Number.isFinite(Number(b.last_active_at)) ? Number(b.last_active_at) : 0;
-    return lastB - lastA;
-  });
-  return aggregated;
-}
-
 function buildPartyPrestigeCardElement({ partyCode, partyName, prestigePoints, statusLabel, detailParts }) {
   const prestigeCard = document.createElement('div');
   prestigeCard.className = 'character-card friend-profile-party';
@@ -13201,14 +13142,11 @@ async function refreshDistrictPartyActivity(
   }
   const cached = districtPartyCache.get(code);
   if (!force && cached) {
-    const normalisedCached = aggregateDistrictParties(cached);
-    districtPartyCache.set(code, normalisedCached);
-    updateDistrictPartySection(normalisedCached);
+    updateDistrictPartySection(cached);
   }
   try {
     const response = await apiRequest(`districts/${encodeURIComponent(code)}/activity/`);
-    const rawParties = Array.isArray(response?.top_parties) ? response.top_parties : [];
-    const parties = aggregateDistrictParties(rawParties);
+    const parties = Array.isArray(response?.top_parties) ? response.top_parties : [];
     districtPartyCache.set(code, parties);
     updateDistrictPartySection(parties);
     const topParty = parties && parties.length ? parties[0] : null;

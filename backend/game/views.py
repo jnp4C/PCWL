@@ -2083,32 +2083,48 @@ def _build_district_party_rankings(
         .select_related("district", "party", "party__leader")
         .order_by("district__code", "-prestige_points", "-last_activity_at")
     )
-    rankings: Dict[str, List[Dict[str, Any]]] = {}
-    counts: Dict[str, int] = {}
+    aggregated: Dict[str, Dict[str, Dict[str, Any]]] = {}
     party_ids: Set[int] = set()
     for stat in stats:
-        code = _clean_district_code(stat.district.code if stat.district else None) or ""
-        if not code:
-            continue
-        current_count = counts.get(code, 0)
-        if current_count >= limit_per_district:
+        district_code = _clean_district_code(stat.district.code if stat.district else None) or ""
+        if not district_code:
             continue
         party = stat.party
-        entry = {
-            "party_id": party.id if party else None,
-            "party_code": party.code if party else "",
-            "party_name": party.name if party else "",
-            "leader": party.leader.username if party and party.leader_id else "",
-            "color": party.leader.map_marker_color if party and party.leader else "",
-            "score": int(stat.prestige_points or 0),
-            "prestige_points": int(stat.prestige_points or 0),
-            "last_activity_at": stat.last_activity_at,
-        }
-        rankings.setdefault(code, []).append(entry)
-        counts[code] = current_count + 1
-        if party and party.id:
-            party_ids.add(party.id)
+        party_code = (party.code if party else "").strip()
+        if not party_code:
+            continue
+        party_id = party.id if party else None
+        if party_id:
+            party_ids.add(party_id)
 
+        district_parties = aggregated.setdefault(district_code, {})
+        current = district_parties.get(party_code)
+        if current is None:
+            current = {
+                "party_id": party_id,
+                "party_code": party_code,
+                "party_name": party.name if party else "",
+                "leader": party.leader.username if party and party.leader_id else "",
+                "color": party.leader.map_marker_color if party and party.leader else "",
+                "prestige_points": 0,
+                "last_activity_at": stat.last_activity_at,
+                "member_count": 0,
+            }
+        current["prestige_points"] += int(stat.prestige_points or 0)
+        # Keep latest activity metadata
+        if stat.last_activity_at and (
+            not current.get("last_activity_at") or stat.last_activity_at > current["last_activity_at"]
+        ):
+            current["last_activity_at"] = stat.last_activity_at
+            if party:
+                current["party_name"] = party.name or current.get("party_name") or ""
+                current["leader"] = party.leader.username if party.leader_id else current.get("leader", "")
+                current["color"] = party.leader.map_marker_color if party.leader else current.get("color", "")
+        if party_id and not current.get("party_id"):
+            current["party_id"] = party_id
+        district_parties[party_code] = current
+
+    member_counts: Dict[int, int] = {}
     if party_ids:
         member_counts = {
             row["party_id"]: row["total"]
@@ -2118,10 +2134,23 @@ def _build_district_party_rankings(
                 .annotate(total=Count("id"))
             )
         }
-        for entries in rankings.values():
-            for entry in entries:
-                party_id = entry.get("party_id")
-                entry["member_count"] = member_counts.get(party_id, 0)
+
+    rankings: Dict[str, List[Dict[str, Any]]] = {}
+    for district_code, parties in aggregated.items():
+        entries: List[Dict[str, Any]] = []
+        for entry in parties.values():
+            party_id = entry.get("party_id")
+            if party_id in member_counts:
+                entry["member_count"] = max(entry.get("member_count", 0), member_counts.get(party_id, 0))
+            entry["score"] = int(entry.get("prestige_points") or 0)
+            entries.append(entry)
+        entries.sort(
+            key=lambda e: (
+                -int(e.get("prestige_points") or 0),
+                -(e.get("last_activity_at").timestamp() if e.get("last_activity_at") else 0),
+            )
+        )
+        rankings[district_code] = entries[:limit_per_district]
 
     return rankings
 
