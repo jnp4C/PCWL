@@ -13454,6 +13454,27 @@ function handlePartyCardActivate(event) {
   openPartyProfileDrawer(code, card);
 }
 
+function bindGlobalPartyProfileTriggers() {
+  if (typeof document === 'undefined') {
+    return;
+  }
+  const handler = (event) => {
+    const isKey = event.type === 'keydown';
+    if (isKey && event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    const card = target ? target.closest('[data-party-code]') : null;
+    if (!card) return;
+    const code = card.dataset.partyCode;
+    if (!code) return;
+    event.preventDefault();
+    openPartyProfileDrawer(code, card);
+  };
+  document.addEventListener('click', handler);
+  document.addEventListener('keydown', handler);
+}
+
 function renderCharacterPartyPrestige(profile = null) {
   if (!characterPartyGrid) {
     return;
@@ -16461,6 +16482,7 @@ document.addEventListener('keydown', (event) => {
 
 applyViewportUiState();
 setMobileDrawerState(false);
+bindGlobalPartyProfileTriggers();
 
 if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
   const mobileLayoutWatcher = window.matchMedia('(max-width: 820px)');
