@@ -2865,6 +2865,7 @@ body.dark .friend-profile-marker {
 body.recent-checkins-open,
 body.friends-open,
 body.friend-profile-open,
+body.party-profile-open,
 body.howto-open,
 body.district-open,
 body.character-open {
@@ -2874,6 +2875,7 @@ body.character-open {
 body.recent-checkins-open .recent-checkins-overlay,
 body.friends-open .friends-overlay,
 body.friend-profile-open .friend-profile-overlay,
+body.party-profile-open .party-profile-overlay,
 body.howto-open .howto-overlay,
 body.district-open .district-overlay,
 body.character-open .character-overlay {
@@ -2885,6 +2887,7 @@ body.character-open .character-overlay {
 body.recent-checkins-open .recent-checkins-drawer,
 body.friends-open .friends-drawer,
 body.friend-profile-open .friend-profile-drawer,
+body.party-profile-open .party-profile-drawer,
 body.howto-open .howto-drawer,
 body.district-open .district-drawer,
 body.character-open .character-drawer {
