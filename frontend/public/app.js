@@ -6979,6 +6979,16 @@ function applyDistrictOverlayOpacityExpression() {
   });
 }
 
+function applyUrbanOverlayVisibility(forceToggleValue = null) {
+  ensureMap(() => {
+    const desiredVisible =
+      districtOverlayAlwaysVisible || (forceToggleValue !== null ? forceToggleValue : urbanToggle ? urbanToggle.checked : true);
+    if (map.getLayer('urban-overlay')) {
+      map.setLayoutProperty('urban-overlay', 'visibility', desiredVisible ? 'visible' : 'none');
+    }
+  });
+}
+
 function applyDistrictStrengthEntries(entries) {
   const map = new Map();
   let maxStrength = DISTRICT_BASE_SCORE;
@@ -14833,20 +14843,50 @@ function addSourcesAndLayers() {
     }, 1200);
   });
 
-  addStaticGeoSource(map, 'prague-urban', 'urban-planning', {}, null, { minZoom: 12, unloadBelowMinZoom: true });
+  addStaticGeoSource(map, 'prague-urban', 'urban-planning', {}, null, { minZoom: 8, unloadBelowMinZoom: true });
 
   map.addLayer({
     id: 'urban-overlay',
     type: 'line',
     source: 'prague-urban',
     layout: {
-      visibility: urbanToggle && urbanToggle.checked ? 'visible' : 'none',
+      visibility: 'visible',
     },
     paint: {
-      'line-color': '#00fff2',
-      'line-width': 2.2,
-      'line-opacity': 0.85,
-      'line-blur': 0.6,
+      'line-color': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        8,
+        '#4a4a4a',
+        11,
+        '#222222',
+        14,
+        '#0c0c0d',
+      ],
+      'line-width': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        8,
+        0.6,
+        12,
+        1.1,
+        14,
+        1.6,
+      ],
+      'line-opacity': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        8,
+        0.22,
+        11,
+        0.35,
+        14,
+        0.45,
+      ],
+      'line-blur': 0.45,
     },
   });
 
@@ -15132,6 +15172,7 @@ function initialiseMap() {
 
     applyDistrictOverlayOpacityExpression();
     applyThemeToMap(activeTheme);
+    applyUrbanOverlayVisibility();
 
     while (pendingActions.length) {
       const action = pendingActions.shift();
@@ -15721,12 +15762,7 @@ if (parksToggle) {
 
 if (urbanToggle) {
   urbanToggle.addEventListener('change', (event) => {
-    const visible = event.target.checked;
-    ensureMap(() => {
-      if (map.getLayer('urban-overlay')) {
-        map.setLayoutProperty('urban-overlay', 'visibility', visible ? 'visible' : 'none');
-      }
-    });
+    applyUrbanOverlayVisibility(Boolean(event.target.checked));
   });
 }
 
@@ -15748,6 +15784,7 @@ if (districtRankingToggle) {
     districtOverlayAlwaysVisible = alwaysVisible;
     saveDistrictRankingOverlayPreference(alwaysVisible);
     applyDistrictOverlayOpacityExpression();
+    applyUrbanOverlayVisibility();
   });
 }
 
