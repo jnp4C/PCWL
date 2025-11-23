@@ -5343,6 +5343,8 @@ function sanitizePartyProfile(raw) {
           const codeVal =
             typeof entry.code === 'string' && entry.code.trim() ? safeId(entry.code) : '';
           const prestige = Math.max(0, Number(entry.prestige_points) || 0);
+          const attack = Math.max(0, Number(entry.attack_points) || Number(entry.attackPoints) || 0);
+          const defend = Math.max(0, Number(entry.defend_points) || Number(entry.defendPoints) || 0);
           return {
             code: codeVal,
             name:
@@ -5350,6 +5352,8 @@ function sanitizePartyProfile(raw) {
                 ? entry.name.trim()
                 : '',
             prestigePoints: prestige,
+            attackPoints: attack,
+            defendPoints: defend,
             lastActiveAt: parseServerTimestamp(entry.last_active_at),
           };
         })
@@ -10926,10 +10930,18 @@ function renderPartyProfileContent(profile) {
       const li = document.createElement('li');
       li.className = 'party-profile-list-item';
       const name = entry.name || (entry.code ? `District ${entry.code}` : 'Unknown district');
-      li.textContent = `${name} • +${entry.prestigePoints.toLocaleString()} pts`;
+      const prestige = Math.max(0, Number(entry.prestigePoints) || 0);
+      const attack = Math.max(0, Number(entry.attackPoints) || 0);
+      const defend = Math.max(0, Number(entry.defendPoints) || 0);
+      const parts = [
+        name,
+        `+${prestige.toLocaleString()} pts`,
+        `atk ${attack.toLocaleString()} / def ${defend.toLocaleString()}`,
+      ];
       if (entry.lastActiveAt) {
-        li.textContent += ` • ${formatTimeAgo(entry.lastActiveAt)} ago`;
+        parts.push(`${formatTimeAgo(entry.lastActiveAt)} ago`);
       }
+      li.textContent = parts.filter(Boolean).join(' • ');
       districtList.appendChild(li);
     });
   } else {

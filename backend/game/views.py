@@ -149,6 +149,47 @@ def _build_party_profile_payload(party: Party) -> Dict[str, Any]:
     member_count = (
         PartyMembership.objects.filter(party=party, left_at__isnull=True).count()
     )
+    checkin_rows = (
+        CheckIn.objects.filter(Q(party=party) | Q(party_code__iexact=party.code))
+        .values("district_code")
+        .annotate(
+            attack_points=Coalesce(
+                Sum(
+                    Case(
+                        When(action=CheckIn.Action.ATTACK, then=-F("district_points_delta")),
+                        default=0,
+                    )
+                ),
+                0,
+            ),
+            defend_points=Coalesce(
+                Sum(
+                    Case(
+                        When(is_party_contribution=True, then=F("district_points_delta")),
+                        default=0,
+                    )
+                ),
+                0,
+            ),
+            last_checkin=Max("occurred_at"),
+            district_name=Max("district_name"),
+        )
+    )
+    checkin_map: Dict[str, Dict[str, Any]] = {}
+    for row in checkin_rows:
+        code = _clean_district_code(row.get("district_code"))
+        if not code:
+            continue
+        attack_pts = int(row.get("attack_points") or 0)
+        defend_pts = int(row.get("defend_points") or 0)
+        checkin_map[code] = {
+            "attack_points": attack_pts,
+            "defend_points": defend_pts,
+            "total": attack_pts + defend_pts,
+            "last_checkin": row.get("last_checkin"),
+            "name": (row.get("district_name") or "").strip(),
+        }
+
     districts = []
     stats = (
         DistrictPartyStat.objects.select_related("district")
@@ -157,19 +198,65 @@ def _build_party_profile_payload(party: Party) -> Dict[str, Any]:
     )
     total_prestige = 0
     latest_activity = None
+    seen_codes: Set[str] = set()
     for stat in stats:
+        code = _clean_district_code(stat.district.code if stat.district_id else None) or ""
+        if not code:
+            continue
+        seen_codes.add(code)
+        agg = checkin_map.get(code, {})
+        attack_pts = int(agg.get("attack_points") or 0)
+        defend_pts = int(agg.get("defend_points") or 0)
+        aggregated_total = attack_pts + defend_pts
         pts = int(stat.prestige_points or 0)
-        total_prestige += pts
-        if stat.last_activity_at and (latest_activity is None or stat.last_activity_at > latest_activity):
-            latest_activity = stat.last_activity_at
+        prestige_points = pts or aggregated_total
+        total_prestige += prestige_points
+        last_active = stat.last_activity_at or agg.get("last_checkin")
+        if last_active and (latest_activity is None or last_active > latest_activity):
+            latest_activity = last_active
+        name = stat.district.name if stat.district_id else ""
+        if not name:
+            name = agg.get("name") or (f"District {code}" if code else "")
         districts.append(
             {
-                "code": stat.district.code if stat.district_id else "",
-                "name": stat.district.name if stat.district_id else "",
-                "prestige_points": pts,
-                "last_active_at": stat.last_activity_at,
+                "code": code,
+                "name": name,
+                "prestige_points": prestige_points,
+                "attack_points": attack_pts,
+                "defend_points": defend_pts,
+                "last_active_at": last_active,
             }
         )
+    # Include any districts where prestige was earned but the stat record is missing.
+    for code, agg in checkin_map.items():
+        if code in seen_codes:
+            continue
+        prestige_points = agg.get("total", 0)
+        total_prestige += prestige_points
+        last_active = agg.get("last_checkin")
+        if last_active and (latest_activity is None or last_active > latest_activity):
+            latest_activity = last_active
+        name = agg.get("name") or (f"District {code}" if code else "")
+        districts.append(
+            {
+                "code": code,
+                "name": name,
+                "prestige_points": prestige_points,
+                "attack_points": int(agg.get("attack_points") or 0),
+                "defend_points": int(agg.get("defend_points") or 0),
+                "last_active_at": last_active,
+            }
+        )
+    districts.sort(
+        key=lambda entry: (
+            -(int(entry.get("prestige_points") or 0)),
+            -(
+                entry.get("last_active_at").timestamp()
+                if entry.get("last_active_at")
+                else 0
+            ),
+        )
+    )
     top_players = _top_party_prestige_contributors(party, limit=5)
     return {
         "party": {
