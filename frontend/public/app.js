@@ -14975,16 +14975,36 @@ function addSourcesAndLayers() {
   enableMobileContextMenuLongPress();
 
 
-  addStaticGeoSource(map, 'prague-streets', 'prague-streets', {}, null, { minZoom: 11, unloadBelowMinZoom: true });
+  addStaticGeoSource(map, 'prague-streets', 'prague-streets', {}, null, { minZoom: 8, unloadBelowMinZoom: true });
 
   map.addLayer({
     id: 'streets-overlay',
     type: 'line',
     source: 'prague-streets',
     paint: {
-      'line-color': '#000000',
-      'line-width': 0.6,
-      'line-opacity': 0.35,
+      'line-color': '#0c0c0d',
+      'line-width': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        8,
+        0.3,
+        12,
+        0.55,
+        14,
+        0.8,
+      ],
+      'line-opacity': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        8,
+        0.22,
+        11,
+        0.32,
+        14,
+        0.4,
+      ],
     },
   });
 
