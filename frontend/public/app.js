@@ -219,6 +219,8 @@ const DISTRICT_PARTY_VISIBLE_COUNT = 3;
 const districtPartyCache = new Map();
 let districtPartyEntries = [];
 let districtPartyExpanded = false;
+const STREAK_MAX_DAYS = 30;
+const STREAK_MILESTONES = [0.25, 0.5, 0.75, 1];
 if (currentUserTag) {
   updateCurrentUserTag(null);
 }
@@ -226,8 +228,6 @@ updateCharacterDrawerContent(null);
 
 const APP_VERSION = readTemplateValue('appVersion', '__APP_VERSION__') || 'dev';
 const APP_SNAPSHOT = readTemplateValue('appSnapshot', '__APP_SNAPSHOT__') || 'app.js';
-const STREAK_MAX_DAYS = 30;
-const STREAK_MILESTONES = [0.25, 0.5, 0.75, 1];
 
 if (typeof document !== 'undefined' && document.body) {
   document.body.classList.add('welcome-active');
