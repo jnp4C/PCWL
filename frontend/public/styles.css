@@ -2580,6 +2580,8 @@ body.dark .friend-profile-marker {
 
 .streak-interactive {
   display: block;
+  width: 100%;
+  min-height: 170px;
   padding: 0;
   overflow: hidden;
   perspective: 1200px;
@@ -2589,7 +2591,7 @@ body.dark .friend-profile-marker {
   position: relative;
   width: 100%;
   height: 100%;
-  min-height: 160px;
+  min-height: 170px;
   transform-style: preserve-3d;
   transition: transform 360ms ease;
 }
@@ -2604,14 +2606,16 @@ body.dark .friend-profile-marker {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.2rem;
+  justify-content: space-between;
+  gap: 0.35rem;
   padding: 1rem 1.1rem;
+  box-sizing: border-box;
   backface-visibility: hidden;
 }
 
 .streak-interactive .streak-card-back {
   transform: rotateY(180deg);
-  gap: 0.65rem;
+  gap: 0.55rem;
 }
 
 .streak-progress-heading {
@@ -2637,8 +2641,8 @@ body.dark .friend-profile-marker {
 .streak-progress-track {
   position: relative;
   width: 100%;
-  height: 16px;
-  margin-top: 0.25rem;
+  height: 14px;
+  margin-top: 0.2rem;
   border-radius: 999px;
   background: color-mix(in srgb, var(--color-panel-bg) 86%, rgba(76, 29, 149, 0.3));
   box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.15);
@@ -2665,10 +2669,10 @@ body.dark .friend-profile-marker {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.15rem;
+  gap: 0.12rem;
   text-align: center;
   pointer-events: none;
-  min-width: 48px;
+  min-width: 44px;
 }
 
 .streak-progress-marker::before {
@@ -2682,13 +2686,13 @@ body.dark .friend-profile-marker {
 }
 
 .streak-progress-marker .streak-marker-label {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 700;
   color: var(--color-text-primary);
 }
 
 .streak-progress-marker .streak-marker-day {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   color: var(--color-text-muted);
 }
 
@@ -2705,18 +2709,18 @@ body.dark .friend-profile-marker {
   position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--player-marker-color, #6366f1) 85%, rgba(255, 255, 255, 0.35));
-  border: 2px solid #f5f3ff;
+  border: 1.5px solid #f5f3ff;
   box-shadow: 0 6px 14px rgba(99, 102, 241, 0.35);
   transition: left 220ms ease, box-shadow 180ms ease;
 }
 
 .streak-thumb-label {
   position: absolute;
-  top: -1.5rem;
+  top: -1.35rem;
   left: 50%;
   transform: translateX(-50%);
   padding: 0.1rem 0.45rem;
