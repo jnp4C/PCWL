@@ -14982,7 +14982,17 @@ function addSourcesAndLayers() {
     type: 'line',
     source: 'prague-streets',
     paint: {
-      'line-color': '#0c0c0d',
+      'line-color': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        8,
+        '#4a4a4a',
+        11,
+        '#222222',
+        14,
+        '#0c0c0d',
+      ],
       'line-width': [
         'interpolate',
         ['linear'],
