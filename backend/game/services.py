@@ -268,11 +268,23 @@ def _compute_party_streak_multiplier(members: List[Player], today: timezone.date
 
 
 def _reset_daily_streak_progress(player: Player, today: timezone.datetime.date) -> None:
-    """Reset daily streak progress flags when the date changes."""
-    if player.streak_progress_date != today:
-        player.streak_progress_date = today
-        player.streak_day_attack_done = False
-        player.streak_day_defend_done = False
+    """Reset daily streak progress when the window (today and yesterday) has passed.
+
+    This lets players finish a partial day’s progress across midnight (e.g. attack before midnight,
+    defend after) while still resetting if they miss a full Prague day.
+    """
+    progress_date = player.streak_progress_date
+    if progress_date:
+        try:
+            gap_days = (today - progress_date).days
+        except Exception:
+            gap_days = 99
+        # Keep yesterday’s progress flags so players can finish across midnight.
+        if 0 <= gap_days <= 1:
+            return
+    player.streak_progress_date = today
+    player.streak_day_attack_done = False
+    player.streak_day_defend_done = False
 
 
 def _update_streak_progress(player: Player, action: str, now: timezone.datetime) -> None:
