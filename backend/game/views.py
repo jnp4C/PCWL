@@ -2190,17 +2190,21 @@ def _build_district_party_rankings(
     )
     aggregated: Dict[str, Dict[str, Dict[str, Any]]] = {}
     party_ids: Set[int] = set()
+    party_codes: Set[str] = set()
     for stat in stats:
         district_code = _clean_district_code(stat.district.code if stat.district else None) or ""
         if not district_code:
             continue
         party = stat.party
-        party_code = (party.code if party else "").strip()
-        if not party_code:
+        party_code_raw = (party.code if party else "").strip()
+        if not party_code_raw:
             continue
+        party_code = party_code_raw.lower()
         party_id = party.id if party else None
         if party_id:
             party_ids.add(party_id)
+        if party_code:
+            party_codes.add(party_code)
 
         district_parties = aggregated.setdefault(district_code, {})
         current = district_parties.get(party_code)
@@ -2231,35 +2235,138 @@ def _build_district_party_rankings(
             current["party_id"] = party_id
         district_parties[party_code] = current
 
-    # Enrich with attack/defend breakdown from check-ins
-    if party_ids:
-        checkins = (
-            CheckIn.objects.filter(district_code__in=district_codes, party_id__in=party_ids)
-            .values("district_code", "party_id", "action")
-            .annotate(total=Coalesce(Sum("district_points_delta"), 0))
+    # Enrich with attack/defend breakdown from check-ins and fill gaps for parties missing stats.
+    prestige_expr = _party_prestige_sum_expression()
+    checkins = (
+        CheckIn.objects.filter(district_code__in=district_codes)
+        .exclude(Q(party_id__isnull=True) & (Q(party_code__isnull=True) | Q(party_code__exact="")))
+        .values("district_code", "party_id", "party_code")
+        .annotate(
+            prestige=Coalesce(Sum(prestige_expr), 0),
+            attack_points=Coalesce(
+                Sum(
+                    Case(
+                        When(action=CheckIn.Action.ATTACK, then=-F("district_points_delta")),
+                        default=0,
+                    )
+                ),
+                0,
+            ),
+            defend_points=Coalesce(
+                Sum(
+                    Case(
+                        When(is_party_contribution=True, then=F("district_points_delta")),
+                        default=0,
+                    )
+                ),
+                0,
+            ),
+            last_activity=Max("occurred_at"),
         )
-        for row in checkins:
-            district_code = _clean_district_code(row.get("district_code")) or ""
-            if not district_code or district_code not in aggregated:
-                continue
-            party_id = row.get("party_id")
-            if not party_id:
-                continue
-            parties = aggregated[district_code]
-            # Find entry by party_id
-            target_entry = None
+    )
+
+    checkin_party_ids: Set[int] = set()
+    checkin_party_codes: Set[str] = set()
+    checkin_party_codes_raw: Set[str] = set()
+    for row in checkins:
+        pid = row.get("party_id")
+        code_value = (row.get("party_code") or "").strip()
+        if pid:
+            checkin_party_ids.add(pid)
+        if code_value:
+            checkin_party_codes_raw.add(code_value)
+            checkin_party_codes.add(code_value.lower())
+
+    party_lookup: Dict[int, Party] = {}
+    if checkin_party_ids:
+        party_lookup.update(
+            {
+                p.id: p
+                for p in Party.objects.filter(id__in=checkin_party_ids).select_related("leader")
+            }
+        )
+    if checkin_party_codes:
+        party_lookup_by_code = {
+            p.code.lower(): p
+            for p in Party.objects.filter(
+                code__in=set(list(checkin_party_codes_raw) + [c.upper() for c in checkin_party_codes_raw])
+            ).select_related("leader")
+        }
+    else:
+        party_lookup_by_code = {}
+
+    for row in checkins:
+        district_code = _clean_district_code(row.get("district_code")) or ""
+        if not district_code:
+            continue
+        parties = aggregated.setdefault(district_code, {})
+        pid = row.get("party_id")
+        code_value = (row.get("party_code") or "").strip()
+        normalized_code = code_value.lower() if code_value else ""
+
+        # Resolve party metadata
+        party_obj = None
+        if pid and pid in party_lookup:
+            party_obj = party_lookup[pid]
+        elif normalized_code and normalized_code in party_lookup_by_code:
+            party_obj = party_lookup_by_code[normalized_code]
+
+        # Find existing entry by party_id or code.
+        target_entry = None
+        if normalized_code and normalized_code in parties:
+            target_entry = parties.get(normalized_code)
+        if target_entry is None and pid:
             for entry in parties.values():
-                if entry.get("party_id") == party_id:
+                if entry.get("party_id") == pid:
                     target_entry = entry
                     break
-            if target_entry is None:
-                continue
-            action = row.get("action")
-            total = int(row.get("total") or 0)
-            if action == CheckIn.Action.ATTACK:
-                target_entry["attack_points"] = target_entry.get("attack_points", 0) + abs(total)
-            elif action == CheckIn.Action.DEFEND:
-                target_entry["defend_points"] = target_entry.get("defend_points", 0) + abs(total)
+
+        if target_entry is None:
+            display_name = ""
+            leader_name = ""
+            color = ""
+            if party_obj:
+                display_name = party_obj.name or ""
+                leader_name = party_obj.leader.username if party_obj.leader_id else ""
+                color = party_obj.leader.map_marker_color if party_obj.leader else ""
+            target_entry = {
+                "party_id": pid or (party_obj.id if party_obj else None),
+                "party_code": code_value or (party_obj.code if party_obj else ""),
+                "party_name": display_name,
+                "leader": leader_name,
+                "color": color,
+                "prestige_points": 0,
+                "last_activity_at": None,
+                "member_count": 0,
+                "attack_points": 0,
+                "defend_points": 0,
+            }
+            normalized_key = (target_entry.get("party_code") or "").strip().lower()
+            if normalized_key:
+                parties[normalized_key] = target_entry
+        prestige_total = int(row.get("prestige") or 0)
+        attack_total = abs(int(row.get("attack_points") or 0))
+        defend_total = abs(int(row.get("defend_points") or 0))
+        if prestige_total:
+            target_entry["prestige_points"] = max(target_entry.get("prestige_points", 0), prestige_total)
+        target_entry["attack_points"] = max(target_entry.get("attack_points", 0), attack_total)
+        target_entry["defend_points"] = max(target_entry.get("defend_points", 0), defend_total)
+        last_activity = row.get("last_activity")
+        if last_activity and (
+            not target_entry.get("last_activity_at") or last_activity > target_entry["last_activity_at"]
+        ):
+            target_entry["last_activity_at"] = last_activity
+        if party_obj:
+            if not target_entry.get("party_name"):
+                target_entry["party_name"] = party_obj.name or ""
+            if not target_entry.get("leader"):
+                target_entry["leader"] = party_obj.leader.username if party_obj.leader_id else ""
+            if not target_entry.get("color"):
+                target_entry["color"] = party_obj.leader.map_marker_color if party_obj.leader else ""
+        if target_entry.get("party_id"):
+            party_ids.add(target_entry["party_id"])
+        if normalized_code:
+            party_codes.add(normalized_code)
 
     member_counts: Dict[int, int] = {}
     if party_ids:
