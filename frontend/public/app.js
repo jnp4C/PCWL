@@ -13280,19 +13280,17 @@ function updateStreakProgress(streakDays = 0, streakMultiplier = 1, elements = n
   let resolvedElements = null;
   if (elements && (elements.track || elements.progressFill || elements.thumb)) {
     resolvedElements = elements;
-  } else if (elements instanceof Element) {
+  } else if (typeof Element !== 'undefined' && elements instanceof Element) {
     resolvedElements = resolveStreakElements(elements);
   } else {
     resolvedElements = resolveStreakElements(null);
   }
-  const {
-    track,
-    progressFill,
-    thumb,
-    nowLabel,
-    hint: hintEl,
-    milestoneMarkers: markers,
-  } = resolvedElements;
+  const track = resolvedElements ? resolvedElements.track : null;
+  const progressFill = resolvedElements ? resolvedElements.progressFill : null;
+  const thumb = resolvedElements ? resolvedElements.thumb : null;
+  const nowLabel = resolvedElements ? resolvedElements.nowLabel : null;
+  const hintEl = resolvedElements ? resolvedElements.hint : null;
+  const markers = resolvedElements ? resolvedElements.milestoneMarkers : null;
   const clampedDays = Math.max(0, Math.min(STREAK_MAX_DAYS, Math.round(Number(streakDays) || 0)));
   const effectiveMultiplier = Math.max(1, Number(streakMultiplier) || 1);
   const currentRatio = clampedDays / STREAK_MAX_DAYS;
