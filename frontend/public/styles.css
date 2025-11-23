@@ -1599,8 +1599,16 @@ body.dark .friend-profile-marker {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 0.75rem;
+  width: 100%;
 }
 
+.character-party-section .friend-profile-party-grid {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.friend-profile-party {
+  height: 100%;
+}
 .friend-profile-home {
   font-size: 0.85rem;
   color: var(--color-text-muted);
@@ -2743,6 +2751,7 @@ body.dark .friend-profile-marker {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
+  grid-column: 1 / -1;
 }
 
 .character-customisation {
