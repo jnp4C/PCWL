@@ -3965,6 +3965,23 @@ try {
   }
 } catch (_) {}
 
+function updateDistrictLeadingParty(code, partyEntry) {
+  const id = safeId(code);
+  if (!id) {
+    return;
+  }
+  const existing = districtStrengthState.byId.get(id) || {
+    strength: DISTRICT_BASE_SCORE,
+    name: '',
+    defended: 0,
+    attacked: 0,
+  };
+  const leadingParty = normaliseLeadingParty(partyEntry || null);
+  districtStrengthState.byId.set(id, { ...existing, leadingParty });
+  saveDistrictStrengthCache();
+  scheduleDistrictFeatureStateUpdate();
+}
+
 const COOLDOWN_DURATIONS = {
   attack: 3 * 60 * 1000,
   defendLocal: 3 * 60 * 1000,
@@ -12889,6 +12906,10 @@ async function refreshDistrictPartyActivity(
     const parties = Array.isArray(response?.top_parties) ? response.top_parties : [];
     districtPartyCache.set(code, parties);
     updateDistrictPartySection(parties);
+    const topParty = parties && parties.length ? parties[0] : null;
+    if (topParty) {
+      updateDistrictLeadingParty(code, topParty);
+    }
   } catch (error) {
     if (!silent) {
       const detail = error?.data?.detail || error?.message || 'Unable to load district parties.';
