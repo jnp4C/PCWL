@@ -351,7 +351,7 @@ const DEFAULT_MARKER_COLOR = '#6366f1';
 const DISTRICT_FILL_COLOR_LOW = '#f87171';
 const DISTRICT_FILL_COLOR_MID = '#facc15';
 const DISTRICT_FILL_COLOR_HIGH = '#22c55e';
-const DISTRICT_FILL_COLOR_WINNER = '#00f27a';
+const DISTRICT_FILL_COLOR_WINNER = '#00ff66';
 function hslToHex(h, s, l) {
   const hue = Math.max(0, Math.min(360, Number(h) || 0));
   const sat = Math.max(0, Math.min(100, Number(s) || 0)) / 100;
@@ -6738,7 +6738,7 @@ function normaliseLeadingParty(raw) {
 function calculateDistrictFillColor(strength, maxStrength, minStrength, isWinner, partyColor) {
   if (isWinner && maxStrength > DISTRICT_BASE_SCORE) {
     const winnerBase = DISTRICT_FILL_COLOR_WINNER;
-    return partyColor ? blendHexColors(winnerBase, partyColor, 0.55) : winnerBase;
+    return partyColor ? blendHexColors(winnerBase, partyColor, 0.25) : winnerBase;
   }
   const normalizedStrength = Number.isFinite(strength) ? strength : DISTRICT_BASE_SCORE;
   const positiveMax = Number.isFinite(maxStrength) ? Math.max(DISTRICT_BASE_SCORE, maxStrength) : DISTRICT_BASE_SCORE;
