@@ -283,13 +283,46 @@
               <p id="character-tagline" class="character-tagline">Sign in to personalise your character.</p>
             </div>
           </div>
-          <button class="character-card character-streak" id="character-streak-card" type="button" aria-label="View streak details">
-            <div class="streak-label-row">
-              <span class="streak-chip">Streak</span>
-              <span class="streak-days" id="character-streak-days">0 days</span>
+          <button class="character-card character-streak streak-interactive" id="character-streak-card" type="button" aria-label="View streak details" aria-pressed="false">
+            <div class="streak-card-inner" id="character-streak-inner">
+              <div class="streak-card-face streak-card-front">
+                <div class="streak-label-row">
+                  <span class="streak-chip">Streak</span>
+                  <span class="streak-days" id="character-streak-days">0 days</span>
+                </div>
+                <div class="streak-value" id="character-streak-multiplier">x1.00</div>
+                <p class="streak-hint">Days alive while keeping attack &amp; defend going.</p>
+              </div>
+              <div class="streak-card-face streak-card-back" aria-hidden="true">
+                <div class="streak-progress-heading">
+                  <div class="streak-progress-title">Streak boost path</div>
+                  <div class="streak-progress-now" id="character-streak-progress-now">x1.00 now</div>
+                </div>
+                <div class="streak-progress-track" id="character-streak-track" role="img" aria-label="Streak boost progress">
+                  <div class="streak-progress-fill" id="character-streak-progress-fill"></div>
+                  <div class="streak-progress-marker" data-streak-milestone="0.25">
+                    <span class="streak-marker-label">+25%</span>
+                    <span class="streak-marker-day">8d</span>
+                  </div>
+                  <div class="streak-progress-marker" data-streak-milestone="0.5">
+                    <span class="streak-marker-label">+50%</span>
+                    <span class="streak-marker-day">15d</span>
+                  </div>
+                  <div class="streak-progress-marker" data-streak-milestone="0.75">
+                    <span class="streak-marker-label">+75%</span>
+                    <span class="streak-marker-day">23d</span>
+                  </div>
+                  <div class="streak-progress-marker" data-streak-milestone="1">
+                    <span class="streak-marker-label">+100%</span>
+                    <span class="streak-marker-day">30d</span>
+                  </div>
+                  <div class="streak-progress-thumb" id="character-streak-progress-thumb">
+                    <span class="streak-thumb-label">You</span>
+                  </div>
+                </div>
+                <p class="streak-progress-hint" id="character-streak-progress-hint">Keep daily attack + defend going to climb.</p>
+              </div>
             </div>
-            <div class="streak-value" id="character-streak-multiplier">x1.00</div>
-            <p class="streak-hint">Days alive while keeping attack &amp; defend going.</p>
           </button>
         </section>
         <section class="character-customisation">

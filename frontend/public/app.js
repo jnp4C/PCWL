@@ -126,6 +126,13 @@ const characterInteractionsEmpty = document.getElementById('character-interactio
 const characterStreakCard = document.getElementById('character-streak-card');
 const characterStreakMultiplier = document.getElementById('character-streak-multiplier');
 const characterStreakDays = document.getElementById('character-streak-days');
+const characterStreakInner = document.getElementById('character-streak-inner');
+const characterStreakTrack = document.getElementById('character-streak-track');
+const characterStreakProgressFill = document.getElementById('character-streak-progress-fill');
+const characterStreakProgressThumb = document.getElementById('character-streak-progress-thumb');
+const characterStreakProgressNow = document.getElementById('character-streak-progress-now');
+const characterStreakProgressHint = document.getElementById('character-streak-progress-hint');
+const streakMilestoneMarkers = document.querySelectorAll('[data-streak-milestone]');
 const friendsDrawer = document.getElementById('friends-drawer');
 const friendsOverlay = document.getElementById('friends-overlay');
 const friendsCloseButton = document.getElementById('friends-close');
@@ -219,6 +226,8 @@ updateCharacterDrawerContent(null);
 
 const APP_VERSION = readTemplateValue('appVersion', '__APP_VERSION__') || 'dev';
 const APP_SNAPSHOT = readTemplateValue('appSnapshot', '__APP_SNAPSHOT__') || 'app.js';
+const STREAK_MAX_DAYS = 30;
+const STREAK_MILESTONES = [0.25, 0.5, 0.75, 1];
 
 if (typeof document !== 'undefined' && document.body) {
   document.body.classList.add('welcome-active');
@@ -5431,6 +5440,30 @@ async function fetchPartyHighlights(username, { force = false, silent = true } =
     const highlights = sanitizePartyHighlights(data);
     if (highlights) {
       partyHighlightsCache.set(key, highlights);
+      if (highlights.leaderParty && highlights.leaderParty.code) {
+        partyProfileCache.set(highlights.leaderParty.code, {
+          party: {
+            code: highlights.leaderParty.code,
+            name: highlights.leaderParty.name || '',
+            leader: highlights.leaderParty.leader || '',
+            member_count: highlights.leaderParty.size || highlights.leaderParty.members?.length || 0,
+            status: highlights.leaderParty.isLeader ? 'active' : '',
+            expires_at: highlights.leaderParty.expiresAtServer || highlights.leaderParty.expiresAt || null,
+            last_active_at: highlights.leaderParty.lastActiveAt || null,
+          },
+          districts: [],
+          top_players: Array.isArray(highlights.leaderParty.topPrestigeContributors)
+            ? highlights.leaderParty.topPrestigeContributors.map((entry) => ({
+                username: entry.username,
+                display_name: entry.displayName || '',
+                prestige_points: entry.prestigePoints || 0,
+              }))
+            : [],
+        });
+      }
+      if (highlights.topOtherProfile && highlights.topOtherProfile.party && highlights.topOtherProfile.party.code) {
+        partyProfileCache.set(highlights.topOtherProfile.party.code, highlights.topOtherProfile);
+      }
     }
     return highlights;
   } catch (error) {
@@ -10270,6 +10303,7 @@ function renderFriendProfileContent(friend) {
     return prestigeCard;
   };
 
+  let leaderCardRendered = false;
   if (liveParty && typeof liveParty === 'object') {
     const activeDistrictLabel =
       (typeof liveParty.activeDistrictName === 'string' && liveParty.activeDistrictName.trim()) ||
@@ -10313,6 +10347,20 @@ function renderFriendProfileContent(friend) {
       detailParts,
     });
     partyCardGrid.appendChild(leaderCard);
+    leaderCardRendered = true;
+  }
+
+  if (!leaderCardRendered) {
+    const placeholder = buildPartyPrestigeCard({
+      partyCode: '',
+      partyName: 'No active party',
+      prestigePoints: 0,
+      statusLabel: 'Start or join a party',
+      detailParts: ['Leader party not active'],
+    });
+    placeholder.removeAttribute('role');
+    placeholder.tabIndex = -1;
+    partyCardGrid.appendChild(placeholder);
   }
 
   const topOtherPartyFromServer =
@@ -10392,11 +10440,20 @@ function renderFriendProfileContent(friend) {
       detailParts,
     });
     partyCardGrid.appendChild(otherCard);
+  } else {
+    const placeholder = buildPartyPrestigeCard({
+      partyCode: '',
+      partyName: 'Top contributed party',
+      prestigePoints: 0,
+      statusLabel: 'No contributions yet',
+      detailParts: ['Play in other parties to see them here'],
+    });
+    placeholder.removeAttribute('role');
+    placeholder.tabIndex = -1;
+    partyCardGrid.appendChild(placeholder);
   }
 
-  if (partyCardGrid.children.length) {
-    friendProfileBody.appendChild(partyCardGrid);
-  }
+  friendProfileBody.appendChild(partyCardGrid);
 
   const tags = document.createElement('div');
   tags.className = 'friend-profile-tags';
@@ -13070,6 +13127,90 @@ function closeDistrictDrawer({ restoreFocus = true } = {}) {
   districtLastTrigger = null;
 }
 
+function setStreakCardFace(face = 'front') {
+  if (!characterStreakCard || !characterStreakInner) {
+    return;
+  }
+  const showBack = face === 'back';
+  characterStreakCard.classList.toggle('is-flipped', showBack);
+  characterStreakCard.setAttribute('aria-pressed', showBack ? 'true' : 'false');
+  const frontFace = characterStreakCard.querySelector('.streak-card-front');
+  const backFace = characterStreakCard.querySelector('.streak-card-back');
+  if (frontFace) {
+    frontFace.setAttribute('aria-hidden', showBack ? 'true' : 'false');
+  }
+  if (backFace) {
+    backFace.setAttribute('aria-hidden', showBack ? 'false' : 'true');
+  }
+}
+
+function updateStreakProgress(streakDays = 0, streakMultiplier = 1) {
+  const clampedDays = Math.max(0, Math.min(STREAK_MAX_DAYS, Math.round(Number(streakDays) || 0)));
+  const effectiveMultiplier = Math.max(1, Number(streakMultiplier) || 1);
+  const currentRatio = clampedDays / STREAK_MAX_DAYS;
+  const boostPercent = Math.round((effectiveMultiplier - 1) * 100);
+
+  if (characterStreakProgressFill) {
+    characterStreakProgressFill.style.width = `${Math.max(0, Math.min(100, currentRatio * 100))}%`;
+  }
+  if (characterStreakProgressThumb) {
+    const thumbLeft = Math.max(0, Math.min(100, currentRatio * 100));
+    characterStreakProgressThumb.style.left = `${thumbLeft}%`;
+    characterStreakProgressThumb.setAttribute(
+      'aria-label',
+      `You are at ${clampedDays} days with a ${boostPercent}% boost`
+    );
+  }
+  if (characterStreakProgressNow) {
+    characterStreakProgressNow.textContent = `x${effectiveMultiplier.toFixed(2)} now`;
+  }
+  if (characterStreakTrack) {
+    characterStreakTrack.setAttribute(
+      'aria-label',
+      `Streak progress ${clampedDays} of ${STREAK_MAX_DAYS} days, ${boostPercent}% boost.`
+    );
+  }
+
+  if (streakMilestoneMarkers && streakMilestoneMarkers.length) {
+    streakMilestoneMarkers.forEach((marker) => {
+      const ratio = Number(marker.dataset.streakMilestone) || 0;
+      const dayTarget = Math.round(STREAK_MAX_DAYS * ratio);
+      marker.style.left = `${Math.max(0, Math.min(100, ratio * 100))}%`;
+      const markerLabel = marker.querySelector('.streak-marker-label');
+      if (markerLabel) {
+        markerLabel.textContent = `+${Math.round(ratio * 100)}%`;
+      }
+      const markerDay = marker.querySelector('.streak-marker-day');
+      if (markerDay) {
+        markerDay.textContent = `${dayTarget}d`;
+      }
+      marker.classList.toggle('passed', clampedDays >= dayTarget);
+    });
+  }
+
+  let nextMilestoneDay = null;
+  let nextMilestonePercent = null;
+  for (const ratio of STREAK_MILESTONES) {
+    const milestoneDay = Math.round(STREAK_MAX_DAYS * ratio);
+    if (clampedDays < milestoneDay) {
+      nextMilestoneDay = milestoneDay;
+      nextMilestonePercent = Math.round(ratio * 100);
+      break;
+    }
+  }
+  let hint = 'Keep daily attack + defend going to climb.';
+  if (nextMilestoneDay !== null) {
+    const remaining = Math.max(0, nextMilestoneDay - clampedDays);
+    const remainingLabel = remaining === 1 ? '1 day' : `${remaining} days`;
+    hint = `${remainingLabel} to +${nextMilestonePercent}% boost (day ${nextMilestoneDay}).`;
+  } else if (clampedDays >= STREAK_MAX_DAYS) {
+    hint = 'Max streak reached: +100% boost. Keep it alive daily.';
+  }
+  if (characterStreakProgressHint) {
+    characterStreakProgressHint.textContent = hint;
+  }
+}
+
 function updateCharacterDrawerContent(profile = null) {
   if (
     !characterNameLabel ||
@@ -13101,6 +13242,8 @@ function updateCharacterDrawerContent(profile = null) {
     characterCooldownValue.textContent = 'Ready';
     characterStreakMultiplier.textContent = 'x1.00';
     characterStreakDays.textContent = '0 days';
+    updateStreakProgress(0, 1);
+    setStreakCardFace('front');
     characterInteractionsList.innerHTML = '';
     characterInteractionsList.hidden = true;
     characterInteractionsEmpty.hidden = false;
@@ -13150,6 +13293,8 @@ function updateCharacterDrawerContent(profile = null) {
   const streakLabel = streakDays === 1 ? '1 day' : `${streakDays} days`;
   characterStreakMultiplier.textContent = `x${streakMultiplier.toFixed(2)}`;
   characterStreakDays.textContent = `${streakLabel} alive`;
+  updateStreakProgress(streakDays, streakMultiplier);
+  setStreakCardFace(characterStreakCard && characterStreakCard.classList.contains('is-flipped') ? 'back' : 'front');
 
   ensureProfileCooldownState(resolvedProfile);
   const now = Date.now();
