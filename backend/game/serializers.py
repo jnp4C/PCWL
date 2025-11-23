@@ -356,6 +356,7 @@ class FriendLinkSerializer(serializers.ModelSerializer):
     last_known_location = serializers.SerializerMethodField()
     map_marker_color = serializers.SerializerMethodField()
     active_party = serializers.SerializerMethodField()
+    top_other_party = serializers.SerializerMethodField()
 
     class Meta:
         model = FriendLink
@@ -377,6 +378,7 @@ class FriendLinkSerializer(serializers.ModelSerializer):
             "last_known_location",
             "map_marker_color",
             "active_party",
+            "top_other_party",
             "streak_days",
             "streak_multiplier",
             "is_favorite",
@@ -401,6 +403,7 @@ class FriendLinkSerializer(serializers.ModelSerializer):
             "last_known_location",
             "map_marker_color",
             "active_party",
+            "top_other_party",
             "streak_days",
             "streak_multiplier",
             "created_at",
@@ -507,6 +510,21 @@ class FriendLinkSerializer(serializers.ModelSerializer):
         if friend_id is None:
             return None
         return previews.get(friend_id)
+
+    def get_top_other_party(self, obj: FriendLink) -> Optional[Dict[str, Any]]:
+        mapping: Dict[int, Dict[str, Any]] = self.context.get("top_other_party_map") or {}
+        if not mapping or obj.friend_id is None:
+            return None
+        data = mapping.get(obj.friend_id)
+        if not data:
+            return None
+        return {
+            "code": data.get("code") or "",
+            "name": data.get("name") or "",
+            "leader": data.get("leader") or "",
+            "prestige_points": int(data.get("prestige_points") or 0),
+            "last_active_at": data.get("last_active_at"),
+        }
 
 
 class FriendFavoriteSerializer(serializers.Serializer):

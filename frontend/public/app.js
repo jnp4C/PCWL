@@ -181,6 +181,12 @@ const friendProfileDrawer = document.getElementById('friend-profile-drawer');
 const friendProfileContent = document.getElementById('friend-profile-content');
 const friendProfileTitle = document.getElementById('friend-profile-title');
 const friendProfileBody = document.getElementById('friend-profile-body');
+const partyProfileOverlay = document.getElementById('party-profile-overlay');
+const partyProfileDrawer = document.getElementById('party-profile-drawer');
+const partyProfileContent = document.getElementById('party-profile-content');
+const partyProfileTitle = document.getElementById('party-profile-title');
+const partyProfileBody = document.getElementById('party-profile-body');
+const partyProfileCloseButton = document.getElementById('party-profile-close');
 const friendProfileCloseButton = document.getElementById('friend-profile-close');
 const districtDrawer = document.getElementById('district-drawer');
 const districtOverlay = document.getElementById('district-overlay');
@@ -3724,6 +3730,10 @@ let partyState = {
   joinRequests: [],
   insights: null,
 };
+const partyProfileCache = new Map();
+let activePartyProfile = null;
+let partyProfileLastTrigger = null;
+const partyHighlightsCache = new Map();
 function savePartyStateSnapshot(snapshot) {
   if (typeof window === 'undefined') {
     return;
@@ -4965,6 +4975,25 @@ function sanitizePartyPayload(raw) {
     Math.round(Number(raw.district_prestige_points) || 0),
   );
   const districtPrestigeUpdatedAt = parseServerTimestamp(raw.district_prestige_last_active_at);
+  const topPrestigeContributors = Array.isArray(raw.top_prestige_contributors)
+    ? raw.top_prestige_contributors
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') {
+            return null;
+          }
+          const username = typeof entry.username === 'string' ? entry.username : '';
+          if (!username) {
+            return null;
+          }
+          return {
+            username,
+            displayName:
+              typeof entry.display_name === 'string' ? entry.display_name : '',
+            prestigePoints: Math.max(0, Number(entry.prestige_points) || 0),
+          };
+        })
+        .filter(Boolean)
+    : [];
   return {
     code: typeof raw.code === 'string' ? raw.code : '',
     name:
@@ -5002,6 +5031,7 @@ function sanitizePartyPayload(raw) {
     boostReady: activeDistrictReady,
     districtPrestige,
     districtPrestigeUpdatedAt,
+    topPrestigeContributors,
     joinRequests: Array.isArray(raw.join_requests)
       ? raw.join_requests.map(sanitizePartyJoinRequest).filter(Boolean)
       : [],
@@ -5228,6 +5258,108 @@ function sanitizePartyInsights(raw) {
   return { bestPartner, topContributors };
 }
 
+function sanitizeOtherParty(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const code = typeof raw.code === 'string' ? raw.code.trim() : '';
+  if (!code) {
+    return null;
+  }
+  const prestige = Math.max(0, Number(raw.prestige_points || raw.prestigePoints) || 0);
+  const name = typeof raw.name === 'string' ? raw.name : '';
+  const leader = typeof raw.leader === 'string' ? raw.leader : '';
+  const lastActiveAt = parseServerTimestamp(raw.last_active_at || raw.lastActiveAt);
+  return {
+    code,
+    name,
+    leader,
+    prestigePoints: prestige,
+    lastActiveAt,
+  };
+}
+
+function sanitizePartyProfile(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const party = raw.party || {};
+  const code = typeof party.code === 'string' ? party.code : '';
+  if (!code) {
+    return null;
+  }
+  const topPlayers = Array.isArray(raw.top_players)
+    ? raw.top_players
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') {
+            return null;
+          }
+          const username = typeof entry.username === 'string' ? entry.username : '';
+          if (!username) {
+            return null;
+          }
+          return {
+            username,
+            displayName:
+              typeof entry.display_name === 'string' ? entry.display_name : '',
+            prestigePoints: Math.max(0, Number(entry.prestige_points) || 0),
+          };
+        })
+        .filter(Boolean)
+    : [];
+  const districts = Array.isArray(raw.districts)
+    ? raw.districts
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') {
+            return null;
+          }
+          const codeVal =
+            typeof entry.code === 'string' && entry.code.trim() ? safeId(entry.code) : '';
+          const prestige = Math.max(0, Number(entry.prestige_points) || 0);
+          return {
+            code: codeVal,
+            name:
+              typeof entry.name === 'string' && entry.name.trim()
+                ? entry.name.trim()
+                : '',
+            prestigePoints: prestige,
+            lastActiveAt: parseServerTimestamp(entry.last_active_at),
+          };
+        })
+        .filter(Boolean)
+    : [];
+  return {
+    party: {
+      code,
+      name: typeof party.name === 'string' ? party.name : '',
+      leader: typeof party.leader === 'string' ? party.leader : '',
+      memberCount: Math.max(0, Number(party.member_count) || 0),
+      status: typeof party.status === 'string' ? party.status : '',
+      expiresAt: parseServerTimestamp(party.expires_at),
+      lastActiveAt: parseServerTimestamp(party.last_active_at),
+    },
+    topPlayers,
+    districts,
+  };
+}
+
+function sanitizePartyHighlights(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const leaderParty = sanitizePartyPayload(raw.leader_party || raw.leaderParty);
+  const topOtherParty = sanitizeOtherParty(raw.top_other_party || raw.topOtherParty);
+  const topOtherProfile = sanitizePartyProfile(raw.top_other_party_profile || raw.topOtherPartyProfile);
+  if (!leaderParty && !topOtherParty) {
+    return null;
+  }
+  return {
+    leaderParty,
+    topOtherParty,
+    topOtherProfile,
+  };
+}
+
 function addPartyInviteNotice(invitation) {
   if (!invitation || !Number.isFinite(invitation.id)) {
     return;
@@ -5241,6 +5373,57 @@ function addPartyInviteNotice(invitation) {
   });
   startCooldownTicker();
   renderCooldownStrip(now);
+}
+
+async function fetchPartyProfile(partyCode, { force = false, silent = true } = {}) {
+  const code = typeof partyCode === 'string' ? partyCode.trim() : '';
+  if (!code) {
+    return null;
+  }
+  if (!force && partyProfileCache.has(code)) {
+    return partyProfileCache.get(code);
+  }
+  try {
+    const data = await apiRequest(`party/${encodeURIComponent(code)}/profile/`);
+    const profile = sanitizePartyProfile(data);
+    if (profile) {
+      partyProfileCache.set(code, profile);
+    }
+    return profile;
+  } catch (error) {
+    if (!silent) {
+      const detail = error?.data?.detail || error?.message || 'Unable to load party profile.';
+      updateStatus(detail);
+    }
+    console.warn('Failed to load party profile', error);
+    return null;
+  }
+}
+
+async function fetchPartyHighlights(username, { force = false, silent = true } = {}) {
+  const user = typeof username === 'string' ? username.trim() : '';
+  if (!user) {
+    return null;
+  }
+  const key = user.toLowerCase();
+  if (!force && partyHighlightsCache.has(key)) {
+    return partyHighlightsCache.get(key);
+  }
+  try {
+    const data = await apiRequest(`players/${encodeURIComponent(user)}/party-highlights/`);
+    const highlights = sanitizePartyHighlights(data);
+    if (highlights) {
+      partyHighlightsCache.set(key, highlights);
+    }
+    return highlights;
+  } catch (error) {
+    if (!silent) {
+      const detail = error?.data?.detail || error?.message || 'Unable to load party highlights.';
+      updateStatus(detail);
+    }
+    console.warn('Failed to load party highlights', error);
+    return null;
+  }
 }
 
 function addOutgoingInviteNotice(toUsername, now = Date.now(), partyName = '') {
@@ -5480,7 +5663,56 @@ function renderPartyBoostBox() {
   prestigeMeta.textContent = prestigePieces.filter(Boolean).join(' • ');
   prestigeItem.appendChild(prestigeTitle);
   prestigeItem.appendChild(prestigeMeta);
+  if (party.code) {
+    prestigeItem.dataset.partyCode = party.code;
+    prestigeItem.tabIndex = 0;
+    prestigeItem.setAttribute('role', 'button');
+    const openDrawer = () => openPartyProfileDrawer(party.code, prestigeItem);
+    prestigeItem.addEventListener('click', openDrawer);
+    prestigeItem.addEventListener('keypress', (event) => {
+      if (event && (event.key === 'Enter' || event.key === ' ')) {
+        event.preventDefault();
+        openDrawer();
+      }
+    });
+  }
   partyBoostList.appendChild(prestigeItem);
+
+  const topContributors =
+    (Array.isArray(party.topPrestigeContributors) && party.topPrestigeContributors.length
+      ? party.topPrestigeContributors
+      : (partyProfileCache.get(party.code || '') || {}).topPlayers) || [];
+  if (!topContributors.length && party.code) {
+    fetchPartyProfile(party.code, { silent: true }).then((profile) => {
+      if (profile) {
+        renderPartyBoostBox();
+      }
+    });
+  }
+  const contributorsItem = document.createElement('li');
+  contributorsItem.className = 'recent-checkins-item party-top-contributors';
+  const contribTitle = document.createElement('div');
+  contribTitle.className = 'recent-checkins-entry';
+  contribTitle.textContent = 'Top prestige earners';
+  const contribMeta = document.createElement('div');
+  contribMeta.className = 'recent-checkins-meta party-top-contributors-meta';
+  if (topContributors.length) {
+    const list = document.createElement('div');
+    list.className = 'party-top-contributors-list';
+    topContributors.slice(0, 5).forEach((player) => {
+      const chip = document.createElement('span');
+      chip.className = 'party-contributor-chip';
+      const name = player.displayName ? player.displayName : `@${player.username}`;
+      chip.textContent = `${name} • +${player.prestigePoints.toLocaleString()} pts`;
+      list.appendChild(chip);
+    });
+    contribMeta.appendChild(list);
+  } else {
+    contribMeta.textContent = 'No contributors yet (leader excluded).';
+  }
+  contributorsItem.appendChild(contribTitle);
+  contributorsItem.appendChild(contribMeta);
+  partyBoostList.appendChild(contributorsItem);
 
   // Session totals (attack/defend) for the active party
   const totalsItem = document.createElement('li');
@@ -7970,6 +8202,7 @@ function normaliseFriendEntry(raw) {
   }
   const friend = { ...raw };
   friend.activeParty = sanitizePartyPreview(raw.activeParty || raw.active_party);
+  friend.topOtherParty = sanitizeOtherParty(raw.top_other_party || raw.topOtherParty);
   return friend;
 }
 
@@ -9970,8 +10203,14 @@ function renderFriendProfileContent(friend) {
   summary.appendChild(streakCard);
   friendProfileBody.appendChild(summary);
 
-  const liveParty = friend.activeParty || friend.active_party || null;
-  if (liveParty && typeof liveParty === 'object') {
+  const highlightsKey = friend.username ? friend.username.toLowerCase() : '';
+  const highlights = highlightsKey ? partyHighlightsCache.get(highlightsKey) : null;
+  const leaderHighlight = highlights && highlights.leaderParty ? highlights.leaderParty : null;
+  const liveParty = leaderHighlight || friend.activeParty || friend.active_party || null;
+  const partyCardGrid = document.createElement('div');
+  partyCardGrid.className = 'friend-profile-party-grid';
+
+  const buildPartyPrestigeCard = ({ partyCode, partyName, prestigePoints, statusLabel, detailParts }) => {
     const prestigeCard = document.createElement('div');
     prestigeCard.className = 'character-card friend-profile-party';
 
@@ -9979,24 +10218,45 @@ function renderFriendProfileContent(friend) {
     labelRow.className = 'streak-label-row';
     const chip = document.createElement('span');
     chip.className = 'streak-chip';
-    const partyLabel =
-      typeof liveParty.name === 'string' && liveParty.name.trim()
-        ? liveParty.name.trim()
-        : liveParty.code
-        ? `Party ${liveParty.code}`
-        : 'Party prestige';
-    chip.textContent = partyLabel;
+    chip.textContent = partyName || (partyCode ? `Party ${partyCode}` : 'Party prestige');
+    const status = document.createElement('span');
+    status.className = 'streak-days';
+    status.textContent = statusLabel || 'Prestige';
+    labelRow.appendChild(chip);
+    labelRow.appendChild(status);
+
+    const prestigeValueEl = document.createElement('div');
+    prestigeValueEl.className = 'streak-value';
+    prestigeValueEl.textContent = `+${Math.max(0, Math.round(prestigePoints || 0)).toLocaleString()} pts`;
+
+    const hint = document.createElement('p');
+    hint.className = 'streak-hint';
+    hint.textContent = detailParts && detailParts.length ? detailParts.join(' • ') : 'Party prestige';
+
+    prestigeCard.appendChild(labelRow);
+    prestigeCard.appendChild(prestigeValueEl);
+    prestigeCard.appendChild(hint);
+
+    if (partyCode) {
+      prestigeCard.dataset.partyCode = partyCode;
+      prestigeCard.tabIndex = 0;
+      prestigeCard.setAttribute('role', 'button');
+      const openDrawer = () => openPartyProfileDrawer(partyCode, prestigeCard);
+      prestigeCard.addEventListener('click', openDrawer);
+      prestigeCard.addEventListener('keypress', (event) => {
+        if (event && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault();
+          openDrawer();
+        }
+      });
+    }
+    return prestigeCard;
+  };
+
+  if (liveParty && typeof liveParty === 'object') {
     const activeDistrictLabel =
       (typeof liveParty.activeDistrictName === 'string' && liveParty.activeDistrictName.trim()) ||
       (liveParty.activeDistrictCode ? `District ${liveParty.activeDistrictCode}` : '');
-    const statusLabel = document.createElement('span');
-    statusLabel.className = 'streak-days';
-    statusLabel.textContent = activeDistrictLabel ? `Active in ${activeDistrictLabel}` : 'Prestige';
-    labelRow.appendChild(chip);
-    labelRow.appendChild(statusLabel);
-
-    const prestigeValue = document.createElement('div');
-    prestigeValue.className = 'streak-value';
     const prestigePoints = Math.max(
       0,
       Math.round(
@@ -10007,10 +10267,6 @@ function renderFriendProfileContent(friend) {
         ) || 0,
       ),
     );
-    prestigeValue.textContent = `+${prestigePoints.toLocaleString()} pts`;
-
-    const prestigeHint = document.createElement('p');
-    prestigeHint.className = 'streak-hint';
     const districtCount = Number.isFinite(Number(liveParty.activeDistrictCount))
       ? Number(liveParty.activeDistrictCount)
       : 0;
@@ -10019,22 +10275,110 @@ function renderFriendProfileContent(friend) {
       liveParty.activeDistrictReady ||
       districtCount >= 2;
     const lastActiveTs = parseServerTimestamp(liveParty.districtPrestigeUpdatedAt || liveParty.lastActiveAt);
-    const activeText = boostReady ? 'Boost active' : 'Waiting for teammates';
-    const timeLabel = lastActiveTs ? `Updated ${formatTimeAgo(lastActiveTs)}` : null;
     const detailParts = [];
-    detailParts.push(activeText);
+    detailParts.push(boostReady ? 'Boost active' : 'Waiting for teammates');
     if (districtCount) {
       detailParts.push(`${districtCount} member${districtCount === 1 ? '' : 's'} present`);
     }
-    if (timeLabel) {
-      detailParts.push(timeLabel);
+    if (lastActiveTs) {
+      detailParts.push(`Updated ${formatTimeAgo(lastActiveTs)}`);
     }
-    prestigeHint.textContent = detailParts.filter(Boolean).join(' • ') || 'Party prestige in active district';
+    const leaderCard = buildPartyPrestigeCard({
+      partyCode: liveParty.code,
+      partyName:
+        typeof liveParty.name === 'string' && liveParty.name.trim()
+          ? liveParty.name.trim()
+          : liveParty.code
+          ? `Party ${liveParty.code}`
+          : 'Party prestige',
+      prestigePoints,
+      statusLabel: activeDistrictLabel ? `Active in ${activeDistrictLabel}` : 'Active party',
+      detailParts,
+    });
+    partyCardGrid.appendChild(leaderCard);
+  }
 
-    prestigeCard.appendChild(labelRow);
-    prestigeCard.appendChild(prestigeValue);
-    prestigeCard.appendChild(prestigeHint);
-    friendProfileBody.appendChild(prestigeCard);
+  const topOtherPartyFromServer =
+    (highlights && sanitizeOtherParty(highlights.topOtherParty)) ||
+    sanitizeOtherParty(friend.topOtherParty || friend.top_other_party);
+  const topOtherParty =
+    topOtherPartyFromServer ||
+    (() => {
+      const history = Array.isArray(friend.checkins) ? friend.checkins : [];
+      const leaderCode =
+        liveParty && typeof liveParty.code === 'string' && liveParty.code.trim()
+          ? safeId(liveParty.code)
+          : '';
+      const totals = new Map();
+      history.forEach((entry) => {
+        if (!entry || typeof entry !== 'object') {
+          return;
+        }
+        const rawCode =
+          (typeof entry.partyCode === 'string' && entry.partyCode.trim()) ||
+          (typeof entry.party_code === 'string' && entry.party_code.trim()) ||
+          '';
+        if (!rawCode) {
+          return;
+        }
+        const code = safeId(rawCode);
+        if (leaderCode && code === leaderCode) {
+          return;
+        }
+        const pts = Math.abs(Number(entry.points) || 0);
+        if (!pts) {
+          return;
+        }
+        const lastTs = Number.isFinite(Number(entry.timestamp)) ? Number(entry.timestamp) : null;
+        const prev = totals.get(code) || { points: 0, last: null, name: '' };
+        const nextPoints = prev.points + pts;
+        const nextLast = lastTs && (!prev.last || lastTs > prev.last) ? lastTs : prev.last;
+        totals.set(code, {
+          points: nextPoints,
+          last: nextLast,
+          name:
+            (typeof entry.partyName === 'string' && entry.partyName.trim()) ||
+            (typeof entry.party_name === 'string' && entry.party_name.trim()) ||
+            prev.name ||
+            '',
+        });
+      });
+      let best = null;
+      totals.forEach((value, code) => {
+        if (!best || value.points > best.points) {
+          best = { code, ...value };
+        }
+      });
+      return best;
+    })();
+
+  if (topOtherParty) {
+    const name = topOtherParty.name || (topOtherParty.code ? `Party ${topOtherParty.code}` : 'Party');
+    const detailParts = [];
+    const lastActive =
+      typeof topOtherParty.lastActiveAt === 'number'
+        ? topOtherParty.lastActiveAt
+        : topOtherParty.last;
+    if (lastActive) {
+      detailParts.push(`Updated ${formatTimeAgo(lastActive)}`);
+    }
+    detailParts.push('Most active in other parties');
+    const prestigePoints =
+      Number.isFinite(Number(topOtherParty.prestigePoints))
+        ? Number(topOtherParty.prestigePoints)
+        : Number(topOtherParty.points) || 0;
+    const otherCard = buildPartyPrestigeCard({
+      partyCode: topOtherParty.code,
+      partyName: name,
+      prestigePoints,
+      statusLabel: 'Top contributed party',
+      detailParts,
+    });
+    partyCardGrid.appendChild(otherCard);
+  }
+
+  if (partyCardGrid.children.length) {
+    friendProfileBody.appendChild(partyCardGrid);
   }
 
   const tags = document.createElement('div');
@@ -10213,6 +10557,15 @@ function openFriendProfileDrawer(username, trigger = null) {
   friendProfileDrawer.setAttribute('aria-hidden', 'false');
   friendProfileOverlay.classList.remove('hidden');
   friendProfileOverlay.setAttribute('aria-hidden', 'false');
+  fetchPartyHighlights(friend.username, { silent: true }).then((highlights) => {
+    if (
+      highlights &&
+      friendProfileActiveUsername &&
+      friendProfileActiveUsername.toLowerCase() === friend.username.toLowerCase()
+    ) {
+      renderFriendProfileContent(friend);
+    }
+  });
   window.setTimeout(() => {
     if (friendProfileContent && typeof friendProfileContent.focus === 'function') {
       friendProfileContent.focus();
@@ -10239,6 +10592,137 @@ function closeFriendProfileDrawer({ restoreFocus = true } = {}) {
     friendProfileBody.innerHTML = '';
   }
 }
+
+function renderPartyProfileContent(profile) {
+  if (!partyProfileBody) {
+    return;
+  }
+  partyProfileBody.innerHTML = '';
+  if (!profile || !profile.party) {
+    const empty = document.createElement('p');
+    empty.className = 'friend-profile-empty';
+    empty.textContent = 'Unable to load party profile.';
+    partyProfileBody.appendChild(empty);
+    return;
+  }
+  const { party, topPlayers, districts } = profile;
+  const header = document.createElement('div');
+  header.className = 'party-profile-header';
+  const title = document.createElement('h3');
+  title.textContent = party.name ? party.name : `Party ${party.code}`;
+  const subtitle = document.createElement('p');
+  subtitle.className = 'party-profile-subtitle';
+  subtitle.textContent = `Leader @${party.leader || 'unknown'} • ${party.memberCount} member${party.memberCount === 1 ? '' : 's'}`;
+  header.appendChild(title);
+  header.appendChild(subtitle);
+
+  const districtsCard = document.createElement('div');
+  districtsCard.className = 'character-card party-profile-card';
+  const districtsTitle = document.createElement('div');
+  districtsTitle.className = 'party-profile-card-title';
+  districtsTitle.textContent = 'Prestige by district';
+  districtsCard.appendChild(districtsTitle);
+  const districtList = document.createElement('ul');
+  districtList.className = 'party-profile-list';
+  if (districts && districts.length) {
+    districts.forEach((entry) => {
+      const li = document.createElement('li');
+      li.className = 'party-profile-list-item';
+      const name = entry.name || (entry.code ? `District ${entry.code}` : 'Unknown district');
+      li.textContent = `${name} • +${entry.prestigePoints.toLocaleString()} pts`;
+      if (entry.lastActiveAt) {
+        li.textContent += ` • ${formatTimeAgo(entry.lastActiveAt)} ago`;
+      }
+      districtList.appendChild(li);
+    });
+  } else {
+    const li = document.createElement('li');
+    li.className = 'party-profile-list-item muted';
+    li.textContent = 'No prestige recorded yet.';
+    districtList.appendChild(li);
+  }
+  districtsCard.appendChild(districtList);
+
+  const contributorsCard = document.createElement('div');
+  contributorsCard.className = 'character-card party-profile-card';
+  const contribTitle = document.createElement('div');
+  contribTitle.className = 'party-profile-card-title';
+  contribTitle.textContent = 'Top contributors';
+  contributorsCard.appendChild(contribTitle);
+  const contribList = document.createElement('ul');
+  contribList.className = 'party-profile-list';
+  if (topPlayers && topPlayers.length) {
+    topPlayers.forEach((player) => {
+      const li = document.createElement('li');
+      li.className = 'party-profile-list-item';
+      const display = player.displayName ? player.displayName : `@${player.username}`;
+      li.textContent = `${display} • +${player.prestigePoints.toLocaleString()} pts`;
+      contribList.appendChild(li);
+    });
+  } else {
+    const li = document.createElement('li');
+    li.className = 'party-profile-list-item muted';
+    li.textContent = 'No contributors yet (leader excluded).';
+    contribList.appendChild(li);
+  }
+  contributorsCard.appendChild(contribList);
+
+  partyProfileBody.appendChild(header);
+  partyProfileBody.appendChild(districtsCard);
+  partyProfileBody.appendChild(contributorsCard);
+}
+
+async function openPartyProfileDrawer(partyCode, trigger = null) {
+  const code = typeof partyCode === 'string' ? partyCode.trim() : '';
+  if (!code || !partyProfileDrawer || !partyProfileOverlay) {
+    return;
+  }
+  partyProfileLastTrigger = trigger instanceof HTMLElement ? trigger : null;
+  partyProfileBody.innerHTML = '<p class="friend-profile-empty">Loading party profile…</p>';
+  document.body.classList.add('party-profile-open');
+  partyProfileDrawer.setAttribute('aria-hidden', 'false');
+  partyProfileOverlay.classList.remove('hidden');
+  partyProfileOverlay.setAttribute('aria-hidden', 'false');
+  const cached = partyProfileCache.get(code);
+  if (cached) {
+    activePartyProfile = cached;
+    renderPartyProfileContent(cached);
+  }
+  const profile = await fetchPartyProfile(code, { force: !cached, silent: Boolean(cached) });
+  if (profile) {
+    activePartyProfile = profile;
+    renderPartyProfileContent(profile);
+    if (partyProfileTitle) {
+      partyProfileTitle.textContent = profile.party.name ? profile.party.name : `Party ${profile.party.code}`;
+    }
+  }
+  window.setTimeout(() => {
+    if (partyProfileContent && typeof partyProfileContent.focus === 'function') {
+      partyProfileContent.focus();
+    }
+  }, 0);
+}
+
+function closePartyProfileDrawer({ restoreFocus = true } = {}) {
+  if (!partyProfileDrawer || !document.body.classList.contains('party-profile-open')) {
+    return;
+  }
+  document.body.classList.remove('party-profile-open');
+  partyProfileDrawer.setAttribute('aria-hidden', 'true');
+  if (partyProfileOverlay) {
+    partyProfileOverlay.classList.add('hidden');
+    partyProfileOverlay.setAttribute('aria-hidden', 'true');
+  }
+  if (restoreFocus && partyProfileLastTrigger && typeof partyProfileLastTrigger.focus === 'function') {
+    partyProfileLastTrigger.focus({ preventScroll: true });
+  }
+  partyProfileLastTrigger = null;
+  activePartyProfile = null;
+  if (partyProfileBody) {
+    partyProfileBody.innerHTML = '';
+  }
+}
+
 
 function renderFriendManageList() {
   if (!friendManageList) {
@@ -15055,6 +15539,18 @@ if (friendProfileOverlay) {
 if (friendProfileCloseButton) {
   friendProfileCloseButton.addEventListener('click', () => {
     closeFriendProfileDrawer();
+  });
+}
+
+if (partyProfileOverlay) {
+  partyProfileOverlay.addEventListener('click', () => {
+    closePartyProfileDrawer();
+  });
+}
+
+if (partyProfileCloseButton) {
+  partyProfileCloseButton.addEventListener('click', () => {
+    closePartyProfileDrawer();
   });
 }
 

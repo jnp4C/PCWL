@@ -91,6 +91,181 @@ def _clean_district_code(value: Optional[str]) -> Optional[str]:
     return _normalise_district_code(value)
 
 
+def _party_prestige_sum_expression():
+    """Mirror prestige accumulation: abs(district_points_delta) or abs(points_awarded)."""
+    delta = Case(
+        When(district_points_delta__lt=0, then=-F("district_points_delta")),
+        When(district_points_delta__gt=0, then=F("district_points_delta")),
+        default=None,
+    )
+    points = Case(
+        When(points_awarded__lt=0, then=-F("points_awarded")),
+        default=F("points_awarded"),
+    )
+    return Case(
+        When(district_points_delta__isnull=True, then=points),
+        When(district_points_delta=0, then=points),
+        default=delta,
+    )
+
+
+def _top_party_prestige_contributors(party: Party, *, limit: int = 5) -> List[Dict[str, Any]]:
+    if not party:
+        return []
+    prestige_expr = _party_prestige_sum_expression()
+    aggregates = (
+        CheckIn.objects.filter(Q(party=party) | Q(party_code__iexact=party.code))
+        .values("player_id")
+        .annotate(prestige=Coalesce(Sum(prestige_expr), 0))
+        .order_by("-prestige")
+    )
+    top_rows = list(aggregates[: max(1, limit + 2)])  # fetch a couple extra in case we filter leader
+    player_ids = [row["player_id"] for row in top_rows if row.get("player_id")]
+    players = {
+        p.id: p
+        for p in Player.objects.filter(id__in=player_ids).only("id", "username", "display_name")
+    }
+    results: List[Dict[str, Any]] = []
+    for row in top_rows:
+        pid = row.get("player_id")
+        if not pid or pid == party.leader_id:
+            continue
+        player = players.get(pid)
+        if not player:
+            continue
+        results.append(
+            {
+                "username": player.username,
+                "display_name": player.display_name or "",
+                "prestige_points": int(row.get("prestige") or 0),
+            }
+        )
+        if len(results) >= limit:
+            break
+    return results
+
+
+def _build_party_profile_payload(party: Party) -> Dict[str, Any]:
+    member_count = (
+        PartyMembership.objects.filter(party=party, left_at__isnull=True).count()
+    )
+    districts = []
+    stats = (
+        DistrictPartyStat.objects.select_related("district")
+        .filter(party=party)
+        .order_by("-prestige_points", "-last_activity_at")
+    )
+    for stat in stats:
+        districts.append(
+            {
+                "code": stat.district.code if stat.district_id else "",
+                "name": stat.district.name if stat.district_id else "",
+                "prestige_points": int(stat.prestige_points or 0),
+                "last_active_at": stat.last_activity_at,
+            }
+        )
+    top_players = _top_party_prestige_contributors(party, limit=5)
+    return {
+        "party": {
+            "code": party.code,
+            "name": party.name or "",
+            "leader": party.leader.username if party.leader_id else "",
+            "member_count": member_count,
+            "status": party.status,
+            "expires_at": party.expires_at,
+            "last_active_at": party.last_active_at,
+        },
+        "districts": districts,
+        "top_players": top_players,
+    }
+
+
+def _build_top_other_party_map(player_ids: Set[int]) -> Dict[int, Dict[str, Any]]:
+    """For each player, find the non-led party where they contributed the most prestige."""
+    if not player_ids:
+        return {}
+
+    leader_parties = Party.objects.filter(leader_id__in=player_ids).values("id", "leader_id", "code")
+    leader_party_ids: Dict[int, Set[int]] = {}
+    leader_party_codes: Dict[int, Set[str]] = {}
+    for row in leader_parties:
+        leader_id = row.get("leader_id")
+        if not leader_id:
+            continue
+        party_id = row.get("id")
+        code = (row.get("code") or "").strip()
+        leader_party_ids.setdefault(leader_id, set())
+        if party_id:
+            leader_party_ids[leader_id].add(party_id)
+        if code:
+            leader_party_codes.setdefault(leader_id, set()).add(code)
+
+    prestige_expr = _party_prestige_sum_expression()
+    aggregates = (
+        CheckIn.objects.filter(player_id__in=player_ids)
+        .exclude(Q(party_id__isnull=True) & (Q(party_code__isnull=True) | Q(party_code__exact="")))
+        .values("player_id", "party_id", "party_code")
+        .annotate(
+            prestige=Coalesce(Sum(prestige_expr), 0),
+            last_active=Max("occurred_at"),
+        )
+        .order_by("-prestige", "-last_active")
+    )
+
+    best_per_player: Dict[int, Dict[str, Any]] = {}
+    party_ids: Set[int] = set()
+    party_codes: Set[str] = set()
+
+    for row in aggregates:
+        player_id = row.get("player_id")
+        if not player_id:
+            continue
+        prestige = int(row.get("prestige") or 0)
+        if prestige <= 0:
+            continue
+        pid = row.get("party_id")
+        code = (row.get("party_code") or "").strip()
+        if pid and pid in leader_party_ids.get(player_id, set()):
+            continue
+        if code and code in leader_party_codes.get(player_id, set()):
+            continue
+        current = best_per_player.get(player_id)
+        if current is None or prestige > current.get("prestige_points", 0):
+            best_per_player[player_id] = {
+                "party_id": pid,
+                "code": code,
+                "prestige_points": prestige,
+                "last_active_at": row.get("last_active"),
+            }
+            if pid:
+                party_ids.add(pid)
+            if code:
+                party_codes.add(code)
+
+    if not best_per_player:
+        return {}
+
+    parties = {}
+    if party_ids:
+        for party in Party.objects.filter(id__in=party_ids).select_related("leader"):
+            parties[party.id] = party
+    if party_codes:
+        for party in Party.objects.filter(code__in=party_codes).select_related("leader"):
+            parties.setdefault(party.id, party)
+
+    for player_id, data in best_per_player.items():
+        pid = data.get("party_id")
+        party = parties.get(pid) if pid else None
+        if party:
+            data["code"] = party.code or data.get("code") or ""
+            data["name"] = party.name or ""
+            data["leader"] = party.leader.username if party.leader_id else ""
+        else:
+            data["name"] = data.get("name") or ""
+            data["leader"] = data.get("leader") or ""
+    return best_per_player
+
+
 def _serialize_party_member(player: Player, *, is_leader: bool, is_self: bool) -> Dict[str, Any]:
     return {
         "username": player.username,
@@ -466,6 +641,7 @@ def _build_party_payload(party: Party, player: Player) -> Optional[Dict[str, Any
         if prestige_stat:
             district_prestige_points = int(prestige_stat.prestige_points or 0)
             district_prestige_last_active_at = prestige_stat.last_activity_at
+    top_contributors = _top_party_prestige_contributors(party, limit=5)
 
     seconds_remaining = None
     if party.expires_at:
@@ -522,6 +698,7 @@ def _build_party_payload(party: Party, player: Player) -> Optional[Dict[str, Any
         "active_district_ready": active_district_ready,
         "district_prestige_points": district_prestige_points,
         "district_prestige_last_active_at": district_prestige_last_active_at,
+        "top_prestige_contributors": top_contributors,
     }
 
 
@@ -1054,6 +1231,65 @@ class PartyInvitationDetailView(PlayerScopedAPIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class PartyProfileView(APIView):
+    """Public party overview: prestige by district + top contributors."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, code: str):
+        code_clean = (code or "").strip()
+        if not code_clean:
+            return Response({"detail": "Party code is required."}, status=status.HTTP_400_BAD_REQUEST)
+        party = Party.objects.filter(code__iexact=code_clean).select_related("leader").first()
+        if not party:
+            return Response({"detail": "Party not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        payload = _build_party_profile_payload(party)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class PartyHighlightsView(APIView):
+    """Return leader party and top non-leader party highlights for a player."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, username: str):
+        username_clean = (username or "").strip()
+        if not username_clean:
+            return Response({"detail": "Username is required."}, status=status.HTTP_400_BAD_REQUEST)
+        player = Player.objects.filter(username__iexact=username_clean).first()
+        if not player:
+            return Response({"detail": "Player not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        leader_party_payload = None
+        leader_party = get_active_party(player)
+        if leader_party:
+            leader_party_payload = _build_party_payload(leader_party, player)
+
+        top_other_map = _build_top_other_party_map({player.id})
+        top_other = top_other_map.get(player.id) if top_other_map else None
+        top_other_profile = None
+        if top_other:
+            code = top_other.get("code") or ""
+            party_id = top_other.get("party_id")
+            party_obj = None
+            if party_id:
+                party_obj = Party.objects.filter(id=party_id).select_related("leader").first()
+            if not party_obj and code:
+                party_obj = Party.objects.filter(code__iexact=code).select_related("leader").first()
+            if party_obj:
+                top_other_profile = _build_party_profile_payload(party_obj)
+
+        return Response(
+            {
+                "leader_party": leader_party_payload,
+                "top_other_party": top_other,
+                "top_other_party_profile": top_other_profile,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class PartyJoinRequestView(PlayerScopedAPIView):
     permission_classes = [IsAuthenticated]
 
@@ -1407,6 +1643,7 @@ class FriendListView(PlayerScopedAPIView):
         )
         friend_ids: Set[int] = {link.friend_id for link in friend_links if link.friend_id}
         party_previews = _gather_party_previews(player, friend_ids, requestable_ids=friend_ids)
+        top_other_party_map = _build_top_other_party_map(friend_ids)
         serializer = FriendLinkSerializer(
             friend_links,
             many=True,
@@ -1414,6 +1651,7 @@ class FriendListView(PlayerScopedAPIView):
                 "request": request,
                 "current_player": player,
                 "party_previews": party_previews,
+                "top_other_party_map": top_other_party_map,
             },
         )
         return Response({"friends": serializer.data}, status=status.HTTP_200_OK)
@@ -1676,7 +1914,16 @@ class FriendDetailView(PlayerScopedAPIView):
             link.is_favorite = is_favorite
             link.save(update_fields=["is_favorite", "updated_at"])
 
-        data = FriendLinkSerializer(link, context={"request": request}).data
+        party_previews = _gather_party_previews(player, {friend.id}, requestable_ids={friend.id})
+        top_other_party_map = _build_top_other_party_map({friend.id})
+        data = FriendLinkSerializer(
+            link,
+            context={
+                "request": request,
+                "party_previews": party_previews,
+                "top_other_party_map": top_other_party_map,
+            },
+        ).data
         return Response(data, status=status.HTTP_200_OK)
 
     def delete(self, request, username):
