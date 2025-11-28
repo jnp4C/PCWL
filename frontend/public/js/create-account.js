@@ -10,6 +10,8 @@
   const confirmPasswordInput = document.getElementById('confirm-password');
   const backButton = document.getElementById('back-to-login');
   const messageBox = document.getElementById('account-message');
+  const homeDistrictSelect = document.getElementById('home-district-select');
+  const homeDistrictHint = document.getElementById('home-district-hint');
   const submitButton = form ? form.querySelector('button[type="submit"]') : null;
   const templateDataset =
     typeof document !== 'undefined' && document.body && document.body.dataset
@@ -44,6 +46,8 @@
 
   apiBaseUrl = normalizeApiBase(apiBaseUrl);
 
+  let districtOptions = [];
+
   function buildApiUrl(path) {
     if (!path) {
       return apiBaseUrl;
@@ -53,6 +57,49 @@
     }
     const trimmed = path.startsWith('/') ? path.slice(1) : path;
     return `${apiBaseUrl}/${trimmed}`;
+  }
+
+  function setHomeDistrictStatus(text) {
+    if (homeDistrictHint) {
+      homeDistrictHint.textContent = text;
+    }
+  }
+
+  async function loadDistricts() {
+    if (!homeDistrictSelect) {
+      return;
+    }
+    try {
+      setHomeDistrictStatus('Loading districts…');
+      const response = await fetch(buildApiUrl('districts/catalog/'), {
+        credentials: 'same-origin',
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to load districts (${response.status})`);
+      }
+      const data = await response.json();
+      const districts = Array.isArray(data?.districts) ? data.districts : [];
+      districtOptions = districts
+        .filter((d) => d && d.code && d.name)
+        .map((d) => ({ code: String(d.code), name: String(d.name) }))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+      homeDistrictSelect.innerHTML = '<option value=\"\">Choose a home district…</option>';
+      districtOptions.forEach((entry) => {
+        const option = document.createElement('option');
+        option.value = entry.code;
+        option.textContent = `${entry.name} (${entry.code})`;
+        option.dataset.name = entry.name;
+        homeDistrictSelect.appendChild(option);
+      });
+      setHomeDistrictStatus(districtOptions.length ? 'Pick your home to boost scoring there.' : 'No districts available.');
+    } catch (error) {
+      console.warn('Failed to load district catalog', error);
+      setHomeDistrictStatus('Unable to load districts. You can set a home later in the app.');
+      if (homeDistrictSelect) {
+        homeDistrictSelect.disabled = true;
+      }
+    }
   }
 
   if (window.__PCWL_CONFIG_READY__ && typeof window.__PCWL_CONFIG_READY__.then === 'function') {
@@ -66,8 +113,13 @@
             apiBaseUrl = normalizeApiBase(config.apiBaseUrl);
           }
         }
+        return loadDistricts();
       })
-      .catch(() => {});
+      .catch(() => {
+        loadDistricts();
+      });
+  } else {
+    loadDistricts();
   }
 
   if (backButton) {
@@ -188,11 +240,32 @@
     setMessage('Creating your account…', 'info');
 
     try {
-      await createAccount({ username, password });
+      const homeCode = homeDistrictSelect && homeDistrictSelect.value ? homeDistrictSelect.value : '';
+      let homeName = '';
+      if (homeCode && districtOptions.length) {
+        const match = districtOptions.find((d) => d.code === homeCode);
+        homeName = match ? match.name : '';
+      } else if (homeCode && homeDistrictSelect) {
+        const selectedOption = homeDistrictSelect.options[homeDistrictSelect.selectedIndex];
+        homeName = selectedOption && selectedOption.dataset.name ? selectedOption.dataset.name : '';
+      }
+
+      const payload = { username, password };
+      if (homeCode) {
+        payload.home_district_code = homeCode;
+      }
+      if (homeName) {
+        payload.home_district_name = homeName;
+      }
+
+      await createAccount(payload);
       setMessage('Account created! Redirecting to login…', 'success');
       usernameInput.value = '';
       passwordInput.value = '';
       confirmPasswordInput.value = '';
+      if (homeDistrictSelect) {
+        homeDistrictSelect.value = '';
+      }
       window.setTimeout(() => {
         window.location.href = homeUrl;
       }, 1200);
