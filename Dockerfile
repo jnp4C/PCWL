@@ -11,6 +11,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
+    nodejs \
+    npm \
     nginx \
     rsync \
     gettext-base \
@@ -20,6 +22,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+
+RUN cd frontend && npm install && npm run build
 
 RUN python backend/manage.py collectstatic --noinput
 
