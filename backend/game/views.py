@@ -14,6 +14,7 @@ from django.db import connections, DEFAULT_DB_ALIAS
 from django.db.migrations.executor import MigrationExecutor
 from django.core.management import call_command
 from django.conf import settings
+import logging
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import NotAuthenticated, ValidationError
@@ -70,6 +71,8 @@ from .services import (
     start_charge,
 )
 
+
+logger = logging.getLogger(__name__)
 
 DISTRICT_BASE_SCORE = 2000
 DISTRICT_SECURE_THRESHOLD = 200
@@ -1194,6 +1197,18 @@ class CheckInView(PlayerScopedAPIView):
             return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
         except ValueError as exc:
             raise ValidationError({"detail": str(exc)})
+        except Exception as exc:  # noqa: BLE001
+            # Surface the exception in logs so Railway/stdout captures the traceback.
+            logger.exception(
+                "Check-in failed",
+                extra={
+                  "username": player.username,
+                  "district": payload.get("district_code"),
+                  "mode": payload.get("mode"),
+                  "source": source,
+                },
+            )
+            return Response({"detail": "Internal error while processing check-in."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         player_data = PlayerSerializer(result.player, context={"request": request}).data
         checkin_data = CheckInSerializer(result.checkin).data
         response = {
