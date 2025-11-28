@@ -77,6 +77,23 @@ class PlayerApiTests(TestCase):
         self.assertEqual(player.cooldown_details, {})
         self.assertEqual(player.map_marker_color, "#6366f1")
 
+    def test_create_player_with_home_district_sets_reference(self):
+        payload = {
+            "username": "home-user",
+            "password": "testpass123",
+            "home_district_code": "1100",
+            "home_district_name": "Prague 1",
+        }
+        response = self.client.post(reverse("player-list"), payload, content_type="application/json")
+        self.assertEqual(response.status_code, 201)
+        player = Player.objects.get(username="home-user")
+        self.assertEqual(player.home_district_code, "1100")
+        self.assertEqual(player.home_district_name, "Prague 1")
+        self.assertEqual(player.home_district, "Prague 1")
+        self.assertIsNotNone(player.home_district_ref)
+        self.assertEqual(player.home_district_ref.code, "1100")
+        self.assertEqual(player.home_district_ref.name, "Prague 1")
+
     def test_update_last_known_location(self):
         player = Player.objects.create(username="loc-user")
         self._login_player(player)

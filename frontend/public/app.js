@@ -3748,6 +3748,7 @@ let districtCatalogMap = null;
 let districtCatalogPromise = null;
 let homeDistrictOptions = null;
 let homeDistrictOptionMap = new Map();
+let suppressDistrictClickUntil = 0;
 let homeDistrictModalSelectedId = null;
 let homeDistrictModalTriggerElement = null;
 let actionContextMenu = null;
@@ -11187,6 +11188,26 @@ function renderPartyProfileContent(profile) {
   }
   partyProfileBody.appendChild(districtsCard);
   partyProfileBody.appendChild(contributorsCard);
+
+  if (Array.isArray(profile.recentMembers) && profile.recentMembers.length) {
+    const recentCard = document.createElement('div');
+    recentCard.className = 'character-card party-profile-card';
+    const recentTitle = document.createElement('div');
+    recentTitle.className = 'party-profile-card-title';
+    recentTitle.textContent = 'Recent members';
+    recentCard.appendChild(recentTitle);
+    const recentList = document.createElement('ul');
+    recentList.className = 'party-profile-list';
+    profile.recentMembers.forEach((member) => {
+      const li = document.createElement('li');
+      li.className = 'party-profile-list-item';
+      const display = member.displayName ? member.displayName : `@${member.username}`;
+      li.textContent = display;
+      recentList.appendChild(li);
+    });
+    recentCard.appendChild(recentList);
+    partyProfileBody.appendChild(recentCard);
+  }
 }
 
 async function openPartyProfileDrawer(partyCode, trigger = null) {
@@ -15103,6 +15124,8 @@ function addSourcesAndLayers() {
       return;
     }
 
+    suppressDistrictClickUntil = Date.now() + 500;
+
     if (mobileContextMenuSuppressClick) {
       mobileContextMenuSuppressClick = false;
       if (mobileContextMenuSuppressClickResetId !== null) {
@@ -15493,6 +15516,10 @@ function addSourcesAndLayers() {
   });
 
   map.on('click', 'districts-fill', (event) => {
+    if (suppressDistrictClickUntil && Date.now() < suppressDistrictClickUntil) {
+      return;
+    }
+    suppressDistrictClickUntil = 0;
     if (mobileContextMenuSuppressClick) {
       return;
     }
