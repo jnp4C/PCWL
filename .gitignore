@@ -30,3 +30,6 @@ AGENTS.md
 
 # Tooling artifacts
 .output.txt
+
+# Node modules
+frontend/node_modules/
