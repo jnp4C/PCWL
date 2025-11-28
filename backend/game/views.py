@@ -116,8 +116,8 @@ def _party_checkins_for_leader(party: Party):
     """Return a queryset of all check-ins across every party session led by the same leader."""
     if not party or not party.leader_id:
         return None
-    party_ids = []
-    party_codes = []
+    party_ids: List[int] = []
+    party_codes: List[str] = []
     for p in Party.objects.filter(leader_id=party.leader_id).only("id", "code"):
         if p.id:
             party_ids.append(p.id)
@@ -126,6 +126,45 @@ def _party_checkins_for_leader(party: Party):
     if not party_ids and not party_codes:
         return None
     return CheckIn.objects.filter(Q(party_id__in=party_ids) | Q(party_code__in=party_codes))
+
+
+def _recent_party_members(party: Party, *, sessions: int = 3, limit: int = 12) -> List[Dict[str, Any]]:
+    """Fetch recent unique members from the latest few sessions for this leader."""
+    if not party or not party.leader_id:
+        return []
+    recent_parties = (
+        Party.objects.filter(leader_id=party.leader_id)
+        .order_by("-created_at")
+        .only("id")
+    )[: max(1, sessions)]
+    party_ids = [p.id for p in recent_parties if p.id]
+    if not party_ids:
+        return []
+    memberships = (
+        PartyMembership.objects.select_related("player")
+        .filter(party_id__in=party_ids)
+        .order_by("-joined_at")
+    )
+    seen = set()
+    members: List[Dict[str, Any]] = []
+    for membership in memberships:
+        player = membership.player
+        if not player or not player.username:
+            continue
+        key = player.username.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        members.append(
+            {
+                "username": player.username,
+                "display_name": player.display_name or "",
+                "joined_at": membership.joined_at,
+            }
+        )
+        if len(members) >= limit:
+            break
+    return members
 
 
 def _top_party_prestige_contributors(party: Party, *, limit: int = 5) -> List[Dict[str, Any]]:
@@ -293,6 +332,7 @@ def _build_party_profile_payload(party: Party) -> Dict[str, Any]:
         )
     )
     top_players = _top_party_prestige_contributors(party, limit=5)
+    recent_members = _recent_party_members(party, sessions=3, limit=12)
     return {
         "party": {
             "code": party.code,
@@ -308,6 +348,7 @@ def _build_party_profile_payload(party: Party) -> Dict[str, Any]:
         "districts": districts,
         "top_players": top_players,
         "active_members": active_members,
+        "recent_members": recent_members,
     }
 
 
@@ -1386,8 +1427,16 @@ class PartyProfileView(APIView):
         party = Party.objects.filter(code__iexact=code_clean).select_related("leader").first()
         if not party:
             return Response({"detail": "Party not found."}, status=status.HTTP_404_NOT_FOUND)
+        canonical_party = party
+        if party.leader_id:
+            canonical_party = (
+                Party.objects.filter(leader_id=party.leader_id)
+                .order_by("-last_active_at", "-created_at")
+                .select_related("leader")
+                .first()
+            ) or party
 
-        payload = _build_party_profile_payload(party)
+        payload = _build_party_profile_payload(canonical_party)
         return Response(payload, status=status.HTTP_200_OK)
 
 

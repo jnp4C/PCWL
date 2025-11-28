@@ -5440,6 +5440,24 @@ function sanitizePartyProfile(raw) {
         })
         .filter(Boolean)
     : [];
+  const recentMembers = Array.isArray(raw.recent_members)
+    ? raw.recent_members
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') {
+            return null;
+          }
+          const username = typeof entry.username === 'string' ? entry.username : '';
+          if (!username) {
+            return null;
+          }
+          return {
+            username,
+            displayName:
+              typeof entry.display_name === 'string' ? entry.display_name : '',
+          };
+        })
+        .filter(Boolean)
+    : [];
   return {
     party: {
       code,
@@ -5455,6 +5473,7 @@ function sanitizePartyProfile(raw) {
     },
     topPlayers,
     districts,
+    recentMembers,
   };
 }
 
