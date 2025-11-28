@@ -112,13 +112,29 @@ def _party_prestige_sum_expression():
     )
 
 
+def _party_checkins_for_leader(party: Party):
+    """Return a queryset of all check-ins across every party session led by the same leader."""
+    if not party or not party.leader_id:
+        return None
+    party_ids = []
+    party_codes = []
+    for p in Party.objects.filter(leader_id=party.leader_id).only("id", "code"):
+        if p.id:
+            party_ids.append(p.id)
+        if p.code:
+            party_codes.append(p.code)
+    if not party_ids and not party_codes:
+        return None
+    return CheckIn.objects.filter(Q(party_id__in=party_ids) | Q(party_code__in=party_codes))
+
+
 def _top_party_prestige_contributors(party: Party, *, limit: int = 5) -> List[Dict[str, Any]]:
     if not party:
         return []
     prestige_expr = _party_prestige_sum_expression()
+    checkin_qs = _party_checkins_for_leader(party) or CheckIn.objects.filter(Q(party=party) | Q(party_code__iexact=party.code))
     aggregates = (
-        CheckIn.objects.filter(Q(party=party) | Q(party_code__iexact=party.code))
-        .values("player_id")
+        checkin_qs.values("player_id")
         .annotate(prestige=Coalesce(Sum(prestige_expr), 0))
         .order_by("-prestige")
     )
@@ -168,9 +184,9 @@ def _build_party_profile_payload(party: Party) -> Dict[str, Any]:
         for membership in active_memberships
         if membership.player
     ]
+    checkin_source = _party_checkins_for_leader(party) or CheckIn.objects.filter(Q(party=party) | Q(party_code__iexact=party.code))
     checkin_rows = (
-        CheckIn.objects.filter(Q(party=party) | Q(party_code__iexact=party.code))
-        .values("district_code")
+        checkin_source.values("district_code")
         .annotate(
             attack_points=Coalesce(
                 Sum(
