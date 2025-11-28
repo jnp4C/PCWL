@@ -8,4 +8,5 @@ def app_metadata(request):
     return {
         "APP_VERSION": getattr(settings, "APP_VERSION", "dev"),
         "APP_SNAPSHOT": getattr(settings, "APP_SNAPSHOT", "app.js"),
+        "APP_GIT_TAG": getattr(settings, "APP_GIT_TAG", ""),
     }

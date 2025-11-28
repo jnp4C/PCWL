@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#b39ddb" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -15,133 +15,10 @@
   <link rel="stylesheet" href="/styles.css" />
   <script>
     window.__PCWL_PAGE__ = 'leaderboard';
-    window.__PCWL_PAGE_CONFIG__ = {
-      appVersion: 'v0.20',
-      appSnapshot: 'app.js dev',
-      staticUrl: '/',
-      apiBaseUrl: '/api',
-      homeUrl: '/',
-      leaderboardUrl: '/leaderboard.html',
-      createAccountUrl: '/create-account.html',
-    };
   </script>
-  <script src="/js/page-config.js" defer></script>
 </head>
-<body
-  class="page-leaderboard"
-  data-static-url="/"
-  data-api-base-url="/api"
-  data-app-home-url="/"
-  data-app-version="v0.20"
-  data-app-snapshot="app.js dev"
->
-  <button
-    id="theme-toggle"
-    class="theme-toggle"
-    type="button"
-    aria-pressed="false"
-  >
-    <span class="theme-toggle-track" aria-hidden="true">
-      <span class="theme-toggle-thumb"></span>
-    </span>
-    <span class="theme-toggle-text">Dark mode</span>
-  </button>
-  <main class="app">
-    <section class="panel">
-      <header class="top-bar leaderboard-bar">
-        <div class="nav-group">
-          <a href="/" class="secondary button-link">Back to Game</a>
-        </div>
-        <div class="score">
-          <h1>Global Leaderboards</h1>
-        </div>
-        <div></div>
-      </header>
-      <p class="leaderboard-intro">
-        Points earned in Prague Explorer now fuel two leaderboards: one for individual players and one for districts.
-        Every district starts with <strong>2,000</strong> control points. Defend your home to add to its total, or launch
-        attacks to drain rival districts.
-      </p>
-      <div class="leaderboard-sections">
-        <section class="leaderboard-section" aria-labelledby="player-leaderboard-heading">
-          <div class="leaderboard-heading-row">
-            <h2 id="player-leaderboard-heading">
-              Player Leaderboard
-              <span class="leaderboard-badge" aria-label="Live scores">Live</span>
-            </h2>
-            <div class="leaderboard-actions" aria-label="Player leaderboard controls">
-              <button id="player-sort-toggle" class="secondary small" type="button">Show lowest</button>
-              <button id="player-show-toggle" class="secondary small" type="button">Show all</button>
-            </div>
-          </div>
-          <p class="leaderboard-section-note" id="player-leaderboard-note">
-            Scores sync after each attack or defend. Drag or swipe to explore every column and scroll for more players.
-          </p>
-          <div
-            class="leaderboard-table-wrapper"
-            tabindex="0"
-            role="region"
-            aria-labelledby="player-leaderboard-heading"
-            aria-describedby="player-leaderboard-note"
-          >
-            <table class="leaderboard-table leaderboard-table--players" aria-describedby="player-leaderboard-heading">
-              <thead>
-                <tr>
-                  <th scope="col">#</th>
-                  <th scope="col">Player</th>
-                  <th scope="col" class="numeric">Points</th>
-                  <th scope="col" class="numeric">Attack</th>
-                  <th scope="col" class="numeric">Defend</th>
-                  <th scope="col" class="numeric">A : D Ratio</th>
-                </tr>
-              </thead>
-              <tbody id="player-leaderboard-body"></tbody>
-            </table>
-          </div>
-          <p class="leaderboard-empty hidden" id="player-leaderboard-empty">
-            No player activity yet. Check in or attack a district to appear here.
-          </p>
-        </section>
-        <section class="leaderboard-section" aria-labelledby="district-leaderboard-heading">
-          <div class="leaderboard-heading-row">
-            <h2 id="district-leaderboard-heading">District Leaderboard</h2>
-            <div class="leaderboard-actions" aria-label="District leaderboard controls">
-              <button id="district-sort-toggle" class="secondary small" type="button">Show lowest</button>
-              <button id="district-show-toggle" class="secondary small" type="button">Show all</button>
-            </div>
-          </div>
-          <p class="leaderboard-section-note" id="district-leaderboard-note">
-            District standings highlight strength swings over the past 24 hours. Scroll to inspect every district.
-          </p>
-          <div
-            class="leaderboard-table-wrapper"
-            tabindex="0"
-            role="region"
-            aria-labelledby="district-leaderboard-heading"
-            aria-describedby="district-leaderboard-note"
-          >
-            <table class="leaderboard-table leaderboard-table--districts" aria-describedby="district-leaderboard-heading">
-              <thead>
-                <tr>
-                  <th scope="col">#</th>
-                  <th scope="col">District</th>
-                  <th scope="col" class="numeric">Strength</th>
-                  <th scope="col" class="numeric">Defended</th>
-                  <th scope="col" class="numeric">Attacked</th>
-                  <th scope="col" class="numeric">Checked-in</th>
-                </tr>
-              </thead>
-              <tbody id="district-leaderboard-body"></tbody>
-            </table>
-          </div>
-          <p class="leaderboard-empty hidden" id="district-leaderboard-empty">
-            No districts have been contested yet. Capture or defend a district to change the standings.
-          </p>
-        </section>
-      </div>
-    </section>
-  </main>
-  <script src="/js/theme-toggle.js" defer></script>
-  <script type="module" src="/js/leaderboard.js"></script>
+<body class="page-leaderboard">
+  <div id="root" data-page="leaderboard"></div>
+  <script type="module" src="/build/assets/index.js"></script>
 </body>
 </html>

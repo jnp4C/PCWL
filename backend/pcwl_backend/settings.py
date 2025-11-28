@@ -6,6 +6,7 @@ while enabling future backend work (REST API, multiplayer features, etc.).
 """
 
 import os
+import subprocess
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -206,7 +207,23 @@ REST_FRAMEWORK = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-APP_VERSION = os.environ.get("PCWL_APP_VERSION", "v0.20")
+def _resolve_git_tag(default_value: str = "") -> str:
+    try:
+        result = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        tag = (result.stdout or "").strip()
+        return tag or default_value
+    except Exception:
+        return default_value
+
+
+APP_GIT_TAG = _resolve_git_tag(os.environ.get("PCWL_GIT_TAG", ""))
+APP_VERSION = APP_GIT_TAG or os.environ.get("PCWL_APP_VERSION", "v0.20")
 APP_SNAPSHOT = os.environ.get("PCWL_APP_SNAPSHOT", "app.js dev")
 API_BASE_URL = _normalize_prefix(os.environ.get("PCWL_API_BASE_URL", "/api"))
 FRONTEND_HOME_PATH = _normalize_path(os.environ.get("PCWL_FRONTEND_HOME_PATH", "/"))

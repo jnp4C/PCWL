@@ -2804,6 +2804,7 @@ def _build_frontend_shell(include_leaderboard: bool = False) -> Dict[str, Any]:
         "app": {
             "version": getattr(settings, "APP_VERSION", "dev"),
             "snapshot": getattr(settings, "APP_SNAPSHOT", "app.js"),
+            "git_tag": getattr(settings, "APP_GIT_TAG", ""),
         },
         "api": {"base_url": getattr(settings, "API_BASE_URL", "/api/")},
         "assets": {"static_url": getattr(settings, "FRONTEND_STATIC_URL", "/")},
