@@ -45,6 +45,10 @@ export class ApiClient {
     if (!path) return this.baseUrl;
     if (path.startsWith('http://') || path.startsWith('https://')) return path;
     const trimmed = path.startsWith('/') ? path.slice(1) : path;
+    if (this.baseUrl.endsWith('/api') && trimmed.startsWith('api/')) {
+      // Avoid /api/api/... when both base and path include the prefix.
+      return `${this.baseUrl}/${trimmed.replace(/^api\//, '')}`;
+    }
     return `${this.baseUrl}/${trimmed}`;
   }
 
