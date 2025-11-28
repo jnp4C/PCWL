@@ -80,12 +80,46 @@ const profileImageSaveButton = document.getElementById('profile-image-save');
 const profileImageClearButton = document.getElementById('profile-image-clear');
 const profileImageFeedback = document.getElementById('profile-image-feedback');
 
+const pageConfig =
+  typeof window !== 'undefined' &&
+  window.__PCWL_PAGE_CONFIG__ &&
+  typeof window.__PCWL_PAGE_CONFIG__ === 'object'
+    ? window.__PCWL_PAGE_CONFIG__
+    : null;
 const templateDataset =
   typeof document !== 'undefined' && document.body && document.body.dataset
     ? document.body.dataset
     : null;
 
+function normalizeStaticPrefix(prefix) {
+  if (!prefix) {
+    return '';
+  }
+  let normalized = String(prefix).trim();
+  if (normalized && !normalized.endsWith('/')) {
+    normalized = `${normalized}/`;
+  }
+  return normalized;
+}
+
+function normalizeApiBase(base) {
+  if (!base) {
+    return '/api';
+  }
+  let normalized = String(base).trim();
+  if (normalized.endsWith('/')) {
+    normalized = normalized.replace(/\/+$/, '');
+  }
+  return normalized || '/api';
+}
+
 function readTemplateValue(datasetKey, windowKey) {
+  if (pageConfig && datasetKey && pageConfig[datasetKey]) {
+    const value = String(pageConfig[datasetKey]).trim();
+    if (value) {
+      return value;
+    }
+  }
   if (templateDataset && datasetKey && templateDataset[datasetKey]) {
     const value = String(templateDataset[datasetKey]).trim();
     if (value) {
@@ -100,6 +134,40 @@ function readTemplateValue(datasetKey, windowKey) {
   }
   return null;
 }
+
+let APP_VERSION = readTemplateValue('appVersion', '__APP_VERSION__') || 'dev';
+let APP_SNAPSHOT = readTemplateValue('appSnapshot', '__APP_SNAPSHOT__') || 'app.js';
+let STATIC_PREFIX = normalizeStaticPrefix(readTemplateValue('staticUrl', '__STATIC_URL__') || '');
+let API_BASE_URL = normalizeApiBase(readTemplateValue('apiBaseUrl', '__API_BASE_URL__') || '/api');
+let DATA_PREFIX = `${STATIC_PREFIX}data/`;
+
+function applyPageConfig(config) {
+  if (!config || typeof config !== 'object') {
+    return;
+  }
+  if (config.appVersion) {
+    APP_VERSION = String(config.appVersion).trim() || APP_VERSION;
+  }
+  if (config.appSnapshot) {
+    APP_SNAPSHOT = String(config.appSnapshot).trim() || APP_SNAPSHOT;
+  }
+  if (config.staticUrl) {
+    STATIC_PREFIX = normalizeStaticPrefix(config.staticUrl);
+    DATA_PREFIX = `${STATIC_PREFIX}data/`;
+  }
+  if (config.apiBaseUrl) {
+    API_BASE_URL = normalizeApiBase(config.apiBaseUrl);
+  }
+  try {
+    renderAppVersionBadge();
+  } catch (error) {
+    // non-fatal; badge can update on next render cycle
+  }
+}
+
+window.__applyPageConfig = applyPageConfig;
+applyPageConfig(pageConfig);
+
 const markerColorInput = document.getElementById('marker-color-input');
 const markerColorResetButton = document.getElementById('marker-color-reset');
 const markerColorFeedback = document.getElementById('marker-color-feedback');
@@ -227,9 +295,6 @@ if (currentUserTag) {
 }
 updateCharacterDrawerContent(null);
 
-const APP_VERSION = readTemplateValue('appVersion', '__APP_VERSION__') || 'dev';
-const APP_SNAPSHOT = readTemplateValue('appSnapshot', '__APP_SNAPSHOT__') || 'app.js';
-
 if (typeof document !== 'undefined' && document.body) {
   document.body.classList.add('welcome-active');
   document.body.classList.remove('game-active');
@@ -247,9 +312,6 @@ const MAP_STYLE = {
   sources: {},
   layers: [],
 };
-
-const STATIC_PREFIX = readTemplateValue('staticUrl', '__STATIC_URL__') || '';
-const DATA_PREFIX = `${STATIC_PREFIX}data/`;
 const ASSET_VERSION = '20251122-1';
 const EMPTY_GEOJSON = { type: 'FeatureCollection', features: [] };
 const STATIC_DATASETS = {
@@ -468,7 +530,6 @@ const DISTRICT_OVERLAY_FORCED_EXPRESSION = [
 const FRIEND_DELTA_FORMATTER = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 0,
 });
-const API_BASE_URL = '/api';
 const CSRF_HEADER_NAME = 'X-CSRFToken';
 let friendLocationsGeoJson = { type: 'FeatureCollection', features: [] };
 

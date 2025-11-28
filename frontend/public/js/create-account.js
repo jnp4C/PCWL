@@ -15,10 +15,60 @@
     typeof document !== 'undefined' && document.body && document.body.dataset
       ? document.body.dataset
       : null;
-  const homeUrl =
+  const pageConfig =
+    typeof window !== 'undefined' &&
+    window.__PCWL_PAGE_CONFIG__ &&
+    typeof window.__PCWL_PAGE_CONFIG__ === 'object'
+      ? window.__PCWL_PAGE_CONFIG__
+      : null;
+  let homeUrl =
     (backButton && backButton.dataset.homeUrl) ||
     (templateDataset && templateDataset.appHomeUrl) ||
+    (pageConfig && pageConfig.homeUrl) ||
     '/';
+  let apiBaseUrl =
+    (pageConfig && pageConfig.apiBaseUrl) ||
+    (templateDataset && templateDataset.apiBaseUrl) ||
+    '/api';
+
+  function normalizeApiBase(base) {
+    if (!base) {
+      return '/api';
+    }
+    let normalized = String(base).trim();
+    if (normalized.endsWith('/')) {
+      normalized = normalized.replace(/\/+$/, '');
+    }
+    return normalized || '/api';
+  }
+
+  apiBaseUrl = normalizeApiBase(apiBaseUrl);
+
+  function buildApiUrl(path) {
+    if (!path) {
+      return apiBaseUrl;
+    }
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return path;
+    }
+    const trimmed = path.startsWith('/') ? path.slice(1) : path;
+    return `${apiBaseUrl}/${trimmed}`;
+  }
+
+  if (window.__PCWL_CONFIG_READY__ && typeof window.__PCWL_CONFIG_READY__.then === 'function') {
+    window.__PCWL_CONFIG_READY__
+      .then((config) => {
+        if (config && typeof config === 'object') {
+          if (config.homeUrl) {
+            homeUrl = config.homeUrl;
+          }
+          if (config.apiBaseUrl) {
+            apiBaseUrl = normalizeApiBase(config.apiBaseUrl);
+          }
+        }
+      })
+      .catch(() => {});
+  }
 
   if (backButton) {
     backButton.addEventListener('click', () => {
@@ -62,7 +112,7 @@
     if (csrfToken) {
       headers['X-CSRFToken'] = csrfToken;
     }
-    const response = await fetch('/api/players/', {
+    const response = await fetch(buildApiUrl('players/'), {
       method: 'POST',
       headers,
       credentials: 'same-origin',

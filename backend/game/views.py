@@ -9,7 +9,7 @@ from django.db import DatabaseError
 from django.db.utils import OperationalError
 from django.utils import timezone
 from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.db import connections, DEFAULT_DB_ALIAS
 from django.db.migrations.executor import MigrationExecutor
 from django.core.management import call_command
@@ -2724,11 +2724,55 @@ class LeaderboardView(APIView):
     authentication_classes = []
 
     def get(self, request):
-        data = {
-            "players": _build_player_leaderboard(),
-            "districts": _build_district_leaderboard(),
-        }
-        return Response(data, status=status.HTTP_200_OK)
+        return Response(_build_leaderboard_payload(), status=status.HTTP_200_OK)
+
+
+def _build_leaderboard_payload():
+    return {
+        "players": _build_player_leaderboard(),
+        "districts": _build_district_leaderboard(),
+    }
+
+
+def _build_frontend_shell(include_leaderboard: bool = False) -> Dict[str, Any]:
+    data: Dict[str, Any] = {
+        "app": {
+            "version": getattr(settings, "APP_VERSION", "dev"),
+            "snapshot": getattr(settings, "APP_SNAPSHOT", "app.js"),
+        },
+        "api": {"base_url": getattr(settings, "API_BASE_URL", "/api/")},
+        "assets": {"static_url": getattr(settings, "FRONTEND_STATIC_URL", "/")},
+        "links": {
+            "home": getattr(settings, "FRONTEND_HOME_PATH", "/"),
+            "leaderboard": getattr(settings, "FRONTEND_LEADERBOARD_PATH", "/leaderboard.html"),
+            "create_account": getattr(settings, "FRONTEND_CREATE_ACCOUNT_PATH", "/create-account.html"),
+        },
+    }
+    if include_leaderboard:
+        data["leaderboard"] = _build_leaderboard_payload()
+    return data
+
+
+@method_decorator(ensure_csrf_cookie, name="dispatch")
+class FrontendHomeConfigView(APIView):
+    """Expose metadata for the static home page and set a CSRF cookie for session APIs."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        return Response(_build_frontend_shell(include_leaderboard=False), status=status.HTTP_200_OK)
+
+
+@method_decorator(ensure_csrf_cookie, name="dispatch")
+class FrontendLeaderboardConfigView(APIView):
+    """Expose metadata + leaderboard payload for the static leaderboard page."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        return Response(_build_frontend_shell(include_leaderboard=True), status=status.HTTP_200_OK)
 
 
 def _get_pending_migrations(db_alias=DEFAULT_DB_ALIAS):

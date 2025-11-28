@@ -5,7 +5,37 @@ const LEGACY_PLAYER_STORAGE_KEYS = ['pragueExplorerPlayers'];
 const DISTRICT_STORAGE_KEY = 'pcwlDistrictScores';
 const LEGACY_DISTRICT_STORAGE_KEYS = ['pragueExplorerDistrictScores'];
 const DISTRICT_BASE_SCORE = 2000;
-const LEADERBOARD_API_URL = '/api/leaderboard/';
+const pageConfig =
+  typeof window !== 'undefined' &&
+  window.__PCWL_PAGE_CONFIG__ &&
+  typeof window.__PCWL_PAGE_CONFIG__ === 'object'
+    ? window.__PCWL_PAGE_CONFIG__
+    : null;
+
+function normalizeApiBase(base) {
+  if (!base) {
+    return '/api';
+  }
+  let normalized = String(base).trim();
+  if (normalized.endsWith('/')) {
+    normalized = normalized.replace(/\/+$/, '');
+  }
+  return normalized || '/api';
+}
+
+function buildLeaderboardApiUrl(config) {
+  const base =
+    (config && config.apiBaseUrl) ||
+    (config && config.api && config.api.base_url) ||
+    '/api';
+  return `${normalizeApiBase(base)}/leaderboard/`;
+}
+
+let LEADERBOARD_API_URL = buildLeaderboardApiUrl(pageConfig);
+let bootstrapLeaderboard =
+  (pageConfig && pageConfig.leaderboard) ||
+  (typeof window !== 'undefined' && window.__PCWL_LEADERBOARD_PAYLOAD__) ||
+  null;
 
 const integerFormatter = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 0,
@@ -40,6 +70,29 @@ const leaderboardState = {
   lastPlayers: [],
   lastDistricts: [],
 };
+
+function applyLeaderboardBootstrap(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return;
+  }
+  bootstrapLeaderboard = payload;
+  renderPlayerLeaderboard(payload.players || []);
+  renderDistrictLeaderboard(payload.districts || []);
+}
+
+function applyPageConfig(config) {
+  if (config && typeof config === 'object') {
+    LEADERBOARD_API_URL = buildLeaderboardApiUrl(config);
+    if (config.leaderboard) {
+      applyLeaderboardBootstrap(config.leaderboard);
+    }
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.__applyPageConfig = applyPageConfig;
+  window.__applyLeaderboardBootstrap = applyLeaderboardBootstrap;
+}
 
 const playerSortToggle = document.getElementById('player-sort-toggle');
 const playerShowToggle = document.getElementById('player-show-toggle');
@@ -554,7 +607,29 @@ async function refreshLeaderboardsFromApi() {
 }
 
 function initialiseLeaderboardPage() {
-  refreshLeaderboardsFromApi();
+  const startWithApi = () => refreshLeaderboardsFromApi();
+
+  if (bootstrapLeaderboard) {
+    applyLeaderboardBootstrap(bootstrapLeaderboard);
+    scheduleLeaderboardRefresh();
+    return;
+  }
+
+  if (window.__PCWL_CONFIG_READY__ && typeof window.__PCWL_CONFIG_READY__.then === 'function') {
+    window.__PCWL_CONFIG_READY__
+      .then((config) => {
+        if (config && typeof config === 'object' && config.leaderboard) {
+          applyLeaderboardBootstrap(config.leaderboard);
+          scheduleLeaderboardRefresh();
+          return;
+        }
+        startWithApi();
+      })
+      .catch(startWithApi);
+    return;
+  }
+
+  startWithApi();
 }
 
 if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {

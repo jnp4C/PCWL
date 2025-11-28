@@ -23,6 +23,8 @@ from .views import (
     PartyJoinRequestView,
     PartyNamePreferenceView,
     PartyView,
+    FrontendHomeConfigView,
+    FrontendLeaderboardConfigView,
     PlayerViewSet,
     SessionCurrentView,
     SessionLoginView,
@@ -37,6 +39,8 @@ router.register("players", PlayerViewSet, basename="player")
 urlpatterns = [
     path("health/", health, name="api-health"),
     path("migrations/status/", migration_status, name="migration-status"),
+    path("pages/home/", FrontendHomeConfigView.as_view(), name="frontend-home"),
+    path("pages/leaderboard/", FrontendLeaderboardConfigView.as_view(), name="frontend-leaderboard"),
     path("auth/token/", obtain_auth_token, name="api-token"),
     path("session/login/", SessionLoginView.as_view(), name="session-login"),
     path("session/logout/", SessionLogoutView.as_view(), name="session-logout"),

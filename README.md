@@ -1,73 +1,39 @@
-PCWL — Run locally (frontend + Django backend)
+PCWL — frontend + API split
+=================================
 
-This repository already contains both the frontend (`frontend/public` → `app.js`, `styles.css`, assets/data) and the Django backend (`backend/`). Use the provided scripts to set up a Python virtual environment, apply database migrations, and run a local development server that serves the frontend and the API on the same origin.
+The Django backend now exposes only `/api/` + `/admin/`. All frontend HTML/JS/CSS lives in `frontend/public` and is served by Nginx with no-cache headers, while Nginx proxies API/admin requests to Gunicorn.
 
-Quick start (macOS/Linux/WSL)
-- Prerequisites:
-  - Python 3.11 recommended (Django 3.2.x is not compatible with Python 3.13+).
-  - git, bash, and SQLite3 (usually preinstalled).
-- Steps:
-  1) From the repo root, create the virtual environment and install deps:
-     bash tools/setup.sh
-  2) Apply database migrations:
-     ./tools/migrate.sh
-  3) Start the local server (serves UI + API at http://127.0.0.1:8000):
-     ./tools/run.sh
-  4) Open the app in a browser:
-     http://127.0.0.1:8000/
+Quick start (Docker)
+- `docker build -t pcwl .`
+- `docker run -p 8080:8080 pcwl`
+- Open http://localhost:8080/ (frontend) — API is still at `/api/`
 
-Notes
-- Do not open index.html via the file:// protocol. Open the app through the Django dev server URL so the browser considers API calls same‑origin, CSRF cookies are available, and session auth works.
-- The dev server also exposes helpful pages:
-  - Home: /
-  - Create account: /create-account/
-  - API base: /api/
+Local dev without Docker
+- Create the venv and install deps: `bash tools/setup.sh`
+- Install Nginx (`brew install nginx` on macOS, `apt install nginx` on Debian/Ubuntu).
+- Run the combined stack (Nginx + Gunicorn): `./scripts/start.sh` (honours `PORT`/`BACKEND_PORT`).
+- Open the app at http://127.0.0.1:8080/ (or your chosen `PORT`).
+- Backend-only dev: `./tools/run.sh` still starts `manage.py runserver` for the API; serve `frontend/public/` separately (e.g., `python -m http.server --directory frontend/public 8081`) and keep API calls pointed at `http://127.0.0.1:8000/api`.
 
-Windows options
-- Option A (recommended): Use Windows Subsystem for Linux (WSL)
-  - Install WSL and a Linux distribution (e.g., Ubuntu)
-  - In WSL terminal, run the same Quick start commands above.
-- Option B (native PowerShell, manual):
-  1) Install Python 3.11 from python.org.
-  2) Create and activate a venv:
-     py -3.11 -m venv .venv
-     .\.venv\Scripts\Activate.ps1
-  3) Install deps:
-     python -m pip install -r requirements.txt
-  4) Run migrations and server:
-     cd backend
-     python manage.py migrate
-     python manage.py runserver 127.0.0.1:8000
-  5) Open http://127.0.0.1:8000/
-
-Troubleshooting
-- Python 3.13 error (cgi removed):
-  - If scripts detect Python 3.13+, they will ask you to switch to 3.11.
-  - Fix:
-    rm -rf .venv && PYTHON=python3.11 ./tools/setup.sh
-- Django not installed / permission denied on scripts:
-  - Run setup with bash explicitly and/or make scripts executable:
-    bash tools/setup.sh
-    chmod +x tools/*.sh
-- Migrations pending / database not ready:
-  - Run:
-    ./tools/migrate.sh
-  - The run script also applies migrations automatically before launching.
-- 403 errors on POST endpoints in the browser:
-  - Always access the app via http://127.0.0.1:8000/ (not file://). The frontend includes CSRF headers for unsafe methods, and the server issues the csrftoken cookie for the same origin.
-
-How frontend and backend are "merged" locally
-- The Django app (backend/pcwl_backend/urls.py) serves templates from backend/templates/ (home.html, create-account.html, etc.) and mounts the game API at /api/.
-- Static files (`frontend/public/app.js`, `styles.css`, `data/`, etc.) are served in development by Django’s staticfiles. You get one origin (127.0.0.1:8000) for both UI and API, which avoids CORS/CSRF issues.
-- For production/static hosting, rely on Django’s `collectstatic` + staticfiles storage to emit `Cache-Control` headers for JS/CSS/assets. The service worker has been removed so browsers always fetch fresh API responses; run `python manage.py collectstatic` during deploys to let Django handle asset caching.
+Frontend/backend contract
+- Backend routes:
+  - `/api/pages/home/` — returns app metadata (version/snapshot, static + link URLs) and sets a CSRF cookie for the static pages.
+  - `/api/pages/leaderboard/` — same metadata plus the leaderboard payload.
+  - `/api/leaderboard/` and the rest of the existing game API stay intact.
+- Frontend pages:
+  - `frontend/public/index.html`, `create-account.html`, `leaderboard.html` (plus JS in `frontend/public/js/`); served by Nginx with `try_files $uri $uri.html /index.html`.
+  - Config is bootstrapped via `js/page-config.js` so the static pages learn API/static URLs and version info from the backend.
+- Static assets:
+  - Django `collectstatic` now targets only admin/static assets (`STATICFILES_DIRS` excludes the frontend). Nginx serves them from `/static/`.
+  - Frontend assets come directly from `frontend/public` (also copied to `/var/www/frontend` in the Docker image).
 
 Useful scripts
-- tools/setup.sh — creates .venv and installs requirements with a compatible Python.
-- tools/migrate.sh — applies database migrations using the venv.
-- tools/run.sh — applies migrations and starts the dev server at HOST:PORT (env vars supported: HOST=0.0.0.0 PORT=8001).
+- `tools/setup.sh` — create .venv and install Python requirements.
+- `tools/migrate.sh` — apply database migrations.
+- `tools/run.sh` — run Django dev server for API-only work.
+- `scripts/start.sh` — production-style entrypoint (migrate, collectstatic, sync frontend, start Gunicorn + Nginx).
 
-Environment variables
-- HOST and PORT for tools/run.sh (defaults: 127.0.0.1:8000):
-  HOST=0.0.0.0 PORT=8001 ./tools/run.sh
-
-That’s it — with the server running, open the app at http://127.0.0.1:8000/ and sign in or create an account. If you run into any blockers, see the Troubleshooting section above.
+Troubleshooting
+- Python 3.13 is unsupported by Django 3.2.x — use Python 3.11 (the scripts will warn you).
+- If static pages cannot reach the API, confirm Nginx is running and proxying `/api/` to `BACKEND_PORT` (default 8000).
+- New cookies (including CSRF) come from `/api/pages/home/` or `/api/pages/leaderboard/`; hit those once if you see CSRF errors during account creation.

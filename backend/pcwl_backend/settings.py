@@ -28,11 +28,25 @@ def env_list(name, default=None):
         return default or []
     return [item.strip() for item in value.split(",") if item.strip()]
 
+
+def _normalize_path(value: str, default: str = "/") -> str:
+    if not value:
+        return default
+    if not value.startswith("/"):
+        return f"/{value}"
+    return value
+
+
+def _normalize_prefix(value: str, default: str = "/") -> str:
+    normalized = _normalize_path(value, default=default)
+    if not normalized.endswith("/"):
+        normalized = f"{normalized}/"
+    return normalized
+
 # Paths
 BASE_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = BASE_DIR.parent
 FRONTEND_DIR = REPO_ROOT / "frontend"
-FRONTEND_PUBLIC_DIR = FRONTEND_DIR / "public"
 
 # Security
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-change-me")
@@ -165,10 +179,8 @@ USE_TZ = True
 
 # Static assets
 STATIC_URL = "/static/"
-STATICFILES_DIRS = [
-    FRONTEND_PUBLIC_DIR,
-]
-STATIC_ROOT = (REPO_ROOT / "_pcwl_staticfiles").resolve()
+STATICFILES_DIRS = []
+STATIC_ROOT = Path(os.environ.get("DJANGO_STATIC_ROOT", REPO_ROOT / "_pcwl_staticfiles")).resolve()
 if HAS_WHITENOISE:
     STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 else:
@@ -196,3 +208,12 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 APP_VERSION = os.environ.get("PCWL_APP_VERSION", "v0.20")
 APP_SNAPSHOT = os.environ.get("PCWL_APP_SNAPSHOT", "app.js dev")
+API_BASE_URL = _normalize_prefix(os.environ.get("PCWL_API_BASE_URL", "/api"))
+FRONTEND_HOME_PATH = _normalize_path(os.environ.get("PCWL_FRONTEND_HOME_PATH", "/"))
+FRONTEND_LEADERBOARD_PATH = _normalize_path(
+    os.environ.get("PCWL_FRONTEND_LEADERBOARD_PATH", "/leaderboard.html")
+)
+FRONTEND_CREATE_ACCOUNT_PATH = _normalize_path(
+    os.environ.get("PCWL_FRONTEND_CREATE_ACCOUNT_PATH", "/create-account.html")
+)
+FRONTEND_STATIC_URL = _normalize_prefix(os.environ.get("PCWL_FRONTEND_STATIC_URL", "/"))

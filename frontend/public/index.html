@@ -1,4 +1,3 @@
-{% load static %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -11,19 +10,33 @@
   <meta name="apple-mobile-web-app-title" content="PCWL" />
   <title>PCWL</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='48' fill='%234c1d95'/%3E%3Ctext x='50' y='58' font-size='48' text-anchor='middle' fill='white' font-family='Segoe UI, Tahoma, sans-serif'%3EP%3C/text%3E%3C/svg%3E" />
-  <link rel="manifest" href="{% static 'manifest.webmanifest.json' %}" />
-  <link rel="apple-touch-icon" href="{% static 'icons/icon-180.png' %}" />
+  <link rel="manifest" href="/manifest.webmanifest.json" />
+  <link rel="apple-touch-icon" href="/icons/icon-180.png" />
   <link
     rel="stylesheet"
-    href="{% static 'assets/maplibre/maplibre-gl.css' %}"
+    href="/assets/maplibre/maplibre-gl.css"
   />
-  <link rel="stylesheet" href="{% static 'styles.css' %}" />
+  <link rel="stylesheet" href="/styles.css" />
+  <script>
+    window.__PCWL_PAGE__ = 'home';
+    window.__PCWL_PAGE_CONFIG__ = {
+      appVersion: 'v0.20',
+      appSnapshot: 'app.js dev',
+      staticUrl: '/',
+      apiBaseUrl: '/api',
+      homeUrl: '/',
+      leaderboardUrl: '/leaderboard.html',
+      createAccountUrl: '/create-account.html',
+    };
+  </script>
+  <script src="/js/page-config.js" defer></script>
 </head>
 <body
-  data-static-url="{% get_static_prefix %}"
-  data-app-home-url="{% url 'home' %}"
-  data-app-version="{{ APP_VERSION }}"
-  data-app-snapshot="{{ APP_SNAPSHOT }}"
+  data-static-url="/"
+  data-api-base-url="/api"
+  data-app-home-url="/"
+  data-app-version="v0.20"
+  data-app-snapshot="app.js dev"
 >
   <button
     id="theme-toggle"
@@ -39,9 +52,8 @@
   <main class="app">
     <section id="welcome-screen" class="panel">
       <div id="app-version-badge" class="app-version-badge" aria-hidden="true"></div>
-      <img src="{% static 'data/Prague_Civil_War_Live.png' %}" alt="Prague Explorer logo" class="welcome-logo" />
+      <img src="/data/Prague_Civil_War_Live.png" alt="Prague Explorer logo" class="welcome-logo" />
       <form id="login-form" class="login-form" autocomplete="off">
-        {% csrf_token %}
         <label for="username-input">Username</label>
         <div class="login-row">
           <input type="text" id="username-input" name="username" placeholder="e.g. PragueWalker" maxlength="32" required />
@@ -59,7 +71,7 @@
         </div>
         <p class="account-hint">
           Don't have an account?
-          <a class="account-link" href="{% url 'create-account' %}">Create one here</a>
+          <a class="account-link" href="/create-account.html">Create one here</a>
         </p>
         <div class="login-row login-help">
           <button type="button" id="howto-open" class="secondary">How to</button>
@@ -193,7 +205,7 @@
           <section class="drawer-block">
             <h2 class="drawer-heading">Appearance</h2>
             <button id="drawer-theme-toggle" class="secondary small" type="button">Toggle Theme</button>
-            <a id="drawer-leaderboard" class="secondary small button-link" href="{% url 'leaderboard' %}">Leaderboard</a>
+            <a id="drawer-leaderboard" class="secondary small button-link" href="/leaderboard.html">Leaderboard</a>
           </section>
           <section class="drawer-block">
             <h2 class="drawer-heading">Audio</h2>
@@ -238,7 +250,7 @@
             type="button"
             aria-label="Check In"
           >
-            <img src="{% static 'data/checkin.png' %}" alt="" class="fab-icon" />
+            <img src="/data/checkin.png" alt="" class="fab-icon" />
             <span class="sr-only">Check In</span>
           </button>
         </div>
@@ -434,7 +446,7 @@
                 <li>Use “Add friend” to send a request directly from the bubble; shared entries are players you already have on the list.</li>
               </ul>
               <figure class="how-figure">
-                <img src="{% static 'data/ActiveParty.png' %}" alt="Live party card example in My Bubble" class="how-figure-image" />
+                <img src="/data/ActiveParty.png" alt="Live party card example in My Bubble" class="how-figure-image" />
                 <figcaption class="how-figure-caption">Live party cards show hosting friends, members, location, and boosts.</figcaption>
               </figure>
               <p class="how-tip">Tip: Enable geolocation for precise local actions, or use the map click/press to pick a district.</p>
@@ -697,11 +709,11 @@
     </div>
   </div>
 
-  <script src="{% static 'assets/maplibre/maplibre-gl.js' %}"></script>
-  <script src="{% static 'js/pmtiles.js' %}"></script>
-  <script src="{% static 'js/theme-toggle.js' %}"></script>
-  <script src="{% static 'js/error-reporter.js' %}"></script>
-  <script src="{% static 'js/topojson-client.min.js' %}"></script>
-  <script src="{% static 'app.js' %}"></script>
+  <script src="/assets/maplibre/maplibre-gl.js" defer></script>
+  <script src="/js/pmtiles.js" defer></script>
+  <script src="/js/theme-toggle.js" defer></script>
+  <script src="/js/error-reporter.js" defer></script>
+  <script src="/js/topojson-client.min.js" defer></script>
+  <script src="/app.js" defer></script>
 </body>
 </html>

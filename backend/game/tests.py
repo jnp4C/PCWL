@@ -39,6 +39,24 @@ class HealthEndpointTests(TestCase):
             self.assertIn(body["db"], {"ok", "pending", "unknown"})
 
 
+class FrontendConfigTests(TestCase):
+    def test_home_config_sets_csrf_cookie_and_links(self):
+        response = self.client.get(reverse("frontend-home"))
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertIn("app", body)
+        self.assertIn("links", body)
+        self.assertIn("csrftoken", response.cookies)
+
+    def test_leaderboard_config_includes_payload(self):
+        response = self.client.get(reverse("frontend-leaderboard"))
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertIn("leaderboard", body)
+        self.assertIn("players", body["leaderboard"])
+        self.assertIn("districts", body["leaderboard"])
+
+
 class PlayerApiTests(TestCase):
     def _login_player(self, player: Player):
         user = player.ensure_auth_user(password="testpass123")

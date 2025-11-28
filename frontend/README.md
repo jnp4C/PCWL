@@ -2,10 +2,12 @@
 
 This directory splits the client into a future-ready structure:
 
-- `public/` – files served directly by Django (current `app.js`, `styles.css`, `data/`, and helper JS modules)
+- `public/` – static HTML/JS/CSS/assets served by Nginx (via `scripts/start.sh` + `deploy/nginx.conf.template`). Pages: `index.html`, `create-account.html`, `leaderboard.html`, plus shared assets (`app.js`, `styles.css`, `data/`, `js/`).
 - `src/` – reserved for modular ES source files when we wire up a bundler (Vite/Rollup/etc.)
 
-As follow-up work, add a build tool (e.g., Vite) so `src/` becomes the source of truth and emits optimized assets into `public/` or a dedicated `dist/` folder that Django serves via `STATICFILES_DIRS`.
+`js/page-config.js` bootstraps environment data (API base URL, version, links) from `/api/pages/home/` or `/api/pages/leaderboard/` so the static pages stay in sync with the backend without Django templates.
+
+As follow-up work, add a build tool (e.g., Vite) so `src/` becomes the source of truth and emits optimized assets into `public/` or a dedicated `dist/` folder that Nginx serves directly.
 
 ## Static map tiles
 
