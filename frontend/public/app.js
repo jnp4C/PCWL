@@ -1602,6 +1602,10 @@ function renderCooldownStrip(now = Date.now()) {
       ? activeParty.createdAt
       : activeParty.expiresAt - PARTY_DURATION_MS;
     const duration = Math.max(1, (activeParty.expiresAt - createdAt) || PARTY_DURATION_MS);
+    const membersCount = Array.isArray(activeParty.members) ? activeParty.members.length : 0;
+    const size = Number.isFinite(Number(activeParty.size)) && Number(activeParty.size) > 0
+      ? Number(activeParty.size)
+      : Math.max(1, membersCount || 1);
     partyEntries.push({
       type: 'party-active',
       key: 'party-active',
@@ -1611,6 +1615,8 @@ function renderCooldownStrip(now = Date.now()) {
         createdAt,
         expiresAt: activeParty.expiresAt,
         name: activeParty.name || '',
+        membersCount,
+        size,
       },
     });
   }
@@ -1685,10 +1691,15 @@ function renderCooldownStrip(now = Date.now()) {
           ? formatPartyCountdown(info.expiresAt)
           : formatCooldownTime(remaining);
         const partyName = info.name ? info.name : '';
-        label.textContent = partyName ? `${partyName} • ${expiresText} left` : `Party boost • ${expiresText} left`;
+        const membersCount = Number.isFinite(info.membersCount) ? Number(info.membersCount) : 0;
+        const size = Number.isFinite(info.size) && info.size > 0 ? Number(info.size) : Math.max(1, membersCount || 1);
+        const memberLabel = `${membersCount}/${size} players`;
+        label.textContent = partyName
+          ? `${partyName} • ${memberLabel} • ${expiresText} left`
+          : `Party boost • ${memberLabel} • ${expiresText} left`;
         partyButton.setAttribute(
           'aria-label',
-          `${partyName || 'Party boost'} — ${expiresText} remaining`,
+          `${partyName || 'Party boost'} — ${memberLabel} — ${expiresText} remaining`,
         );
         partyButton.appendChild(track);
         partyButton.appendChild(label);
@@ -9360,11 +9371,19 @@ function renderPartyPanelChip(now = Date.now()) {
 
   // If an active party exists, show a 3h countdown chip reflecting remaining time
   if (activeParty) {
+    const partyName =
+      (typeof activeParty.name === 'string' && activeParty.name.trim()) ||
+      (typeof activeParty.code === 'string' && activeParty.code.trim()) ||
+      'Party boost';
+    const memberCount = Array.isArray(activeParty.members) ? activeParty.members.length : 0;
+    const capacity = Number.isFinite(Number(activeParty.size)) && Number(activeParty.size) > 0
+      ? Number(activeParty.size)
+      : Math.max(1, memberCount || 1);
+    const memberLabel = `${memberCount}/${capacity} players`;
     const boostReady =
       activeParty.boostReady ||
       activeParty.activeDistrictReady ||
       (activeParty.activeDistrictCount || 0) >= 2;
-    const partyLabel = activeParty.name ? activeParty.name : 'Party boost';
     const districtLabel =
       (activeParty.activeDistrictName && activeParty.activeDistrictName.trim()) ||
       (activeParty.activeDistrictCode ? `District ${activeParty.activeDistrictCode}` : '');
@@ -9388,8 +9407,8 @@ function renderPartyPanelChip(now = Date.now()) {
       const label = document.createElement('span');
       label.className = 'cooldown-time';
       const expiresText = formatPartyCountdown(activeParty.expiresAt);
-      label.textContent = `${partyLabel} • ${expiresText} left`;
-      button.setAttribute('aria-label', `${partyLabel} — ${expiresText} remaining`);
+      label.textContent = `${partyName} • ${memberLabel} • ${expiresText} left`;
+      button.setAttribute('aria-label', `${partyName} — ${memberLabel} — ${expiresText} remaining`);
       button.appendChild(track);
       button.appendChild(label);
       friendsPartyChip.appendChild(button);
@@ -9409,8 +9428,8 @@ function renderPartyPanelChip(now = Date.now()) {
     const label = document.createElement('span');
     label.className = 'cooldown-time';
     const waitingLabel = districtLabel ? `Waiting in ${districtLabel}` : 'Waiting for teammates';
-    label.textContent = `${partyLabel} • ${waitingLabel}`;
-    button.setAttribute('aria-label', `${partyLabel} — waiting for teammates to start boost`);
+    label.textContent = `${partyName} • ${memberLabel} • ${waitingLabel}`;
+    button.setAttribute('aria-label', `${partyName} — ${memberLabel} — waiting for teammates to start boost`);
     button.appendChild(track);
     button.appendChild(label);
     friendsPartyChip.appendChild(button);
