@@ -830,8 +830,9 @@ def _update_ratios(player: Player) -> None:
         return
     attack_ratio = Decimal(player.attack_points) / Decimal(player.checkins)
     defend_ratio = Decimal(player.defend_points) / Decimal(player.checkins)
-    player.attack_ratio = attack_ratio.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    player.defend_ratio = defend_ratio.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    max_ratio = Decimal("999.99")
+    player.attack_ratio = min(attack_ratio, max_ratio).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    player.defend_ratio = min(defend_ratio, max_ratio).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def start_charge(player: Player) -> Player:
