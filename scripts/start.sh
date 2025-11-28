@@ -10,6 +10,8 @@ PORT="${PORT:-8080}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 STATIC_ROOT="${DJANGO_STATIC_ROOT:-/var/www/static}"
 FRONTEND_ROOT="${FRONTEND_ROOT:-/var/www/frontend}"
+FRONTEND_DIST_SRC="${FRONTEND_DIST_SRC:-$APP_ROOT/frontend/dist}"
+FRONTEND_PUBLIC_SRC="${FRONTEND_PUBLIC_SRC:-$APP_ROOT/frontend/public}"
 
 export PORT BACKEND_PORT
 
@@ -18,7 +20,12 @@ mkdir -p "$STATIC_ROOT" "$FRONTEND_ROOT"
 python backend/manage.py migrate --noinput
 python backend/manage.py collectstatic --noinput
 
-rsync -a frontend/public/ "$FRONTEND_ROOT"/
+# Sync built frontend if available; fall back to static public assets
+if [[ -d "$FRONTEND_DIST_SRC" && -n "$(ls -A "$FRONTEND_DIST_SRC" 2>/dev/null)" ]]; then
+  rsync -a "$FRONTEND_DIST_SRC"/ "$FRONTEND_ROOT"/
+else
+  rsync -a "$FRONTEND_PUBLIC_SRC"/ "$FRONTEND_ROOT"/
+fi
 
 envsubst '$PORT $BACKEND_PORT' < deploy/nginx.conf.template > /etc/nginx/conf.d/default.conf
 

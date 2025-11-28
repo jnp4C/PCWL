@@ -5,9 +5,15 @@ This directory splits the client into a future-ready structure:
 - `public/` – static HTML/JS/CSS/assets served by Nginx (via `scripts/start.sh` + `deploy/nginx.conf.template`). Pages: `index.html`, `create-account.html`, `leaderboard.html`, plus shared assets (`app.js`, `styles.css`, `data/`, `js/`).
 - `src/` – reserved for modular ES source files when we wire up a bundler (Vite/Rollup/etc.)
 
-`js/page-config.js` bootstraps environment data (API base URL, version, links) from `/api/pages/home/` or `/api/pages/leaderboard/` so the static pages stay in sync with the backend without Django templates.
+`src/` now houses the Vite + React + Redux implementation:
+- Generic CRUD thunks/slices live in `src/api/crud.ts` and feature slices (players, districts, parties, friends, session, leaderboard).
+- Pages/components: `src/pages/*`, `src/components/*`.
+- App version is injected at build (`__APP_VERSION__` via git tag when available) and rendered in the footer.
 
-As follow-up work, add a build tool (e.g., Vite) so `src/` becomes the source of truth and emits optimized assets into `public/` or a dedicated `dist/` folder that Nginx serves directly.
+Build/dev
+- Install deps: `npm install` (Node 18+ recommended).
+- Dev server: `npm run dev` (Vite) with API requests pointed at `/api`.
+- Production build: `npm run build` → `dist/` (copied by Docker/start.sh). Falls back to `public/` if no build is present.
 
 ## Static map tiles
 

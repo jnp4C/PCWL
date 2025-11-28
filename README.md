@@ -20,18 +20,21 @@ Frontend/backend contract
   - `/api/pages/home/` — returns app metadata (version/snapshot, static + link URLs) and sets a CSRF cookie for the static pages.
   - `/api/pages/leaderboard/` — same metadata plus the leaderboard payload.
   - `/api/leaderboard/` and the rest of the existing game API stay intact.
-- Frontend pages:
-  - `frontend/public/index.html`, `create-account.html`, `leaderboard.html` (plus JS in `frontend/public/js/`); served by Nginx with `try_files $uri $uri.html /index.html`.
-  - Config is bootstrapped via `js/page-config.js` so the static pages learn API/static URLs and version info from the backend.
+- React frontend:
+  - Lives in `frontend/src` (Vite + React + Redux Toolkit). Generic CRUD thunks and slices exist for players, districts, party, friends, session, and leaderboard to keep API state consistent.
+  - Build with `npm install && npm run build` (Node 18+ recommended). Outputs to `frontend/dist` which Nginx serves. `__APP_VERSION__` is injected from `git describe --tags` when available (fallback to `dev`).
+  - Static assets (manifest/icons/data) remain under `frontend/public/` and are copied to the build output.
 - Static assets:
   - Django `collectstatic` now targets only admin/static assets (`STATICFILES_DIRS` excludes the frontend). Nginx serves them from `/static/`.
-  - Frontend assets come directly from `frontend/public` (also copied to `/var/www/frontend` in the Docker image).
+  - Frontend assets come from the built `frontend/dist` (or `frontend/public` as a fallback when no build is present).
 
 Useful scripts
 - `tools/setup.sh` — create .venv and install Python requirements.
 - `tools/migrate.sh` — apply database migrations.
 - `tools/run.sh` — run Django dev server for API-only work.
-- `scripts/start.sh` — production-style entrypoint (migrate, collectstatic, sync frontend, start Gunicorn + Nginx).
+- `frontend: npm install && npm run dev` — start the React dev server (proxy API at `/api`).
+- `frontend: npm run build` — build the React bundle to `frontend/dist`.
+- `scripts/start.sh` — production-style entrypoint (migrate, collectstatic, sync frontend build, start Gunicorn + Nginx).
 
 Troubleshooting
 - Python 3.13 is unsupported by Django 3.2.x — use Python 3.11 (the scripts will warn you).
