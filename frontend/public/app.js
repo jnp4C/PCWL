@@ -6760,49 +6760,33 @@ function normaliseLeadingParty(raw) {
   };
 }
 
-function calculateDistrictFillColor(strength, maxStrength, minStrength, isWinner, partyColor) {
-  if (isWinner && maxStrength > DISTRICT_BASE_SCORE) {
-    const winnerBase = DISTRICT_FILL_COLOR_WINNER;
-    return partyColor ? blendHexColors(winnerBase, partyColor, 0.25) : winnerBase;
+function calculateDistrictFillColor(strength, maxStrength, minStrength, rankRatio, isWinner) {
+  if (isWinner) {
+    return DISTRICT_FILL_COLOR_WINNER;
   }
   const normalizedStrength = Number.isFinite(strength) ? strength : DISTRICT_BASE_SCORE;
-  const positiveMax = Number.isFinite(maxStrength) ? Math.max(DISTRICT_BASE_SCORE, maxStrength) : DISTRICT_BASE_SCORE;
-  const negativeMin = Number.isFinite(minStrength) ? Math.min(DISTRICT_BASE_SCORE, minStrength) : DISTRICT_BASE_SCORE;
-  const partyTint = partyColor && MARKER_COLOR_PATTERN.test(partyColor) ? partyColor : null;
+  const safeMax = Number.isFinite(maxStrength) ? maxStrength : DISTRICT_BASE_SCORE;
+  const safeMin = Number.isFinite(minStrength) ? minStrength : DISTRICT_BASE_SCORE;
+  const safeRank = Number.isFinite(rankRatio) ? Math.max(0, Math.min(1, rankRatio)) : 0.5;
 
-  if (normalizedStrength >= DISTRICT_BASE_SCORE) {
-    if (positiveMax <= DISTRICT_BASE_SCORE) {
-      return partyTint ? blendHexColors(DISTRICT_FILL_COLOR_MID, partyTint, 0.5) : DISTRICT_FILL_COLOR_MID;
-    }
-    const ratio = Math.min(
+  // Pull colours toward mid (orange) when the district is close to the base score.
+  const spread =
+    Math.max(
       1,
-      (normalizedStrength - DISTRICT_BASE_SCORE) /
-        Math.max(1, positiveMax - DISTRICT_BASE_SCORE),
-    );
-    if (ratio <= 0) {
-      return partyTint ? blendHexColors(DISTRICT_FILL_COLOR_MID, partyTint, 0.5) : DISTRICT_FILL_COLOR_MID;
-    }
-    const baseHigh = blendHexColors(DISTRICT_FILL_COLOR_MID, DISTRICT_FILL_COLOR_HIGH, ratio);
-    return partyTint ? blendHexColors(baseHigh, partyTint, 0.45) : baseHigh;
+      Math.max(Math.abs(safeMax - DISTRICT_BASE_SCORE), Math.abs(DISTRICT_BASE_SCORE - safeMin)),
+    ) || 1;
+  const distanceFromBase = Math.min(spread, Math.abs(normalizedStrength - DISTRICT_BASE_SCORE));
+  const baseInfluence = distanceFromBase / spread; // 0 = near base (stay orange), 1 = far from base (follow rank fully)
+  const weightedRank = 0.5 + (safeRank - 0.5) * (0.3 + 0.7 * baseInfluence);
+  const clamped = Math.max(0, Math.min(1, weightedRank));
+
+  if (clamped >= 0.5) {
+    const t = (clamped - 0.5) / 0.5;
+    return blendHexColors(DISTRICT_FILL_COLOR_MID, DISTRICT_FILL_COLOR_HIGH, t);
   }
 
-  if (normalizedStrength < DISTRICT_BASE_SCORE) {
-    if (negativeMin >= DISTRICT_BASE_SCORE) {
-      return partyTint ? blendHexColors(DISTRICT_FILL_COLOR_MID, partyTint, 0.5) : DISTRICT_FILL_COLOR_MID;
-    }
-    const ratio = Math.min(
-      1,
-      (DISTRICT_BASE_SCORE - normalizedStrength) /
-        Math.max(1, DISTRICT_BASE_SCORE - negativeMin),
-    );
-    if (ratio <= 0) {
-      return partyTint ? blendHexColors(DISTRICT_FILL_COLOR_MID, partyTint, 0.5) : DISTRICT_FILL_COLOR_MID;
-    }
-    const baseLow = blendHexColors(DISTRICT_FILL_COLOR_MID, DISTRICT_FILL_COLOR_LOW, ratio);
-    return partyTint ? blendHexColors(baseLow, partyTint, 0.45) : baseLow;
-  }
-
-  return DISTRICT_FILL_COLOR_MID;
+  const t = clamped / 0.5;
+  return blendHexColors(DISTRICT_FILL_COLOR_LOW, DISTRICT_FILL_COLOR_MID, t);
 }
 
 function normaliseDistrictNameKey(name) {
@@ -6905,6 +6889,23 @@ function updateDistrictFeatureStates() {
     const appliedIds = districtStrengthState.appliedIds || new Set();
     const seenIds = new Set();
     const maxStrength = districtStrengthState.maxStrength || 0;
+    const strengthEntries = [];
+    districtStrengthState.byId.forEach((info, id) => {
+      if (!id) {
+        return;
+      }
+      const strength = Number(info?.strength);
+      if (Number.isFinite(strength)) {
+        strengthEntries.push({ id, strength });
+      }
+    });
+    strengthEntries.sort((a, b) => b.strength - a.strength);
+    const rankRatios = new Map();
+    const totalEntries = strengthEntries.length;
+    strengthEntries.forEach((entry, index) => {
+      const ratio = totalEntries > 1 ? 1 - index / (totalEntries - 1) : 1;
+      rankRatios.set(entry.id, ratio);
+    });
     const winnerIds = new Set();
     if (maxStrength > 0) {
       districtStrengthState.byId.forEach((info, id) => {
@@ -6935,8 +6936,8 @@ function updateDistrictFeatureStates() {
         strength,
         maxStrength,
         districtStrengthState.minStrength,
+        rankRatios.get(id),
         winnerIds.has(id),
-        partyColor,
       );
       try {
         map.setFeatureState(
