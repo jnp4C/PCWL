@@ -243,6 +243,7 @@ const MAP_CENTER = [14.4205, 50.0875];
 const MAP_STYLE = {
   version: 8,
   name: 'Prague 3D',
+  glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
   sources: {},
   layers: [],
 };
@@ -15106,60 +15107,6 @@ function addSourcesAndLayers() {
   });
 
   map.addLayer({
-    id: 'district-party-label',
-    type: 'symbol',
-    source: 'prague-districts',
-    'source-layer': DISTRICT_SOURCE_LAYER,
-    layout: {
-      visibility: 'visible',
-      'symbol-placement': 'point',
-      'text-field': [
-        'concat',
-        'HELD by ',
-        [
-          'coalesce',
-          ['feature-state', 'partyName'],
-          ['feature-state', 'partyCode'],
-          '',
-        ],
-      ],
-      'text-size': 11,
-      'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
-      'text-letter-spacing': 0.05,
-      'text-optional': true,
-    },
-    paint: {
-      'text-color': [
-        'coalesce',
-        ['feature-state', 'partyColor'],
-        '#0f172a',
-      ],
-      'text-halo-color': '#0b0b13',
-      'text-halo-width': 1.6,
-      'text-opacity': [
-        'case',
-        ['==', ['coalesce', ['feature-state', 'partyCode'], ''], ''],
-        0,
-        [
-          'interpolate',
-          ['linear'],
-          ['zoom'],
-          8,
-          0.9,
-          10,
-          1,
-          11.5,
-          0.6,
-          12,
-          0.25,
-          12.2,
-          0,
-        ],
-      ],
-    },
-  });
-
-  map.addLayer({
     id: 'district-hover-glow',
     type: 'line',
     source: 'prague-districts',
@@ -15223,30 +15170,6 @@ function addSourcesAndLayers() {
       'circle-stroke-width': 2,
       'circle-stroke-color': '#ffffff',
       'circle-opacity': 0.95,
-    },
-  });
-
-  map.addLayer({
-    id: 'friend-locations-party-label',
-    type: 'symbol',
-    source: FRIEND_LOCATIONS_SOURCE_ID,
-    filter: ['has', 'activePartyCode'],
-    layout: {
-      'text-field': [
-        'coalesce',
-        ['get', 'activePartyName'],
-        ['get', 'activePartyCode'],
-        ['get', 'username'],
-      ],
-      'text-size': 12,
-      'text-offset': [0, 1.2],
-      'text-anchor': 'top',
-      'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
-    },
-    paint: {
-      'text-color': ['get', 'markerColor'],
-      'text-halo-color': '#0b0b13',
-      'text-halo-width': 1.4,
     },
   });
 
