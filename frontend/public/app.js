@@ -141,6 +141,21 @@ let STATIC_PREFIX = normalizeStaticPrefix(readTemplateValue('staticUrl', '__STAT
 let API_BASE_URL = normalizeApiBase(readTemplateValue('apiBaseUrl', '__API_BASE_URL__') || '/api');
 let DATA_PREFIX = `${STATIC_PREFIX}data/`;
 
+function applyLocalFallbacks() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const isFile = window.location && window.location.protocol === 'file:';
+  const isDevHost =
+    window.location &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  const looksRelativeApi = typeof API_BASE_URL === 'string' && API_BASE_URL.startsWith('/');
+  if ((isFile || isDevHost) && looksRelativeApi) {
+    const devBase = `${window.location.protocol === 'file:' ? 'http:' : window.location.protocol}//localhost:8000/api`;
+    API_BASE_URL = normalizeApiBase(devBase);
+  }
+}
+
 function applyPageConfig(config) {
   if (!config || typeof config !== 'object') {
     return;
@@ -167,6 +182,7 @@ function applyPageConfig(config) {
 
 window.__applyPageConfig = applyPageConfig;
 applyPageConfig(pageConfig);
+applyLocalFallbacks();
 
 const markerColorInput = document.getElementById('marker-color-input');
 const markerColorResetButton = document.getElementById('marker-color-reset');
@@ -13385,6 +13401,12 @@ function renderDistrictPartyList(entries) {
   displayEntries.forEach((entry) => {
     const li = document.createElement('li');
     li.className = 'district-party-leader';
+    if (entry.code) {
+      li.dataset.partyCode = entry.code;
+      li.tabIndex = 0;
+      li.setAttribute('role', 'button');
+      li.setAttribute('aria-label', `View party ${entry.name || entry.code}`);
+    }
     const avatar = document.createElement('span');
     avatar.className = 'district-party-avatar';
     const avatarColor = entry.color && MARKER_COLOR_PATTERN.test(entry.color) ? entry.color : '#0f1c36';
