@@ -9,8 +9,11 @@ backend/env/
 backend/ENV/
 venv311/
 
+#Idea stuff
+.idea/
+
 # Python cache and artifacts
-__pycache__/
+**/__pycache__/
 *.pyc
 
 # macOS
