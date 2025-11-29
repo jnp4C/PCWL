@@ -7433,6 +7433,10 @@ function buildIdentityFlipCard({
     back.setAttribute('aria-hidden', next ? 'false' : 'true');
   };
   const toggleHandler = (event) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target && (target.closest('textarea') || target.closest('input') || target.closest('button'))) {
+      return;
+    }
     const isKey = event.type === 'keypress';
     if (isKey && event.key !== 'Enter' && event.key !== ' ') {
       return;
