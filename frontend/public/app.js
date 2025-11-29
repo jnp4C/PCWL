@@ -7514,7 +7514,33 @@ async function saveProfileBio(bioText = '') {
     });
     if (updated && typeof updated.profile_bio === 'string') {
       if (players[currentUser]) {
-        players[currentUser].profileBio = updated.profile_bio.slice(0, 50);
+        const nextBio = updated.profile_bio.slice(0, 50);
+        players[currentUser].profileBio = nextBio;
+        players[currentUser].profile_bio = nextBio;
+        const friendIndex = Array.isArray(friendsState.items)
+          ? friendsState.items.findIndex(
+              (f) => f && typeof f.username === 'string' && f.username.toLowerCase() === currentUser.toLowerCase(),
+            )
+          : -1;
+        if (friendIndex >= 0) {
+          friendsState.items[friendIndex] = {
+            ...friendsState.items[friendIndex],
+            profile_bio: nextBio,
+          };
+        }
+        if (
+          friendProfileActiveUsername &&
+          friendProfileActiveUsername.toLowerCase() === currentUser.toLowerCase() &&
+          typeof renderFriendProfileContent === 'function'
+        ) {
+          renderFriendProfileContent(
+            normaliseFriendEntry({
+              ...(friendsState.items.find(
+                (f) => f && typeof f.username === 'string' && f.username.toLowerCase() === currentUser.toLowerCase(),
+              ) || players[currentUser]),
+            }),
+          );
+        }
       }
       publicProfileCache.set(currentUser.toLowerCase(), {
         username: currentUser,
