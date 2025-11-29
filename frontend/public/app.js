@@ -16894,7 +16894,7 @@ if (mobileCheckInButton) {
 if (currentUserTag) {
   currentUserTag.addEventListener('click', () => {
     if (currentUser) {
-      openFriendProfileDrawer(currentUser, currentUserTag);
+      openCharacterDrawer(currentUserTag);
     }
   });
   currentUserTag.addEventListener('keydown', (event) => {
@@ -16903,7 +16903,7 @@ if (currentUserTag) {
     }
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      openFriendProfileDrawer(currentUser, currentUserTag);
+      openCharacterDrawer(currentUserTag);
     }
   });
 }
