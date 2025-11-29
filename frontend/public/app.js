@@ -7576,6 +7576,12 @@ async function saveProfileBio(bioText = '') {
         isFriend: false,
         isSelf: true,
       });
+      fetchPublicProfile(currentUser, { force: true }).catch(() => null);
+      const profile = ensurePlayerProfile(currentUser);
+      if (profile) {
+        profile.profileBio = updated.profile_bio.slice(0, 50);
+        profile.profile_bio = updated.profile_bio.slice(0, 50);
+      }
     }
     return updated;
   } catch (error) {
