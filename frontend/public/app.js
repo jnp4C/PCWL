@@ -182,6 +182,7 @@ const characterCloseButton = document.getElementById('character-close');
 const characterContent = document.getElementById('character-content');
 const characterAvatarInitial = document.getElementById('character-avatar-initial');
 const characterNameLabel = document.getElementById('character-name');
+const characterHomeBadge = document.getElementById('character-home-badge');
 const characterTagline = document.getElementById('character-tagline');
 const characterPointsValue = document.getElementById('character-points');
 const characterLevelValue = document.getElementById('character-level');
@@ -1603,9 +1604,7 @@ function renderCooldownStrip(now = Date.now()) {
       : activeParty.expiresAt - PARTY_DURATION_MS;
     const duration = Math.max(1, (activeParty.expiresAt - createdAt) || PARTY_DURATION_MS);
     const membersCount = Array.isArray(activeParty.members) ? activeParty.members.length : 0;
-    const size = Number.isFinite(Number(activeParty.size)) && Number(activeParty.size) > 0
-      ? Number(activeParty.size)
-      : Math.max(1, membersCount || 1);
+    const size = 5;
     partyEntries.push({
       type: 'party-active',
       key: 'party-active',
@@ -5389,6 +5388,8 @@ function sanitizePartyProfile(raw) {
   if (!code) {
     return null;
   }
+  const expiresAt = parseServerTimestamp(party.expires_at);
+  const lastActiveAt = parseServerTimestamp(party.last_active_at);
   const activeMembers = Array.isArray(raw.active_members)
     ? raw.active_members
         .map((entry) => {
@@ -5408,6 +5409,27 @@ function sanitizePartyProfile(raw) {
         })
         .filter(Boolean)
     : [];
+  const memberCount = Math.max(
+    activeMembers.length,
+    Number.isFinite(Number(party.member_count)) ? Number(party.member_count) : 0,
+  );
+  const lifetimeMemberCount = Math.max(
+    memberCount,
+    Number.isFinite(Number(party.lifetime_member_count)) ? Number(party.lifetime_member_count) : 0,
+  );
+  let status = typeof party.status === 'string' ? party.status : '';
+  if (!status && expiresAt && expiresAt > Date.now()) {
+    status = 'active';
+  }
+  if (!status && memberCount > 0) {
+    status = 'active';
+  }
+  if (!status) {
+    status = 'inactive';
+  }
+  const prestigeTotal = Number.isFinite(Number(party.prestige_total))
+    ? Number(party.prestige_total)
+    : null;
   const topPlayers = Array.isArray(raw.top_players)
     ? raw.top_players
         .map((entry) => {
@@ -5475,12 +5497,12 @@ function sanitizePartyProfile(raw) {
       code,
       name: typeof party.name === 'string' ? party.name : '',
       leader: typeof party.leader === 'string' ? party.leader : '',
-      memberCount: Math.max(0, Number(party.member_count) || 0),
-      lifetimeMemberCount: Math.max(0, Number(party.lifetime_member_count) || 0),
-      status: typeof party.status === 'string' ? party.status : '',
-      expiresAt: parseServerTimestamp(party.expires_at),
-      lastActiveAt: parseServerTimestamp(party.last_active_at),
-      prestigeTotal: Number.isFinite(Number(party.prestige_total)) ? Number(party.prestige_total) : null,
+      memberCount,
+      lifetimeMemberCount,
+      status,
+      expiresAt,
+      lastActiveAt,
+      prestigeTotal,
       activeMembers,
     },
     topPlayers,
@@ -9377,9 +9399,7 @@ function renderPartyPanelChip(now = Date.now()) {
       (typeof activeParty.code === 'string' && activeParty.code.trim()) ||
       'Party boost';
     const memberCount = Array.isArray(activeParty.members) ? activeParty.members.length : 0;
-    const capacity = Number.isFinite(Number(activeParty.size)) && Number(activeParty.size) > 0
-      ? Number(activeParty.size)
-      : Math.max(1, memberCount || 1);
+    const capacity = 5;
     const memberLabel = `${memberCount}/${capacity} players`;
     const boostReady =
       activeParty.boostReady ||
@@ -11120,15 +11140,21 @@ function renderPartyProfileContent(profile) {
   title.textContent = party.name ? party.name : `Party ${party.code}`;
   const subtitle = document.createElement('p');
   subtitle.className = 'party-profile-subtitle';
-  const lifetimeCount = Math.max(party.memberCount, party.lifetimeMemberCount || 0);
+  const memberCount = Number.isFinite(Number(party.memberCount)) ? Number(party.memberCount) : 0;
+  const lifetimeCount = Math.max(memberCount, party.lifetimeMemberCount || 0);
   const subtitleParts = [`Leader @${party.leader || 'unknown'}`];
-  if (party.status === 'active' && party.memberCount) {
-    subtitleParts.push(`${party.memberCount} active`);
-  } else {
-    subtitleParts.push(`${party.memberCount} member${party.memberCount === 1 ? '' : 's'}`);
+  if (memberCount) {
+    if (party.status === 'active') {
+      subtitleParts.push(`${memberCount} active`);
+    } else {
+      subtitleParts.push(`${memberCount} member${memberCount === 1 ? '' : 's'}`);
+    }
   }
   if (lifetimeCount && lifetimeCount !== party.memberCount) {
     subtitleParts.push(`${lifetimeCount} all-time`);
+  }
+  if (party.lastActiveAt) {
+    subtitleParts.push(`Last active ${formatTimeAgo(party.lastActiveAt)} ago`);
   }
   subtitle.textContent = subtitleParts.filter(Boolean).join(' • ');
   header.appendChild(title);
@@ -11171,22 +11197,33 @@ function renderPartyProfileContent(profile) {
   const districtList = document.createElement('ul');
   districtList.className = 'party-profile-list';
   if (districts && districts.length) {
-    districts.forEach((entry) => {
+    const sortedDistricts = [...districts].sort((a, b) => {
+      const aPrestige = Math.max(0, Number(a.prestigePoints) || 0);
+      const bPrestige = Math.max(0, Number(b.prestigePoints) || 0);
+      return bPrestige - aPrestige;
+    });
+    sortedDistricts.forEach((entry) => {
       const li = document.createElement('li');
       li.className = 'party-profile-list-item';
       const name = entry.name || (entry.code ? `District ${entry.code}` : 'Unknown district');
       const prestige = Math.max(0, Number(entry.prestigePoints) || 0);
       const attack = Math.max(0, Number(entry.attackPoints) || 0);
       const defend = Math.max(0, Number(entry.defendPoints) || 0);
-      const parts = [
-        name,
-        `+${prestige.toLocaleString()} pts`,
-        `atk ${attack.toLocaleString()} / def ${defend.toLocaleString()}`,
-      ];
+      const badge = document.createElement('span');
+      badge.className = 'party-district-prestige-badge';
+      badge.textContent = `+${prestige.toLocaleString()} pts`;
+      const parts = [`atk ${attack.toLocaleString()} / def ${defend.toLocaleString()}`];
       if (entry.lastActiveAt) {
         parts.push(`${formatTimeAgo(entry.lastActiveAt)} ago`);
       }
-      li.textContent = parts.filter(Boolean).join(' • ');
+      const nameLabel = document.createElement('span');
+      nameLabel.textContent = name;
+      li.appendChild(nameLabel);
+      li.appendChild(badge);
+      const meta = document.createElement('span');
+      meta.className = 'party-profile-meta';
+      meta.textContent = parts.filter(Boolean).join(' • ');
+      li.appendChild(meta);
       districtList.appendChild(li);
     });
   } else {
@@ -11284,6 +11321,13 @@ async function openPartyProfileDrawer(partyCode, trigger = null) {
     renderPartyProfileContent(profile);
     if (partyProfileTitle) {
       partyProfileTitle.textContent = profile.party.name ? profile.party.name : `Party ${profile.party.code}`;
+    }
+  } else {
+    activePartyProfile = null;
+    partyProfileBody.innerHTML =
+      '<p class="friend-profile-empty">Unable to load party profile. Please try again.</p>';
+    if (partyProfileTitle) {
+      partyProfileTitle.textContent = `Party ${code}`;
     }
   }
   window.setTimeout(() => {
@@ -13401,10 +13445,28 @@ function renderDistrictPartyList(entries) {
     districtPartyList.appendChild(empty);
     return;
   }
-  const displayEntries = districtPartyExpanded ? entries : entries.slice(0, DISTRICT_PARTY_VISIBLE_COUNT);
+  const scoreForEntry = (entry) => {
+    const prestigeValue = Number.isFinite(Number(entry.prestige_points))
+      ? Number(entry.prestige_points)
+      : Number(entry.score) || 0;
+    const attackPoints = Math.max(0, Math.round(Number(entry.attack_points) || 0));
+    const defendPoints = Math.max(0, Math.round(Number(entry.defend_points) || 0));
+    if (prestigeValue) return prestigeValue;
+    return attackPoints + defendPoints;
+  };
+  const sortedEntries = [...entries].sort((a, b) => scoreForEntry(b) - scoreForEntry(a));
+  const displayEntries = districtPartyExpanded
+    ? sortedEntries
+    : sortedEntries.slice(0, DISTRICT_PARTY_VISIBLE_COUNT);
   displayEntries.forEach((entry) => {
     const li = document.createElement('li');
     li.className = 'district-party-leader';
+    if (entry.code) {
+      li.dataset.partyCode = entry.code;
+      li.tabIndex = 0;
+      li.setAttribute('role', 'button');
+      li.setAttribute('aria-label', `View party ${entry.name || entry.code}`);
+    }
     const avatar = document.createElement('span');
     avatar.className = 'district-party-avatar';
     const avatarColor = entry.color && MARKER_COLOR_PATTERN.test(entry.color) ? entry.color : '#0f1c36';
@@ -13420,16 +13482,18 @@ function renderDistrictPartyList(entries) {
     heading.textContent = entry.name || entry.code || 'Party';
     const score = document.createElement('span');
     score.className = 'district-party-score';
-    const prestigeValue = Number.isFinite(Number(entry.prestige_points))
-      ? Number(entry.prestige_points)
-      : Number(entry.score) || 0;
+    const prestigeValue = scoreForEntry(entry);
     const attackPoints = Math.max(0, Math.round(Number(entry.attack_points) || 0));
     const defendPoints = Math.max(0, Math.round(Number(entry.defend_points) || 0));
     const totalLabel = prestigeValue.toLocaleString();
     const attackLabel = `+${attackPoints.toLocaleString()}`;
     const defendLabel = defendPoints ? `-${defendPoints.toLocaleString()}` : '-0';
-    score.textContent = `Prestige ${totalLabel} (${attackLabel} / ${defendLabel})`;
+    const badge = document.createElement('span');
+    badge.className = 'party-district-prestige-badge';
+    badge.textContent = totalLabel;
+    score.textContent = `Prestige ${attackLabel} / ${defendLabel}`;
     nameRow.appendChild(heading);
+    nameRow.appendChild(badge);
     nameRow.appendChild(score);
     const meta = document.createElement('p');
     meta.className = 'district-party-leader-meta';
@@ -14046,6 +14110,11 @@ function updateCharacterDrawerContent(profile = null) {
     characterNameLabel.textContent = 'Guest';
     characterAvatarInitial.textContent = 'G';
     characterTagline.textContent = 'Sign in to personalise your character.';
+    if (characterHomeBadge) {
+      characterHomeBadge.textContent = 'Not set';
+      characterHomeBadge.classList.add('neutral');
+      characterHomeBadge.classList.remove('away');
+    }
     characterPointsValue.textContent = '0';
     characterLevelValue.textContent = '1';
     characterCheckinsValue.textContent = '0';
@@ -14065,7 +14134,9 @@ function updateCharacterDrawerContent(profile = null) {
 
   const displayName = currentUser;
   const trimmedName = displayName.trim();
-  characterNameLabel.textContent = trimmedName || 'Player';
+  characterNameLabel.textContent = '';
+  const nameText = document.createTextNode(trimmedName || 'Player');
+  characterNameLabel.appendChild(nameText);
   const initial = trimmedName ? trimmedName.charAt(0).toUpperCase() : 'P';
   characterAvatarInitial.textContent = initial;
 
@@ -14078,6 +14149,23 @@ function updateCharacterDrawerContent(profile = null) {
     characterTagline.textContent = `Rising with ${Math.round(resolvedProfile.points).toLocaleString()} pts earned.`;
   } else {
     characterTagline.textContent = 'Set a home district to unlock territory bonuses.';
+  }
+  if (characterHomeBadge) {
+    characterHomeBadge.textContent = homeName || 'Not set';
+    characterHomeBadge.classList.remove('away', 'neutral');
+    if (!resolvedProfile.homeDistrictId) {
+      characterHomeBadge.classList.add('neutral');
+    } else {
+      const locationInfo = getCurrentLocationDistrictInfo({ profile: resolvedProfile, allowHomeFallback: true });
+      const isHome =
+        locationInfo &&
+        locationInfo.id &&
+        resolvedProfile.homeDistrictId &&
+        safeId(locationInfo.id) === safeId(resolvedProfile.homeDistrictId);
+      if (!isHome) {
+        characterHomeBadge.classList.add('away');
+      }
+    }
   }
 
   const points = Math.max(0, Math.round(Number(resolvedProfile.points) || 0));

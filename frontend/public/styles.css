@@ -1577,10 +1577,30 @@ body.dark .friend-marker-swatch {
 .party-profile-list-item {
   font-size: 0.95rem;
   color: var(--color-text);
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .party-profile-list-item.muted {
   color: var(--color-text-muted);
+}
+
+.party-profile-meta {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.party-district-prestige-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(79, 70, 229, 0.12);
+  color: #4338ca;
+  font-weight: 700;
+  font-size: 0.85rem;
 }
 
 .friend-profile-header {
@@ -2338,6 +2358,44 @@ body.dark .friend-profile-marker {
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.6);
   box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+  position: relative;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+
+.district-party-leader[role='button'] {
+  cursor: pointer;
+}
+
+.district-party-leader[role='button']::after {
+  content: 'View';
+  position: absolute;
+  right: 0.65rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease;
+  pointer-events: none;
+}
+
+.district-party-leader[role='button']:hover,
+.district-party-leader[role='button']:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(15, 6, 32, 0.12), inset 0 0 0 1px rgba(76, 29, 149, 0.35);
+  background: linear-gradient(135deg, rgba(76, 29, 149, 0.06), rgba(6, 182, 212, 0.04));
+  outline: none;
+}
+
+.district-party-leader[role='button']:hover::after,
+.district-party-leader[role='button']:focus-visible::after {
+  opacity: 1;
+  color: #4338ca;
+}
+
+.district-party-leader[role='button']:focus-visible {
+  box-shadow: 0 8px 18px rgba(15, 6, 32, 0.12), 0 0 0 2px rgba(59, 130, 246, 0.75),
+    inset 0 0 0 1px rgba(76, 29, 149, 0.35);
 }
 
 .district-party-leader .district-party-avatar {
@@ -2554,12 +2612,39 @@ body.dark .friend-profile-marker {
 .character-meta h3 {
   margin: 0;
   font-size: 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .character-tagline {
   margin: 0.2rem 0 0;
   font-size: 0.9rem;
   color: var(--color-text-muted);
+}
+
+.home-district-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  background: rgba(52, 211, 153, 0.15);
+  color: #0f5132;
+}
+
+.home-district-chip.away {
+  background: rgba(248, 113, 113, 0.16);
+  color: #991b1b;
+}
+
+.home-district-chip.neutral {
+  background: rgba(148, 163, 184, 0.16);
+  color: #334155;
 }
 
 .character-streak {
