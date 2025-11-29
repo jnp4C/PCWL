@@ -11292,7 +11292,8 @@ function renderFriendProfileContent(friend) {
     partyCardGrid.appendChild(placeholder);
   }
 
-  let latestParty = resolveLatestPartyFromHistory(friend.checkins, excludeCodes, friend.recent_checkins);
+  // Always render a latest-party card, even if it duplicates another code, so keep exclude set empty here.
+  let latestParty = resolveLatestPartyFromHistory(friend.checkins, new Set(), friend.recent_checkins);
   if (!latestParty && liveParty && liveParty.code) {
     const code = normalisePartyCode(liveParty.code || liveParty.partyCode || liveParty.party_code || '');
     if (code && !excludeCodes.has(code)) {
@@ -14940,7 +14941,8 @@ function renderCharacterPartyPrestige(profile = null) {
     characterPartyGrid.appendChild(placeholder);
   }
 
-  let latestParty = resolveLatestPartyFromHistory(profile.checkins, excludeCodes);
+  // Always render a latest-party card (can duplicate codes if needed).
+  let latestParty = resolveLatestPartyFromHistory(profile.checkins, new Set());
   if (!latestParty && liveParty && liveParty.code) {
     const code = normalisePartyCode(liveParty.code || liveParty.partyCode || liveParty.party_code || '');
     if (code && !excludeCodes.has(code)) {
