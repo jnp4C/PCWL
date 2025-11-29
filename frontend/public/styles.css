@@ -1673,6 +1673,81 @@ body.dark .friend-profile-marker {
   height: 100%;
 }
 
+.public-profile-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.flip-card {
+  cursor: pointer;
+}
+
+.flip-card .flip-card-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transition: transform 320ms ease;
+}
+
+.flip-card.is-flipped .flip-card-inner {
+  transform: rotateY(180deg);
+}
+
+.flip-card .flip-card-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: flex-start;
+  backface-visibility: hidden;
+  box-sizing: border-box;
+}
+
+.flip-card .flip-card-back {
+  transform: rotateY(180deg);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.public-identity-front .character-tagline {
+  margin: 0.05rem 0;
+}
+
+.public-bio-preview {
+  opacity: 0.8;
+}
+
+.public-bio-input {
+  width: 100%;
+  min-height: 64px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-soft);
+  padding: 0.6rem 0.75rem;
+  font: inherit;
+  resize: vertical;
+  background: color-mix(in srgb, var(--color-panel-bg) 94%, rgba(255, 255, 255, 0.04));
+}
+
+.public-bio-label {
+  margin: 0;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.public-bio-body {
+  margin: 0;
+  color: var(--color-text);
+}
+
+.public-bio-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 .party-profile-player-trigger {
   background: none;
   border: none;

@@ -36,6 +36,7 @@ class PlayerSerializer(serializers.ModelSerializer):
             "username",
             "display_name",
             "profile_image_url",
+            "profile_bio",
             "map_marker_color",
             "score",
             "checkins",
@@ -76,6 +77,7 @@ class PlayerSerializer(serializers.ModelSerializer):
             "cooldown_details": {"read_only": True},
             "profile_image_url": {"required": False, "allow_blank": True},
             "map_marker_color": {"required": False, "allow_blank": True},
+            "profile_bio": {"required": False, "allow_blank": True},
             "score": {"read_only": True},
             "checkins": {"read_only": True},
             "attack_ratio": {"read_only": True},
@@ -351,6 +353,7 @@ class FriendLinkSerializer(serializers.ModelSerializer):
     streak_days = serializers.IntegerField(source="friend.streak_days", read_only=True)
     streak_multiplier = serializers.FloatField(source="friend.streak_multiplier", read_only=True)
     checkins = serializers.IntegerField(source="friend.checkins", read_only=True)
+    profile_bio = serializers.CharField(source="friend.profile_bio", read_only=True)
     checkin_counts = serializers.SerializerMethodField()
     recent_checkins = serializers.SerializerMethodField()
     last_known_location = serializers.SerializerMethodField()
@@ -373,6 +376,7 @@ class FriendLinkSerializer(serializers.ModelSerializer):
             "attack_ratio",
             "defend_ratio",
             "checkins",
+            "profile_bio",
             "checkin_counts",
             "recent_checkins",
             "last_known_location",
@@ -398,6 +402,7 @@ class FriendLinkSerializer(serializers.ModelSerializer):
             "attack_ratio",
             "defend_ratio",
             "checkins",
+            "profile_bio",
             "checkin_counts",
             "recent_checkins",
             "last_known_location",
@@ -725,3 +730,38 @@ class PlayerSearchResultSerializer(serializers.ModelSerializer):
     def get_outgoing_request(self, obj: Player) -> bool:
         outgoing_ids: Set[int] = self.context.get("outgoing_request_ids", set())
         return obj.id in outgoing_ids
+
+
+class PlayerPublicProfileSerializer(serializers.ModelSerializer):
+    is_friend = serializers.SerializerMethodField()
+    is_self = serializers.SerializerMethodField()
+    streak_multiplier = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Player
+        fields = [
+            "username",
+            "display_name",
+            "profile_bio",
+            "map_marker_color",
+            "streak_days",
+            "streak_multiplier",
+            "is_friend",
+            "is_self",
+        ]
+        read_only_fields = fields
+
+    def get_is_friend(self, obj: Player) -> bool:
+        viewer: Optional[Player] = self.context.get("viewer")
+        if not viewer or not viewer.id or not obj.id or viewer.id == obj.id:
+            return False
+        return FriendLink.objects.filter(player_id=viewer.id, friend_id=obj.id).exists()
+
+    def get_is_self(self, obj: Player) -> bool:
+        viewer: Optional[Player] = self.context.get("viewer")
+        return bool(viewer and obj and viewer.id == obj.id)
+
+    def get_streak_multiplier(self, obj: Player) -> float:
+        today = timezone.localdate()
+        days = _streak_effective_days(obj, today)
+        return float(_streak_multiplier(days))

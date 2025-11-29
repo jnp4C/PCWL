@@ -2209,6 +2209,11 @@ function applyServerPlayerData(profile, apiPlayer) {
   if (typeof apiPlayer.profile_image_url === 'string') {
     profile.profileImageUrl = apiPlayer.profile_image_url;
   }
+  if (typeof apiPlayer.profile_bio === 'string') {
+    profile.profileBio = apiPlayer.profile_bio.slice(0, 50);
+  } else if (typeof profile.profileBio !== 'string') {
+    profile.profileBio = '';
+  }
   if (typeof apiPlayer.map_marker_color === 'string') {
     profile.mapMarkerColor = normaliseMarkerColor(apiPlayer.map_marker_color);
   } else {
@@ -3817,6 +3822,7 @@ const partyProfileCache = new Map();
 let activePartyProfile = null;
 let partyProfileLastTrigger = null;
 const partyHighlightsCache = new Map();
+const publicProfileCache = new Map();
 function savePartyStateSnapshot(snapshot) {
   if (typeof window === 'undefined') {
     return;
@@ -7283,6 +7289,82 @@ function buildLeadingPartyBanner({ partyProfile = null, fallbackParty = null } =
     banner.classList.add('leading-party-banner');
   }
   return banner;
+}
+
+function sanitizePublicProfile(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const username = typeof raw.username === 'string' && raw.username.trim() ? raw.username.trim() : '';
+  if (!username) {
+    return null;
+  }
+  return {
+    username,
+    displayName: typeof raw.display_name === 'string' ? raw.display_name : '',
+    profileBio: typeof raw.profile_bio === 'string' ? raw.profile_bio.slice(0, 50) : '',
+    mapMarkerColor: normaliseMarkerColor(raw.map_marker_color),
+    streakDays: Math.max(0, Number(raw.streak_days) || 0),
+    streakMultiplier: Math.max(1, Number(raw.streak_multiplier) || 1),
+    isFriend: Boolean(raw.is_friend),
+    isSelf: Boolean(raw.is_self),
+  };
+}
+
+async function fetchPublicProfile(username, { force = false } = {}) {
+  const cleanUsername = typeof username === 'string' ? username.replace(/^@/, '').trim() : '';
+  if (!cleanUsername) {
+    return null;
+  }
+  const key = cleanUsername.toLowerCase();
+  if (!force && publicProfileCache.has(key)) {
+    return publicProfileCache.get(key);
+  }
+  try {
+    const data = await apiRequest(`players/${encodeURIComponent(cleanUsername)}/public-profile/`);
+    const profile = sanitizePublicProfile(data);
+    if (profile) {
+      publicProfileCache.set(key, profile);
+    }
+    return profile;
+  } catch (error) {
+    console.warn('Failed to load public profile', error);
+    return null;
+  }
+}
+
+async function saveProfileBio(bioText = '') {
+  const trimmed = typeof bioText === 'string' ? bioText.slice(0, 50) : '';
+  if (!activePlayerBackendId || !isSessionAuthenticated || !currentUser) {
+    updateStatus('Sign in to update your profile message.');
+    return null;
+  }
+  try {
+    const updated = await apiRequest(`players/${activePlayerBackendId}/`, {
+      method: 'PATCH',
+      body: { profile_bio: trimmed },
+    });
+    if (updated && typeof updated.profile_bio === 'string') {
+      if (players[currentUser]) {
+        players[currentUser].profileBio = updated.profile_bio.slice(0, 50);
+      }
+      publicProfileCache.set(currentUser.toLowerCase(), {
+        username: currentUser,
+        displayName: players[currentUser]?.displayName || '',
+        profileBio: updated.profile_bio.slice(0, 50),
+        mapMarkerColor: players[currentUser]?.mapMarkerColor || '',
+        streakDays: players[currentUser]?.streakDays || 0,
+        streakMultiplier: players[currentUser]?.streakMultiplier || 1,
+        isFriend: false,
+        isSelf: true,
+      });
+    }
+    return updated;
+  } catch (error) {
+    console.warn('Failed to save profile bio', error);
+    updateStatus('Unable to save your profile message right now.');
+    return null;
+  }
 }
 
 function applyDistrictStrengthEntries(entries) {
@@ -11207,7 +11289,7 @@ function closeFriendProfileDrawer({ restoreFocus = true } = {}) {
   }
 }
 
-function openPublicProfileDrawer({ username, displayName = '', meta = '' } = {}, trigger = null) {
+async function openPublicProfileDrawer(username, { displayName = '', meta = '', trigger = null } = {}) {
   if (!friendProfileDrawer || !friendProfileOverlay || !friendProfileBody) {
     return;
   }
@@ -11218,50 +11300,10 @@ function openPublicProfileDrawer({ username, displayName = '', meta = '' } = {},
   }
   friendProfileActiveUsername = cleanUsername;
   friendProfileLastTrigger = trigger instanceof HTMLElement ? trigger : null;
-  friendProfileBody.innerHTML = '';
+  friendProfileBody.innerHTML = '<p class="friend-profile-empty">Loading profile…</p>';
   if (friendProfileTitle) {
     friendProfileTitle.textContent = `@${cleanUsername}`;
   }
-
-  const summary = document.createElement('div');
-  summary.className = 'character-summary friend-profile-summary';
-
-  const identityCard = document.createElement('div');
-  identityCard.className = 'character-card character-identity friend-profile-identity-card public-profile-card';
-  const avatar = document.createElement('div');
-  avatar.className = 'character-avatar';
-  const initial = cleanUsername.charAt(0).toUpperCase() || 'P';
-  avatar.textContent = initial;
-  identityCard.appendChild(avatar);
-  const metaBlock = document.createElement('div');
-  metaBlock.className = 'character-meta';
-  const nameEl = document.createElement('h3');
-  nameEl.textContent = displayName || `@${cleanUsername}`;
-  metaBlock.appendChild(nameEl);
-  const tagline = document.createElement('p');
-  tagline.className = 'character-tagline';
-  tagline.textContent = meta || 'This profile is private. Send a friend request to unlock full details.';
-  metaBlock.appendChild(tagline);
-  identityCard.appendChild(metaBlock);
-  summary.appendChild(identityCard);
-
-  const actions = document.createElement('div');
-  actions.className = 'friend-profile-actions public-profile-actions';
-  const requestButton = document.createElement('button');
-  requestButton.type = 'button';
-  requestButton.className = 'primary small';
-  requestButton.dataset.friendProfileAction = 'request-friend';
-  requestButton.dataset.username = cleanUsername;
-  requestButton.textContent = 'Send friend request';
-  if (!isSessionAuthenticated || !currentUser) {
-    requestButton.disabled = true;
-    requestButton.title = 'Sign in to send friend requests.';
-  }
-  actions.appendChild(requestButton);
-
-  friendProfileBody.appendChild(summary);
-  friendProfileBody.appendChild(actions);
-
   document.body.classList.add('friend-profile-open');
   friendProfileDrawer.setAttribute('aria-hidden', 'false');
   friendProfileOverlay.classList.remove('hidden');
@@ -11271,6 +11313,299 @@ function openPublicProfileDrawer({ username, displayName = '', meta = '' } = {},
       friendProfileContent.focus();
     }
   }, 0);
+
+  const profile = await fetchPublicProfile(cleanUsername, { force: true });
+  if (!profile || (friendProfileActiveUsername && friendProfileActiveUsername.toLowerCase() !== cleanUsername.toLowerCase())) {
+    friendProfileBody.innerHTML = '<p class="friend-profile-empty">Unable to load this profile.</p>';
+    return;
+  }
+  renderPublicProfileContent(profile, null, { fallbackMeta: meta, fallbackDisplayName: displayName });
+  fetchPartyHighlights(cleanUsername, { silent: true }).then((highlights) => {
+    if (
+      highlights &&
+      friendProfileActiveUsername &&
+      friendProfileActiveUsername.toLowerCase() === cleanUsername.toLowerCase()
+    ) {
+      renderPublicProfileContent(profile, highlights, { fallbackMeta: meta, fallbackDisplayName: displayName });
+    }
+  });
+}
+
+function buildPublicIdentityCard(profile, { editable = false, fallbackMeta = '', fallbackDisplayName = '' } = {}) {
+  const card = document.createElement('div');
+  card.className = 'character-card character-identity friend-profile-identity-card public-profile-card flip-card';
+  if (profile.mapMarkerColor) {
+    card.style.setProperty('--player-marker-color', profile.mapMarkerColor);
+  }
+  const inner = document.createElement('div');
+  inner.className = 'flip-card-inner';
+
+  const front = document.createElement('div');
+  front.className = 'flip-card-face flip-card-front public-identity-front';
+  const avatar = document.createElement('div');
+  avatar.className = 'character-avatar';
+  const initial = profile.username ? profile.username.trim().charAt(0).toUpperCase() : 'P';
+  avatar.textContent = initial || 'P';
+  const metaBlock = document.createElement('div');
+  metaBlock.className = 'character-meta';
+  const nameEl = document.createElement('h3');
+  nameEl.className = 'public-identity-name';
+  nameEl.textContent = profile.displayName || fallbackDisplayName || `@${profile.username}`;
+  const usernameLabel = document.createElement('p');
+  usernameLabel.className = 'character-tagline';
+  usernameLabel.textContent = `@${profile.username}`;
+  const bioPreview = document.createElement('p');
+  bioPreview.className = 'character-tagline public-bio-preview';
+  bioPreview.textContent = profile.profileBio ? profile.profileBio : fallbackMeta || 'Tap to view message';
+  metaBlock.appendChild(nameEl);
+  metaBlock.appendChild(usernameLabel);
+  metaBlock.appendChild(bioPreview);
+  front.appendChild(avatar);
+  front.appendChild(metaBlock);
+
+  const back = document.createElement('div');
+  back.className = 'flip-card-face flip-card-back public-identity-back';
+  if (editable) {
+    const label = document.createElement('label');
+    label.className = 'public-bio-label';
+    label.textContent = 'Profile message (max 50 chars)';
+    const input = document.createElement('textarea');
+    input.className = 'public-bio-input';
+    input.maxLength = 50;
+    input.value = profile.profileBio || '';
+    input.placeholder = 'Share a short message with other players…';
+    const saveRow = document.createElement('div');
+    saveRow.className = 'public-bio-actions';
+    const saveButton = document.createElement('button');
+    saveButton.type = 'button';
+    saveButton.className = 'primary small';
+    saveButton.textContent = 'Save';
+    saveButton.addEventListener('click', async () => {
+      saveButton.disabled = true;
+      saveButton.textContent = 'Saving…';
+      const saved = await saveProfileBio(input.value);
+      saveButton.disabled = false;
+      saveButton.textContent = 'Save';
+      if (saved && typeof saved.profile_bio === 'string') {
+        profile.profileBio = saved.profile_bio.slice(0, 50);
+        bioPreview.textContent = profile.profileBio || 'Tap to view message';
+        toggleCard(false);
+        updateStatus('Profile message saved.');
+      }
+    });
+    saveRow.appendChild(saveButton);
+    back.appendChild(label);
+    back.appendChild(input);
+    back.appendChild(saveRow);
+  } else {
+    const label = document.createElement('p');
+    label.className = 'public-bio-label';
+    label.textContent = 'Profile message';
+    const body = document.createElement('p');
+    body.className = 'public-bio-body';
+    body.textContent = profile.profileBio || 'No message yet.';
+    back.appendChild(label);
+    back.appendChild(body);
+  }
+
+  inner.appendChild(front);
+  inner.appendChild(back);
+  card.appendChild(inner);
+  const toggleCard = (showBack = null) => {
+    const next = showBack === null ? !card.classList.contains('is-flipped') : Boolean(showBack);
+    card.classList.toggle('is-flipped', next);
+    card.setAttribute('aria-pressed', next ? 'true' : 'false');
+    front.setAttribute('aria-hidden', next ? 'true' : 'false');
+    back.setAttribute('aria-hidden', next ? 'false' : 'true');
+  };
+  const toggleHandler = (event) => {
+    const isKey = event.type === 'keypress';
+    if (isKey && event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+    event.preventDefault();
+    toggleCard();
+  };
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  card.setAttribute('aria-pressed', 'false');
+  card.addEventListener('click', toggleHandler);
+  card.addEventListener('keypress', toggleHandler);
+  nameEl.addEventListener('click', toggleHandler);
+  return card;
+}
+
+function buildPublicStreakCard(profile) {
+  const streak = {
+    days: Math.max(0, Math.round(Number(profile.streakDays) || 0)),
+    multiplier: Math.max(1, Number(profile.streakMultiplier) || 1),
+  };
+  const streakCard = document.createElement('div');
+  streakCard.className = 'character-card character-streak friend-profile-streak streak-interactive public-streak-card';
+  streakCard.tabIndex = 0;
+  streakCard.setAttribute('role', 'button');
+  streakCard.setAttribute('aria-label', 'View streak details');
+  streakCard.setAttribute('aria-pressed', 'false');
+  if (profile.mapMarkerColor) {
+    streakCard.style.setProperty('--player-marker-color', profile.mapMarkerColor);
+  }
+  const streakInner = document.createElement('div');
+  streakInner.className = 'streak-card-inner';
+
+  const streakFront = document.createElement('div');
+  streakFront.className = 'streak-card-face streak-card-front';
+  const streakLabelRow = document.createElement('div');
+  streakLabelRow.className = 'streak-label-row';
+  const streakChip = document.createElement('span');
+  streakChip.className = 'streak-chip';
+  streakChip.textContent = 'Streak';
+  const streakDays = document.createElement('span');
+  streakDays.className = 'streak-days';
+  streakDays.textContent = `${streak.days} ${streak.days === 1 ? 'day' : 'days'} alive`;
+  streakLabelRow.appendChild(streakChip);
+  streakLabelRow.appendChild(streakDays);
+  const streakValue = document.createElement('div');
+  streakValue.className = 'streak-value';
+  streakValue.textContent = `x${streak.multiplier.toFixed(2)}`;
+  const streakHint = document.createElement('p');
+  streakHint.className = 'streak-hint';
+  streakHint.textContent = 'Tap to see streak progress.';
+  streakFront.appendChild(streakLabelRow);
+  streakFront.appendChild(streakValue);
+  streakFront.appendChild(streakHint);
+
+  const streakBack = document.createElement('div');
+  streakBack.className = 'streak-card-face streak-card-back';
+  streakBack.setAttribute('aria-hidden', 'true');
+  const progressHeading = document.createElement('div');
+  progressHeading.className = 'streak-progress-heading';
+  const progressTitle = document.createElement('div');
+  progressTitle.className = 'streak-progress-title';
+  progressTitle.textContent = 'Streak boost path';
+  const progressNow = document.createElement('div');
+  progressNow.className = 'streak-progress-now';
+  progressNow.textContent = `x${streak.multiplier.toFixed(2)} now`;
+  progressHeading.appendChild(progressTitle);
+  progressHeading.appendChild(progressNow);
+
+  const progressTrack = document.createElement('div');
+  progressTrack.className = 'streak-progress-track';
+  progressTrack.setAttribute('role', 'img');
+  progressTrack.setAttribute('aria-label', 'Streak boost progress');
+  const progressFill = document.createElement('div');
+  progressFill.className = 'streak-progress-fill';
+  progressTrack.appendChild(progressFill);
+  const milestones = [0.25, 0.5, 0.75, 1];
+  milestones.forEach((ratio) => {
+    const marker = document.createElement('div');
+    marker.className = 'streak-progress-marker';
+    marker.dataset.streakMilestone = ratio.toString();
+    const markerLabel = document.createElement('span');
+    markerLabel.className = 'streak-marker-label';
+    markerLabel.textContent = `+${Math.round(ratio * 100)}%`;
+    const markerDay = document.createElement('span');
+    markerDay.className = 'streak-marker-day';
+    markerDay.textContent = `${Math.round(STREAK_MAX_DAYS * ratio)}d`;
+    marker.appendChild(markerLabel);
+    marker.appendChild(markerDay);
+    progressTrack.appendChild(marker);
+  });
+  const progressThumb = document.createElement('div');
+  progressThumb.className = 'streak-progress-thumb';
+  const thumbLabel = document.createElement('span');
+  thumbLabel.className = 'streak-thumb-label';
+  thumbLabel.textContent = profile.username ? profile.username : 'Player';
+  progressThumb.appendChild(thumbLabel);
+  progressTrack.appendChild(progressThumb);
+
+  const progressHint = document.createElement('p');
+  progressHint.className = 'streak-progress-hint';
+  progressHint.textContent = 'Keep daily attack + defend going to climb.';
+
+  streakBack.appendChild(progressHeading);
+  streakBack.appendChild(progressTrack);
+  streakBack.appendChild(progressHint);
+
+  streakInner.appendChild(streakFront);
+  streakInner.appendChild(streakBack);
+  streakCard.appendChild(streakInner);
+  setStreakCardFace(streakCard, 'front');
+  const streakElements = resolveStreakElements(streakCard);
+  updateStreakProgress(streak.days, streak.multiplier, streakElements);
+
+  const toggleStreakCard = () => {
+    const showBack = !streakCard.classList.contains('is-flipped');
+    setStreakCardFace(streakCard, showBack ? 'back' : 'front');
+  };
+  streakCard.addEventListener('click', toggleStreakCard);
+  streakCard.addEventListener('keypress', (event) => {
+    if (event && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      toggleStreakCard();
+    }
+  });
+
+  return streakCard;
+}
+
+function renderPublicProfileContent(profile, highlights = null, { fallbackMeta = '', fallbackDisplayName = '' } = {}) {
+  if (!friendProfileBody) {
+    return;
+  }
+  friendProfileBody.innerHTML = '';
+  if (friendProfileTitle) {
+    friendProfileTitle.textContent = `@${profile.username}`;
+  }
+
+  const summary = document.createElement('div');
+  summary.className = 'character-summary friend-profile-summary public-profile-grid';
+
+  const identityCard = buildPublicIdentityCard(profile, {
+    editable: Boolean(profile.isSelf),
+    fallbackMeta,
+    fallbackDisplayName,
+  });
+  summary.appendChild(identityCard);
+
+  const streakCard = buildPublicStreakCard(profile);
+  if (streakCard) {
+    summary.appendChild(streakCard);
+  }
+
+  friendProfileBody.appendChild(summary);
+
+  const banner =
+    highlights &&
+    buildLeadingPartyBanner({
+      partyProfile: highlights?.leaderPartyProfile || null,
+      fallbackParty: highlights?.leaderPartyProfile?.party || highlights?.leaderParty || null,
+    });
+  if (banner) {
+    friendProfileBody.appendChild(banner);
+  }
+
+  if (!profile.isSelf) {
+    const actions = document.createElement('div');
+    actions.className = 'friend-profile-actions public-profile-actions';
+    const requestButton = document.createElement('button');
+    requestButton.type = 'button';
+    requestButton.dataset.friendProfileAction = 'request-friend';
+    requestButton.dataset.username = profile.username;
+    if (profile.isFriend) {
+      requestButton.className = 'secondary small';
+      requestButton.textContent = 'Friends';
+      requestButton.disabled = true;
+    } else {
+      requestButton.className = 'primary small';
+      requestButton.textContent = 'Add friend';
+      if (!isSessionAuthenticated || !currentUser) {
+        requestButton.disabled = true;
+        requestButton.title = 'Sign in to send friend requests.';
+      }
+    }
+    actions.appendChild(requestButton);
+    friendProfileBody.appendChild(actions);
+  }
 }
 
 function buildPartyProfilePlayerTrigger({ username, displayName = '', meta = '' } = {}) {
@@ -11290,7 +11625,7 @@ function buildPartyProfilePlayerTrigger({ username, displayName = '', meta = '' 
     if (isFriendUsername(cleanUsername)) {
       openFriendProfileDrawer(cleanUsername, trigger);
     } else {
-      openPublicProfileDrawer({ username: cleanUsername, displayName, meta }, trigger);
+      openPublicProfileDrawer(cleanUsername, { displayName, meta, trigger });
     }
   };
   trigger.addEventListener('click', openProfile);

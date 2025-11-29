@@ -46,6 +46,7 @@ from .serializers import (
     FriendLinkSerializer,
     FriendRequestSerializer,
     PlayerSearchResultSerializer,
+    PlayerPublicProfileSerializer,
     PlayerSerializer,
 )
 from .services import (
@@ -1491,6 +1492,37 @@ class PartyHighlightsView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class PlayerPublicProfileView(APIView):
+    """Expose a limited public-facing profile for any player."""
+
+    permission_classes = [AllowAny]
+
+    def get_viewer(self, request) -> Optional[Player]:
+        if not request.user or not request.user.is_authenticated:
+            return None
+        player = getattr(request.user, "player_profile", None)
+        if player is None:
+            player = Player.objects.filter(user=request.user).first()
+        return player
+
+    def get(self, request, username: str):
+        username_clean = (username or "").strip()
+        if not username_clean:
+            return Response({"detail": "Username is required."}, status=status.HTTP_400_BAD_REQUEST)
+        player = Player.objects.filter(username__iexact=username_clean).first()
+        if not player:
+            return Response({"detail": "Player not found."}, status=status.HTTP_404_NOT_FOUND)
+        viewer = self.get_viewer(request)
+        serializer = PlayerPublicProfileSerializer(
+            player,
+            context={
+                "request": request,
+                "viewer": viewer,
+            },
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class PartyJoinRequestView(PlayerScopedAPIView):

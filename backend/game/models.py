@@ -61,6 +61,12 @@ class Player(models.Model):
         default="#6366f1",
         help_text="Hex color (e.g. #ff0000) used to render the player's map marker.",
     )
+    profile_bio = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        help_text="Short public bio/message shown on the player's profile (<= 50 chars).",
+    )
     score = models.PositiveIntegerField(default=0)
     checkins = models.PositiveIntegerField(default=0)
     home_district = models.CharField(max_length=120, blank=True)
