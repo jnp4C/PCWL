@@ -11146,50 +11146,6 @@ function renderFriendProfileContent(friend) {
     });
     partyCardGrid.appendChild(leaderCard);
     leaderCardRendered = true;
-  } else if (!leaderCardRendered && liveParty && typeof liveParty === 'object') {
-    const activeDistrictLabel =
-      (typeof liveParty.activeDistrictName === 'string' && liveParty.activeDistrictName.trim()) ||
-      (liveParty.activeDistrictCode ? `District ${liveParty.activeDistrictCode}` : '');
-    const prestigePoints = Math.max(
-      0,
-      Math.round(
-        Number(
-          typeof liveParty.districtPrestige !== 'undefined'
-            ? liveParty.districtPrestige
-            : liveParty.score,
-        ) || 0,
-      ),
-    );
-    const districtCount = Number.isFinite(Number(liveParty.activeDistrictCount))
-      ? Number(liveParty.activeDistrictCount)
-      : 0;
-    const boostReady =
-      liveParty.boostReady ||
-      liveParty.activeDistrictReady ||
-      districtCount >= 2;
-    const lastActiveTs = parseServerTimestamp(liveParty.districtPrestigeUpdatedAt || liveParty.lastActiveAt);
-    const detailParts = [];
-    detailParts.push(boostReady ? 'Boost active' : 'Waiting for teammates');
-    if (districtCount) {
-      detailParts.push(`${districtCount} member${districtCount === 1 ? '' : 's'} present`);
-    }
-    if (lastActiveTs) {
-      detailParts.push(`Updated ${formatTimeAgo(lastActiveTs)}`);
-    }
-    const leaderCard = buildPartyPrestigeCard({
-      partyCode: liveParty.code || liveParty.partyCode || liveParty.party_code,
-      partyName:
-        typeof liveParty.name === 'string' && liveParty.name.trim()
-          ? liveParty.name.trim()
-          : liveParty.code
-          ? `Party ${liveParty.code}`
-          : 'Party prestige',
-      prestigePoints,
-      statusLabel: activeDistrictLabel ? `Active in ${activeDistrictLabel}` : 'Active party',
-      detailParts,
-    });
-    partyCardGrid.appendChild(leaderCard);
-    leaderCardRendered = true;
   }
 
   if (!leaderCardRendered) {
@@ -11296,7 +11252,38 @@ function renderFriendProfileContent(friend) {
     partyCardGrid.appendChild(placeholder);
   }
 
-  const latestParty = resolveLatestPartyFromHistory(friend.checkins, excludeCodes);
+  let latestParty = resolveLatestPartyFromHistory(friend.checkins, excludeCodes);
+  if (!latestParty && liveParty && liveParty.code) {
+    const code = normalisePartyCode(liveParty.code || liveParty.partyCode || liveParty.party_code || '');
+    if (code && !excludeCodes.has(code)) {
+      const activeDistrictLabel =
+        (typeof liveParty.activeDistrictName === 'string' && liveParty.activeDistrictName.trim()) ||
+        (liveParty.activeDistrictCode ? `District ${liveParty.activeDistrictCode}` : '');
+      const prestigePoints = Math.max(
+        0,
+        Math.round(
+          Number(
+            typeof liveParty.districtPrestige !== 'undefined'
+              ? liveParty.districtPrestige
+              : liveParty.score,
+          ) || 0,
+        ),
+      );
+      const lastActiveTs = parseServerTimestamp(liveParty.districtPrestigeUpdatedAt || liveParty.lastActiveAt);
+      latestParty = {
+        code,
+        name:
+          typeof liveParty.name === 'string' && liveParty.name.trim()
+            ? liveParty.name.trim()
+            : liveParty.code
+            ? `Party ${liveParty.code}`
+            : 'Active party',
+        points: prestigePoints,
+        lastActiveAt: lastActiveTs || Date.now(),
+        statusLabel: activeDistrictLabel ? `Active in ${activeDistrictLabel}` : 'Active party',
+      };
+    }
+  }
   if (latestParty) {
     const detailParts = [];
     if (latestParty.lastActiveAt) {
@@ -11307,7 +11294,7 @@ function renderFriendProfileContent(friend) {
       partyCode: latestParty.code,
       partyName: latestParty.name || `Party ${latestParty.code}`,
       prestigePoints: Math.max(0, Math.round(latestParty.points || 0)),
-      statusLabel: 'Latest party joined',
+      statusLabel: latestParty.statusLabel || 'Latest party joined',
       detailParts,
     });
     partyCardGrid.appendChild(latestCard);
@@ -14764,57 +14751,6 @@ function renderCharacterPartyPrestige(profile = null) {
     if (partyCode) {
       excludeCodes.add(partyCode);
     }
-  } else if (!leaderCardRendered && liveParty && typeof liveParty === 'object') {
-    const partyCode = normalisePartyCode(
-      liveParty.code || liveParty.partyCode || liveParty.party_code || ''
-    );
-    const activeDistrictLabel =
-      (typeof liveParty.activeDistrictName === 'string' && liveParty.activeDistrictName.trim()) ||
-      (liveParty.activeDistrictCode ? `District ${liveParty.activeDistrictCode}` : '');
-    const prestigePoints = Math.max(
-      0,
-      Math.round(
-        Number(
-          typeof liveParty.districtPrestige !== 'undefined'
-            ? liveParty.districtPrestige
-            : liveParty.score,
-        ) || 0,
-      ),
-    );
-    const districtCount = Number.isFinite(Number(liveParty.activeDistrictCount))
-      ? Number(liveParty.activeDistrictCount)
-      : 0;
-    const boostReady =
-      liveParty.boostReady ||
-      liveParty.activeDistrictReady ||
-      districtCount >= 2;
-    const lastActiveTs = parseServerTimestamp(liveParty.districtPrestigeUpdatedAt || liveParty.lastActiveAt);
-    const detailParts = [];
-    detailParts.push(boostReady ? 'Boost active' : 'Waiting for teammates');
-    if (districtCount) {
-      detailParts.push(`${districtCount} member${districtCount === 1 ? '' : 's'} present`);
-    }
-    if (lastActiveTs) {
-      detailParts.push(`Updated ${formatTimeAgo(lastActiveTs)}`);
-    }
-    const leaderCard = buildPartyPrestigeCardElement({
-      partyCode: liveParty.code,
-      partyCode,
-      partyName:
-        typeof liveParty.name === 'string' && liveParty.name.trim()
-          ? liveParty.name.trim()
-          : liveParty.code
-          ? `Party ${liveParty.code}`
-          : 'Active party',
-      prestigePoints,
-      statusLabel: activeDistrictLabel ? `Active in ${activeDistrictLabel}` : 'Active party',
-      detailParts,
-    });
-    characterPartyGrid.appendChild(leaderCard);
-    leaderCardRendered = true;
-    if (partyCode) {
-      excludeCodes.add(partyCode);
-    }
   }
 
   if (!leaderCardRendered) {
@@ -14920,7 +14856,38 @@ function renderCharacterPartyPrestige(profile = null) {
     characterPartyGrid.appendChild(placeholder);
   }
 
-  const latestParty = resolveLatestPartyFromHistory(profile.checkins, excludeCodes);
+  let latestParty = resolveLatestPartyFromHistory(profile.checkins, excludeCodes);
+  if (!latestParty && liveParty && liveParty.code) {
+    const code = normalisePartyCode(liveParty.code || liveParty.partyCode || liveParty.party_code || '');
+    if (code && !excludeCodes.has(code)) {
+      const activeDistrictLabel =
+        (typeof liveParty.activeDistrictName === 'string' && liveParty.activeDistrictName.trim()) ||
+        (liveParty.activeDistrictCode ? `District ${liveParty.activeDistrictCode}` : '');
+      const prestigePoints = Math.max(
+        0,
+        Math.round(
+          Number(
+            typeof liveParty.districtPrestige !== 'undefined'
+              ? liveParty.districtPrestige
+              : liveParty.score,
+          ) || 0,
+        ),
+      );
+      const lastActiveTs = parseServerTimestamp(liveParty.districtPrestigeUpdatedAt || liveParty.lastActiveAt);
+      latestParty = {
+        code,
+        name:
+          typeof liveParty.name === 'string' && liveParty.name.trim()
+            ? liveParty.name.trim()
+            : liveParty.code
+            ? `Party ${liveParty.code}`
+            : 'Active party',
+        points: prestigePoints,
+        lastActiveAt: lastActiveTs || Date.now(),
+        statusLabel: activeDistrictLabel ? `Active in ${activeDistrictLabel}` : 'Active party',
+      };
+    }
+  }
   if (latestParty) {
     const detailParts = [];
     if (latestParty.lastActiveAt) {
@@ -14931,7 +14898,7 @@ function renderCharacterPartyPrestige(profile = null) {
       partyCode: latestParty.code,
       partyName: latestParty.name || `Party ${latestParty.code}`,
       prestigePoints: Math.max(0, Math.round(latestParty.points || 0)),
-      statusLabel: 'Latest party joined',
+      statusLabel: latestParty.statusLabel || 'Latest party joined',
       detailParts,
     });
     characterPartyGrid.appendChild(latestCard);
