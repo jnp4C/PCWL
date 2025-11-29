@@ -13526,6 +13526,25 @@ function formatDistrictPartyLastActive(timestamp) {
   return formatTimeAgo(parsed);
 }
 
+function scoreForDistrictParty(entry) {
+  const prestigeValue = Number.isFinite(Number(entry?.prestige_points))
+    ? Number(entry.prestige_points)
+    : Number(entry?.score) || 0;
+  const attackPoints = Math.max(0, Math.round(Number(entry?.attack_points) || 0));
+  const defendPoints = Math.max(0, Math.round(Number(entry?.defend_points) || 0));
+  if (prestigeValue) return prestigeValue;
+  return attackPoints + defendPoints;
+}
+
+function getDistrictPartyRecency(entry) {
+  const ts =
+    parseServerTimestamp(entry?.last_active_at) ||
+    parseServerTimestamp(entry?.lastActiveAt) ||
+    parseServerTimestamp(entry?.updated_at) ||
+    parseServerTimestamp(entry?.updatedAt);
+  return Number.isFinite(ts) ? ts : 0;
+}
+
 function renderDistrictPartyList(entries) {
   if (!districtPartyList) {
     return;
@@ -13539,13 +13558,7 @@ function renderDistrictPartyList(entries) {
     return;
   }
   const scoreForEntry = (entry) => {
-    const prestigeValue = Number.isFinite(Number(entry.prestige_points))
-      ? Number(entry.prestige_points)
-      : Number(entry.score) || 0;
-    const attackPoints = Math.max(0, Math.round(Number(entry.attack_points) || 0));
-    const defendPoints = Math.max(0, Math.round(Number(entry.defend_points) || 0));
-    if (prestigeValue) return prestigeValue;
-    return attackPoints + defendPoints;
+    return scoreForDistrictParty(entry);
   };
   const sortedEntries = [...entries].sort((a, b) => scoreForEntry(b) - scoreForEntry(a));
   const displayEntries = districtPartyExpanded
@@ -13614,7 +13627,37 @@ function renderDistrictPartyList(entries) {
 }
 
 function updateDistrictPartySection(entries) {
-  districtPartyEntries = Array.isArray(entries) ? entries : [];
+  const dedupedEntries = (() => {
+    const list = Array.isArray(entries) ? entries : [];
+    const byKey = new Map();
+    const noKey = [];
+    list.forEach((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return;
+      }
+      const code = normalisePartyCode(entry.code || '');
+      const leader = typeof entry.leader === 'string' ? entry.leader.trim().toLowerCase() : '';
+      const key = leader ? `leader:${leader}` : code ? `code:${code}` : null;
+      if (!key) {
+        noKey.push(entry);
+        return;
+      }
+      const existing = byKey.get(key);
+      const existingScore = existing ? scoreForDistrictParty(existing) : Number.NEGATIVE_INFINITY;
+      const nextScore = scoreForDistrictParty(entry);
+      const existingRecency = existing ? getDistrictPartyRecency(existing) : Number.NEGATIVE_INFINITY;
+      const nextRecency = getDistrictPartyRecency(entry);
+      const shouldReplace =
+        !existing ||
+        nextRecency > existingRecency ||
+        (nextRecency === existingRecency && nextScore > existingScore);
+      if (shouldReplace) {
+        byKey.set(key, entry);
+      }
+    });
+    return [...byKey.values(), ...noKey];
+  })();
+  districtPartyEntries = dedupedEntries;
   districtPartyExpanded = false;
   renderDistrictPartyList(districtPartyEntries);
   if (districtPartyToggle) {
