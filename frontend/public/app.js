@@ -3820,6 +3820,7 @@ let partyState = {
 };
 const partyProfileCache = new Map();
 let activePartyProfile = null;
+let activePartyProfileRefreshTimer = null;
 let partyProfileLastTrigger = null;
 const partyHighlightsCache = new Map();
 const publicProfileCache = new Map();
@@ -12038,6 +12039,10 @@ async function openPartyProfileDrawer(partyCode, trigger = null) {
   partyProfileDrawer.setAttribute('aria-hidden', 'false');
   partyProfileOverlay.classList.remove('hidden');
   partyProfileOverlay.setAttribute('aria-hidden', 'false');
+  if (activePartyProfileRefreshTimer) {
+    window.clearTimeout(activePartyProfileRefreshTimer);
+    activePartyProfileRefreshTimer = null;
+  }
   const cached = partyProfileCache.get(code);
   if (cached) {
     activePartyProfile = cached;
@@ -12049,6 +12054,31 @@ async function openPartyProfileDrawer(partyCode, trigger = null) {
     renderPartyProfileContent(profile);
     if (partyProfileTitle) {
       partyProfileTitle.textContent = profile.party.name ? profile.party.name : `Party ${profile.party.code}`;
+    }
+    const liveParty = getActivePartyState();
+    const liveCode = liveParty ? normalisePartyCode(liveParty.code || liveParty.partyCode || liveParty.party_code || '') : '';
+    if (liveCode && liveCode === normalisePartyCode(code)) {
+      const scheduleRefresh = () => {
+        if (!document.body.classList.contains('party-profile-open')) {
+          activePartyProfileRefreshTimer = null;
+          return;
+        }
+        fetchPartyProfile(code, { force: true, silent: true }).then((fresh) => {
+          if (
+            fresh &&
+            document.body.classList.contains('party-profile-open') &&
+            normalisePartyCode(fresh.party?.code || '') === normalisePartyCode(code)
+          ) {
+            activePartyProfile = fresh;
+            renderPartyProfileContent(fresh);
+            if (partyProfileTitle) {
+              partyProfileTitle.textContent = fresh.party.name ? fresh.party.name : `Party ${fresh.party.code}`;
+            }
+          }
+          activePartyProfileRefreshTimer = window.setTimeout(scheduleRefresh, 10000);
+        });
+      };
+      activePartyProfileRefreshTimer = window.setTimeout(scheduleRefresh, 10000);
     }
   } else {
     activePartyProfile = null;
@@ -12068,6 +12098,10 @@ async function openPartyProfileDrawer(partyCode, trigger = null) {
 function closePartyProfileDrawer({ restoreFocus = true } = {}) {
   if (!partyProfileDrawer || !document.body.classList.contains('party-profile-open')) {
     return;
+  }
+  if (activePartyProfileRefreshTimer) {
+    window.clearTimeout(activePartyProfileRefreshTimer);
+    activePartyProfileRefreshTimer = null;
   }
   document.body.classList.remove('party-profile-open');
   partyProfileDrawer.setAttribute('aria-hidden', 'true');
