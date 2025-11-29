@@ -1914,13 +1914,11 @@ class FriendListView(PlayerScopedAPIView):
             .first()
         )
         if incoming_request:
-            link = accept_friend_request(incoming_request)
-            friend_data = FriendLinkSerializer(link, context={"request": request}).data
             request_data = FriendRequestSerializer(
                 incoming_request,
                 context={"request": request, "current_player": player},
             ).data
-            return Response({"friend": friend_data, "friend_request": request_data}, status=status.HTTP_200_OK)
+            return Response({"friend_request": request_data}, status=status.HTTP_200_OK)
 
         outgoing_request = (
             FriendRequest.objects.select_related("from_player", "to_player")
