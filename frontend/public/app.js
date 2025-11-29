@@ -8368,12 +8368,17 @@ function updateRecentCheckinsDrawerContent(profile = undefined) {
         (typeof entry.party_code === 'string' && entry.party_code.trim()) ||
         '';
       const normalizedParty = normalisePartyCode(partyCode);
+      const partyDisplay =
+        (typeof entry.partyName === 'string' && entry.partyName.trim()) ||
+        (typeof entry.party_name === 'string' && entry.party_name.trim()) ||
+        (normalizedParty ? `Party ${normalizedParty}` : '');
       if (normalizedParty) {
         partyChip = document.createElement('button');
         partyChip.type = 'button';
         partyChip.className = 'recent-checkin-party-chip';
         partyChip.dataset.partyCode = normalizedParty;
-        partyChip.textContent = normalizedParty;
+        partyChip.textContent = partyDisplay || normalizedParty;
+        partyChip.setAttribute('aria-label', `Open party ${partyDisplay || normalizedParty}`);
         partyChip.addEventListener('click', (event) => {
           event.preventDefault();
           if (document.body.classList.contains('recent-checkins-open')) {
