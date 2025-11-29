@@ -8329,8 +8329,29 @@ function updateRecentCheckinsDrawerContent(profile = undefined) {
 
     let typeLabel = type === 'defend' ? 'Defend' : type === 'attack' ? 'Attack' : 'Check-in';
     const isParty = Boolean(entry.partyCode || entry.partyContribution);
+    let partyChip = null;
     if (isParty) {
-      typeLabel += ' (party)';
+      const partyCode =
+        (typeof entry.partyCode === 'string' && entry.partyCode.trim()) ||
+        (typeof entry.party_code === 'string' && entry.party_code.trim()) ||
+        '';
+      const normalizedParty = normalisePartyCode(partyCode);
+      if (normalizedParty) {
+        partyChip = document.createElement('button');
+        partyChip.type = 'button';
+        partyChip.className = 'recent-checkin-party-chip';
+        partyChip.dataset.partyCode = normalizedParty;
+        partyChip.textContent = normalizedParty;
+        partyChip.addEventListener('click', (event) => {
+          event.preventDefault();
+          if (document.body.classList.contains('recent-checkins-open')) {
+            closeRecentCheckinsDrawer({ restoreFocus: false });
+          }
+          openPartyProfileDrawer(normalizedParty, partyChip);
+        });
+      } else {
+        typeLabel += ' (party)';
+      }
     }
     const points = calculateCheckinPoints(entry);
     const pointsText = `${points > 0 ? '+' : ''}${points.toLocaleString()} pts`;
@@ -8365,6 +8386,12 @@ function updateRecentCheckinsDrawerContent(profile = undefined) {
         }
         meta.appendChild(document.createTextNode(part));
       });
+    if (partyChip) {
+      if (meta.childNodes.length) {
+        meta.appendChild(document.createTextNode(' • '));
+      }
+      meta.appendChild(partyChip);
+    }
     if (cooldownInfo) {
       if (meta.childNodes.length) {
         meta.appendChild(document.createTextNode(' • '));

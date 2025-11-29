@@ -952,6 +952,16 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   color: var(--color-text-muted);
 }
 
+.recent-checkin-party-chip {
+  border: 1px solid var(--color-border-soft);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  background: color-mix(in srgb, var(--color-panel-bg) 92%, rgba(76, 29, 149, 0.15));
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
 .sheet-header {
   display: flex;
   align-items: center;
