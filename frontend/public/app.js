@@ -5753,6 +5753,7 @@ function renderPartyBoostBox() {
   }
   const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
   const party = getActivePartyState();
+  const partyCodeForDrawer = normalisePartyCode((party && party.code) || '');
   const fallbackPartyName =
     (party && party.name) ||
     (profile && profile.preferredPartyName ? profile.preferredPartyName : '') ||
@@ -5841,6 +5842,34 @@ function renderPartyBoostBox() {
   }
   if (party && (atkChecks || contribChecks)) parts.push(`${atkChecks + contribChecks} party boosts`);
   partyBoostSummary.textContent = parts.filter(Boolean).join(' • ');
+  if (!partyBoostSummary.dataset.partyHandlerAttached) {
+    const handler = (event) => {
+      const isKey = event.type === 'keydown';
+      if (isKey && event.key !== 'Enter' && event.key !== ' ') {
+        return;
+      }
+      const code = partyBoostSummary.dataset.partyCode || '';
+      if (!code) {
+        return;
+      }
+      event.preventDefault();
+      openPartyProfileDrawer(code, partyBoostSummary);
+    };
+    partyBoostSummary.addEventListener('click', handler);
+    partyBoostSummary.addEventListener('keydown', handler);
+    partyBoostSummary.dataset.partyHandlerAttached = 'true';
+  }
+  if (partyCodeForDrawer) {
+    partyBoostSummary.dataset.partyCode = partyCodeForDrawer;
+    partyBoostSummary.tabIndex = 0;
+    partyBoostSummary.setAttribute('role', 'button');
+    partyBoostSummary.setAttribute('aria-label', `View party profile for ${partyName}`);
+  } else {
+    delete partyBoostSummary.dataset.partyCode;
+    partyBoostSummary.removeAttribute('role');
+    partyBoostSummary.removeAttribute('tabindex');
+    partyBoostSummary.removeAttribute('aria-label');
+  }
 
   // Recent party-affected check-ins from history
   const history = Array.isArray(profile.checkins) ? profile.checkins : [];
@@ -5874,7 +5903,6 @@ function renderPartyBoostBox() {
   prestigeMeta.textContent = prestigePieces.filter(Boolean).join(' • ');
   prestigeItem.appendChild(prestigeTitle);
   prestigeItem.appendChild(prestigeMeta);
-  const partyCodeForDrawer = (party && party.code) || '';
   if (partyCodeForDrawer) {
     prestigeItem.dataset.partyCode = partyCodeForDrawer;
     prestigeItem.tabIndex = 0;
@@ -7204,6 +7232,57 @@ function buildPartyPrestigeCardElement({ partyCode, partyName, prestigePoints, s
     });
   }
   return prestigeCard;
+}
+
+function buildLeadingPartyBanner({ partyProfile = null, fallbackParty = null } = {}) {
+  const party = (partyProfile && partyProfile.party) || fallbackParty;
+  const partyCode = normalisePartyCode(party?.code || '');
+  if (!party || !partyCode) {
+    return null;
+  }
+  const partyName =
+    (typeof party.name === 'string' && party.name.trim()) ||
+    (partyCode ? `Party ${partyCode}` : 'Leader party');
+  const prestigePoints = partyProfile
+    ? computeProfileTotalPrestige(partyProfile)
+    : Math.max(
+        0,
+        Number(
+          party.prestigeTotal ||
+            party.prestige_points ||
+            party.prestigePoints ||
+            party.score,
+        ) || 0,
+      );
+  const statusLabel =
+    typeof party.leader === 'string' && party.leader.trim()
+      ? `Leader @${party.leader.trim()}`
+      : 'Leader party';
+  const detailParts = [];
+  const memberCount = Number.isFinite(Number(party.memberCount || party.size || party.members?.length))
+    ? Number(party.memberCount || party.size || party.members?.length)
+    : null;
+  if (memberCount) {
+    detailParts.push(`${memberCount} member${memberCount === 1 ? '' : 's'}`);
+  }
+  const lastActive = parseServerTimestamp(party.lastActiveAt || party.expiresAt || party.expires_at);
+  if (lastActive) {
+    detailParts.push(`Updated ${formatTimeAgo(lastActive)}`);
+  }
+  if (!detailParts.length) {
+    detailParts.push('Tap to view party profile');
+  }
+  const banner = buildPartyPrestigeCardElement({
+    partyCode,
+    partyName,
+    prestigePoints,
+    statusLabel,
+    detailParts,
+  });
+  if (banner) {
+    banner.classList.add('leading-party-banner');
+  }
+  return banner;
 }
 
 function applyDistrictStrengthEntries(entries) {
@@ -10690,6 +10769,13 @@ function renderFriendProfileContent(friend) {
     partyCardGrid.addEventListener('keydown', handlePartyCardActivate);
     partyCardGrid.dataset.handlersAttached = 'true';
   }
+  const leadingPartyBanner = buildLeadingPartyBanner({
+    partyProfile: leaderHighlightProfile,
+    fallbackParty: leaderHighlightProfile?.party || leaderHighlight,
+  });
+  if (leadingPartyBanner) {
+    partyCardGrid.appendChild(leadingPartyBanner);
+  }
 
   const buildPartyPrestigeCard = ({ partyCode, partyName, prestigePoints, statusLabel, detailParts }) => {
     const prestigeCard = document.createElement('div');
@@ -10735,8 +10821,8 @@ function renderFriendProfileContent(friend) {
     return prestigeCard;
   };
 
-  let leaderCardRendered = false;
-  if (leaderHighlightProfile && leaderHighlightProfile.party) {
+  let leaderCardRendered = Boolean(leadingPartyBanner);
+  if (!leaderCardRendered && leaderHighlightProfile && leaderHighlightProfile.party) {
     const partyCode = leaderHighlightProfile.party.code || '';
     const partyName =
       (typeof leaderHighlightProfile.party.name === 'string' && leaderHighlightProfile.party.name.trim()
@@ -10758,7 +10844,7 @@ function renderFriendProfileContent(friend) {
     });
     partyCardGrid.appendChild(leaderCard);
     leaderCardRendered = true;
-  } else if (liveParty && typeof liveParty === 'object') {
+  } else if (!leaderCardRendered && liveParty && typeof liveParty === 'object') {
     const activeDistrictLabel =
       (typeof liveParty.activeDistrictName === 'string' && liveParty.activeDistrictName.trim()) ||
       (liveParty.activeDistrictCode ? `District ${liveParty.activeDistrictCode}` : '');
@@ -11259,6 +11345,13 @@ function renderPartyProfileContent(profile) {
   contributorsCard.appendChild(contribList);
 
   partyProfileBody.appendChild(header);
+  const leadingBanner = buildLeadingPartyBanner({
+    partyProfile: profile,
+    fallbackParty: party,
+  });
+  if (leadingBanner) {
+    partyProfileBody.appendChild(leadingBanner);
+  }
   if (membersCard) {
     partyProfileBody.appendChild(membersCard);
   }
@@ -13906,10 +13999,19 @@ function renderCharacterPartyPrestige(profile = null) {
   }
 
   const leaderHighlightProfile = selfHighlights?.leaderPartyProfile || null;
+  const leaderHighlight = selfHighlights && selfHighlights.leaderParty ? selfHighlights.leaderParty : null;
   const liveParty = getActivePartyState() || profile.activeParty || profile.active_party || null;
 
-  let leaderCardRendered = false;
-  if (leaderHighlightProfile && leaderHighlightProfile.party) {
+  const leadingPartyBanner = buildLeadingPartyBanner({
+    partyProfile: leaderHighlightProfile,
+    fallbackParty: leaderHighlightProfile?.party || leaderHighlight,
+  });
+  if (leadingPartyBanner) {
+    characterPartyGrid.appendChild(leadingPartyBanner);
+  }
+
+  let leaderCardRendered = Boolean(leadingPartyBanner);
+  if (!leaderCardRendered && leaderHighlightProfile && leaderHighlightProfile.party) {
     const partyCode = leaderHighlightProfile.party.code || '';
     const hasCustomName =
       typeof leaderHighlightProfile.party.name === 'string' && leaderHighlightProfile.party.name.trim();
@@ -13934,7 +14036,7 @@ function renderCharacterPartyPrestige(profile = null) {
     });
     characterPartyGrid.appendChild(leaderCard);
     leaderCardRendered = true;
-  } else if (liveParty && typeof liveParty === 'object') {
+  } else if (!leaderCardRendered && liveParty && typeof liveParty === 'object') {
     const partyCode = normalisePartyCode(
       liveParty.code || liveParty.partyCode || liveParty.party_code || ''
     );

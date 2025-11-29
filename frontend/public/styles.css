@@ -938,6 +938,10 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   cursor: pointer;
 }
 
+#party-boost-summary[role='button'] {
+  cursor: pointer;
+}
+
 .recent-checkins-item .recent-checkins-entry {
   font-weight: 600;
   font-size: 0.95rem;
@@ -1659,6 +1663,10 @@ body.dark .friend-profile-marker {
 
 .character-party-section .friend-profile-party-grid {
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.leading-party-banner {
+  grid-column: 1 / -1;
 }
 
 .friend-profile-party {
@@ -2707,12 +2715,14 @@ body.dark .friend-profile-marker {
 }
 
 .streak-interactive {
-  display: block;
+  display: flex;
   width: 100%;
   min-height: 170px;
   padding: 0;
   overflow: hidden;
   perspective: 1200px;
+  align-items: stretch;
+  justify-content: center;
 }
 
 .streak-interactive .streak-card-inner {
@@ -2722,6 +2732,7 @@ body.dark .friend-profile-marker {
   min-height: 170px;
   transform-style: preserve-3d;
   transition: transform 360ms ease;
+  margin: 0 auto;
 }
 
 .streak-interactive.is-flipped .streak-card-inner {
