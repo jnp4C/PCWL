@@ -9770,42 +9770,48 @@ function renderPartyPanelChip(now = Date.now()) {
 
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = 'cooldown-item party-invite';
+      button.className = 'friend-party-chip gold';
       button.dataset.partyPanelChip = 'active-party';
-      const track = document.createElement('div');
-      track.className = 'cooldown-track';
-      const fill = document.createElement('div');
-      fill.className = 'cooldown-fill';
-      fill.style.transform = `scaleX(${ratio})`;
-      track.appendChild(fill);
+      const dot = document.createElement('span');
+      dot.className = 'friend-party-chip-dot';
+      dot.style.background = activeParty.color || '#f59e0b';
       const label = document.createElement('span');
-      label.className = 'cooldown-time';
+      label.className = 'friend-party-heading-name';
+      label.textContent = partyName;
+      const meta = document.createElement('span');
+      meta.className = 'friend-party-chip-meta';
       const expiresText = formatPartyCountdown(activeParty.expiresAt);
-      label.textContent = `${partyName} • ${memberLabel} • ${expiresText} left`;
-      button.setAttribute('aria-label', `${partyName} — ${memberLabel} — ${expiresText} remaining`);
-      button.appendChild(track);
+      meta.textContent = `${memberLabel} • ${expiresText} left`;
+      button.appendChild(dot);
       button.appendChild(label);
+      button.appendChild(meta);
+      if (activeParty.code) {
+        button.dataset.partyCode = normalisePartyCode(activeParty.code);
+      }
       friendsPartyChip.appendChild(button);
       return;
     }
 
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'cooldown-item party-invite';
+    button.className = 'friend-party-chip gold';
     button.dataset.partyPanelChip = 'active-party';
-    const track = document.createElement('div');
-    track.className = 'cooldown-track';
-    const fill = document.createElement('div');
-    fill.className = 'cooldown-fill';
-    fill.style.transform = 'scaleX(0)';
-    track.appendChild(fill);
+    const dot = document.createElement('span');
+    dot.className = 'friend-party-chip-dot';
+    dot.style.background = activeParty.color || '#f59e0b';
     const label = document.createElement('span');
-    label.className = 'cooldown-time';
+    label.className = 'friend-party-heading-name';
+    label.textContent = partyName;
+    const meta = document.createElement('span');
+    meta.className = 'friend-party-chip-meta';
     const waitingLabel = districtLabel ? `Waiting in ${districtLabel}` : 'Waiting for teammates';
-    label.textContent = `${partyName} • ${memberLabel} • ${waitingLabel}`;
-    button.setAttribute('aria-label', `${partyName} — ${memberLabel} — waiting for teammates to start boost`);
-    button.appendChild(track);
+    meta.textContent = `${memberLabel} • ${waitingLabel}`;
+    button.appendChild(dot);
     button.appendChild(label);
+    button.appendChild(meta);
+    if (activeParty.code) {
+      button.dataset.partyCode = normalisePartyCode(activeParty.code);
+    }
     friendsPartyChip.appendChild(button);
     return;
   }
@@ -17082,6 +17088,7 @@ if (friendsPartyChip) {
     }
     event.preventDefault();
     const type = chip.dataset.partyPanelChip;
+    const partyCode = chip.dataset.partyCode || '';
     if (type === 'invite') {
       const inviteId = Number(chip.dataset.partyInvite);
       if (Number.isFinite(inviteId)) {
@@ -17109,11 +17116,16 @@ if (friendsPartyChip) {
         }, 120);
       }
     } else if (type === 'active-party') {
-      openFriendsDrawer(friendsButton || null);
-      if (friendsPartySection && typeof friendsPartySection.scrollIntoView === 'function') {
-        window.setTimeout(() => {
-          friendsPartySection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }, 120);
+      if (partyCode) {
+        closeFriendsDrawer({ restoreFocus: false });
+        openPartyProfileDrawer(partyCode, chip);
+      } else {
+        openFriendsDrawer(friendsButton || null);
+        if (friendsPartySection && typeof friendsPartySection.scrollIntoView === 'function') {
+          window.setTimeout(() => {
+            friendsPartySection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }, 120);
+        }
       }
     }
   });

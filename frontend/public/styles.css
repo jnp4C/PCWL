@@ -1190,8 +1190,11 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  padding: 0.25rem 0.55rem;
+  padding: 0.35rem 0.65rem;
   border-radius: 12px;
+  border: 1px solid rgba(255, 184, 0, 0.5);
+  background: linear-gradient(120deg, rgba(255, 184, 0, 0.16), rgba(255, 214, 102, 0.12));
+  box-shadow: inset 0 0 0 1px rgba(255, 214, 102, 0.28);
 }
 
 .friend-party-chip-dot {
