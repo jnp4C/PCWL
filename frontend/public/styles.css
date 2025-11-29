@@ -1764,6 +1764,11 @@ body.dark .friend-profile-marker {
   align-items: center;
 }
 
+body.friend-profile-open .sheet-drawer:not(.friend-profile-drawer) {
+  filter: blur(6px);
+  transition: filter 160ms ease;
+}
+
 .party-profile-player-trigger {
   background: none;
   border: none;
