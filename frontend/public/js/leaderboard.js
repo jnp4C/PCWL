@@ -601,8 +601,19 @@ async function refreshLeaderboardsFromApi() {
     renderPlayerLeaderboard(data.players || []);
     renderDistrictLeaderboard(data.districts || []);
   } catch (error) {
-    console.warn('Falling back to local leaderboard data', error);
-    renderFallbackLeaderboards();
+    console.warn('Unable to load leaderboard from API', error);
+    const playerEmpty = document.getElementById('player-leaderboard-empty');
+    const districtEmpty = document.getElementById('district-leaderboard-empty');
+    if (playerEmpty) {
+      playerEmpty.textContent = 'Unable to load leaderboard data from the server right now.';
+      playerEmpty.classList.remove('hidden');
+    }
+    if (districtEmpty) {
+      districtEmpty.textContent = 'Unable to load leaderboard data from the server right now.';
+      districtEmpty.classList.remove('hidden');
+    }
+    renderPlayerLeaderboard([]);
+    renderDistrictLeaderboard([]);
   }
 }
 

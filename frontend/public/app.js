@@ -6583,6 +6583,7 @@ async function restoreSessionFromServer() {
   });
   applyPartyStateFromServer(partySnapshot, { silent: false });
   refreshPartyState(false, { silent: true, syncPlayer: true }).catch(() => null);
+  syncFreshDataFromBackend({ silent: true }).catch(() => null);
   try { startPartyPolling({ immediate: true }); } catch (_) {}
 }
 
@@ -9712,6 +9713,25 @@ async function refreshActivePlayerProfileFromServer({ silent = true } = {}) {
     }
     console.warn('Failed to refresh active player from server', error);
     return null;
+  }
+}
+
+async function syncFreshDataFromBackend({ silent = true } = {}) {
+  if (!isSessionAuthenticated || !currentUser) {
+    return;
+  }
+  try {
+    await Promise.allSettled([
+      refreshActivePlayerProfileFromServer({ silent: true }),
+      refreshFriends(true),
+      refreshFriendRequests(true),
+      refreshPartyState(false, { silent: true, syncPlayer: true }),
+    ]);
+  } catch (error) {
+    if (!silent) {
+      updateStatus('Unable to refresh data from the server right now.');
+    }
+    console.warn('Fresh sync failed', error);
   }
 }
 
@@ -14443,6 +14463,7 @@ async function handleLogin(event) {
       message: `Welcome back, ${welcomeName}.`,
       triggerGeolocation: true,
     });
+    syncFreshDataFromBackend({ silent: true }).catch(() => null);
   } catch (error) {
     let message = 'Unable to sign in. Please try again.';
     if (error && typeof error === 'object') {
