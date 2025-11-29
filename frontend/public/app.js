@@ -11207,6 +11207,102 @@ function closeFriendProfileDrawer({ restoreFocus = true } = {}) {
   }
 }
 
+function openPublicProfileDrawer({ username, displayName = '', meta = '' } = {}, trigger = null) {
+  if (!friendProfileDrawer || !friendProfileOverlay || !friendProfileBody) {
+    return;
+  }
+  const cleanUsername = typeof username === 'string' ? username.replace(/^@/, '').trim() : '';
+  if (!cleanUsername) {
+    updateStatus('Unable to load this profile.');
+    return;
+  }
+  friendProfileActiveUsername = cleanUsername;
+  friendProfileLastTrigger = trigger instanceof HTMLElement ? trigger : null;
+  friendProfileBody.innerHTML = '';
+  if (friendProfileTitle) {
+    friendProfileTitle.textContent = `@${cleanUsername}`;
+  }
+
+  const summary = document.createElement('div');
+  summary.className = 'character-summary friend-profile-summary';
+
+  const identityCard = document.createElement('div');
+  identityCard.className = 'character-card character-identity friend-profile-identity-card public-profile-card';
+  const avatar = document.createElement('div');
+  avatar.className = 'character-avatar';
+  const initial = cleanUsername.charAt(0).toUpperCase() || 'P';
+  avatar.textContent = initial;
+  identityCard.appendChild(avatar);
+  const metaBlock = document.createElement('div');
+  metaBlock.className = 'character-meta';
+  const nameEl = document.createElement('h3');
+  nameEl.textContent = displayName || `@${cleanUsername}`;
+  metaBlock.appendChild(nameEl);
+  const tagline = document.createElement('p');
+  tagline.className = 'character-tagline';
+  tagline.textContent = meta || 'This profile is private. Send a friend request to unlock full details.';
+  metaBlock.appendChild(tagline);
+  identityCard.appendChild(metaBlock);
+  summary.appendChild(identityCard);
+
+  const actions = document.createElement('div');
+  actions.className = 'friend-profile-actions public-profile-actions';
+  const requestButton = document.createElement('button');
+  requestButton.type = 'button';
+  requestButton.className = 'primary small';
+  requestButton.dataset.friendProfileAction = 'request-friend';
+  requestButton.dataset.username = cleanUsername;
+  requestButton.textContent = 'Send friend request';
+  if (!isSessionAuthenticated || !currentUser) {
+    requestButton.disabled = true;
+    requestButton.title = 'Sign in to send friend requests.';
+  }
+  actions.appendChild(requestButton);
+
+  friendProfileBody.appendChild(summary);
+  friendProfileBody.appendChild(actions);
+
+  document.body.classList.add('friend-profile-open');
+  friendProfileDrawer.setAttribute('aria-hidden', 'false');
+  friendProfileOverlay.classList.remove('hidden');
+  friendProfileOverlay.setAttribute('aria-hidden', 'false');
+  window.setTimeout(() => {
+    if (friendProfileContent && typeof friendProfileContent.focus === 'function') {
+      friendProfileContent.focus();
+    }
+  }, 0);
+}
+
+function buildPartyProfilePlayerTrigger({ username, displayName = '', meta = '' } = {}) {
+  const cleanUsername = typeof username === 'string' ? username.replace(/^@/, '').trim() : '';
+  if (!cleanUsername) {
+    return null;
+  }
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'friend-profile-trigger party-profile-player-trigger';
+  trigger.dataset.friendProfile = cleanUsername;
+  trigger.textContent = displayName || `@${cleanUsername}`;
+  if (meta) {
+    trigger.title = meta;
+  }
+  const openProfile = () => {
+    if (isFriendUsername(cleanUsername)) {
+      openFriendProfileDrawer(cleanUsername, trigger);
+    } else {
+      openPublicProfileDrawer({ username: cleanUsername, displayName, meta }, trigger);
+    }
+  };
+  trigger.addEventListener('click', openProfile);
+  trigger.addEventListener('keypress', (event) => {
+    if (event && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      openProfile();
+    }
+  });
+  return trigger;
+}
+
 function renderPartyProfileContent(profile) {
   if (!partyProfileBody) {
     return;
@@ -11228,7 +11324,18 @@ function renderPartyProfileContent(profile) {
   subtitle.className = 'party-profile-subtitle';
   const memberCount = Number.isFinite(Number(party.memberCount)) ? Number(party.memberCount) : 0;
   const lifetimeCount = Math.max(memberCount, party.lifetimeMemberCount || 0);
-  const subtitleParts = [`Leader @${party.leader || 'unknown'}`];
+  const subtitleParts = [];
+  if (party.leader) {
+    const leaderTrigger = buildPartyProfilePlayerTrigger({ username: party.leader, displayName: `@${party.leader}` });
+    if (leaderTrigger) {
+      subtitleParts.push('Leader ');
+      subtitleParts.push(leaderTrigger);
+    } else {
+      subtitleParts.push(`Leader @${party.leader}`);
+    }
+  } else {
+    subtitleParts.push('Leader @unknown');
+  }
   if (memberCount) {
     if (party.status === 'active') {
       subtitleParts.push(`${memberCount} active`);
@@ -11242,7 +11349,16 @@ function renderPartyProfileContent(profile) {
   if (party.lastActiveAt) {
     subtitleParts.push(`Last active ${formatTimeAgo(party.lastActiveAt)} ago`);
   }
-  subtitle.textContent = subtitleParts.filter(Boolean).join(' • ');
+  subtitleParts.filter(Boolean).forEach((part, index) => {
+    if (index > 0) {
+      subtitle.appendChild(document.createTextNode(' • '));
+    }
+    if (part instanceof Node) {
+      subtitle.appendChild(part);
+    } else {
+      subtitle.appendChild(document.createTextNode(String(part)));
+    }
+  });
   header.appendChild(title);
   header.appendChild(subtitle);
   if (party.status && typeof party.status === 'string') {
@@ -11268,7 +11384,20 @@ function renderPartyProfileContent(profile) {
       li.className = 'party-profile-list-item';
       const display = member.displayName ? member.displayName : `@${member.username}`;
       const role = member.isLeader ? 'Leader' : 'Member';
-      li.textContent = `${display} • ${role}`;
+      const trigger = buildPartyProfilePlayerTrigger({
+        username: member.username,
+        displayName: display,
+        meta: role,
+      });
+      if (trigger) {
+        li.appendChild(trigger);
+        const meta = document.createElement('span');
+        meta.className = 'party-profile-meta';
+        meta.textContent = ` • ${role}`;
+        li.appendChild(meta);
+      } else {
+        li.textContent = `${display} • ${role}`;
+      }
       membersList.appendChild(li);
     });
     membersCard.appendChild(membersList);
@@ -11333,7 +11462,20 @@ function renderPartyProfileContent(profile) {
       const li = document.createElement('li');
       li.className = 'party-profile-list-item';
       const display = player.displayName ? player.displayName : `@${player.username}`;
-      li.textContent = `${display} • +${player.prestigePoints.toLocaleString()} pts`;
+      const trigger = buildPartyProfilePlayerTrigger({
+        username: player.username,
+        displayName: display,
+        meta: 'Party contributor',
+      });
+      if (trigger) {
+        li.appendChild(trigger);
+        const meta = document.createElement('span');
+        meta.className = 'party-profile-meta';
+        meta.textContent = ` • +${player.prestigePoints.toLocaleString()} pts`;
+        li.appendChild(meta);
+      } else {
+        li.textContent = `${display} • +${player.prestigePoints.toLocaleString()} pts`;
+      }
       contribList.appendChild(li);
     });
   } else {
@@ -11371,7 +11513,16 @@ function renderPartyProfileContent(profile) {
       const li = document.createElement('li');
       li.className = 'party-profile-list-item';
       const display = member.displayName ? member.displayName : `@${member.username}`;
-      li.textContent = display;
+      const trigger = buildPartyProfilePlayerTrigger({
+        username: member.username,
+        displayName: display,
+        meta: 'Recent member',
+      });
+      if (trigger) {
+        li.appendChild(trigger);
+      } else {
+        li.textContent = display;
+      }
       recentList.appendChild(li);
     });
     recentCard.appendChild(recentList);
@@ -12966,7 +13117,11 @@ function handleFriendProfileAction(event) {
   }
 
   if (!isSessionAuthenticated || !currentUser) {
-    updateStatus('Sign in to manage favorites.');
+    if (action === 'request-friend') {
+      updateStatus('Sign in to send friend requests.');
+    } else {
+      updateStatus('Sign in to manage favorites.');
+    }
     return;
   }
 
@@ -12992,6 +13147,35 @@ function handleFriendProfileAction(event) {
         actionButton.setAttribute('aria-pressed', originalPressed);
       }
     });
+  }
+
+  if (action === 'request-friend') {
+    const originalText = actionButton.textContent;
+    actionButton.disabled = true;
+    actionButton.textContent = 'Sending…';
+    addFriendByUsername(username)
+      .then((result) => {
+        if (!document.body.contains(actionButton)) {
+          return;
+        }
+        if (result && result.status === 'friend') {
+          actionButton.textContent = 'Friends';
+          actionButton.className = 'secondary small';
+          openFriendProfileDrawer(username, actionButton);
+        } else if (result && result.status === 'requested') {
+          actionButton.textContent = 'Request sent';
+          actionButton.className = 'secondary small';
+        } else {
+          actionButton.textContent = originalText || 'Send friend request';
+          actionButton.disabled = false;
+        }
+      })
+      .catch(() => {
+        if (document.body.contains(actionButton)) {
+          actionButton.textContent = originalText || 'Send friend request';
+          actionButton.disabled = false;
+        }
+      });
   }
 }
 

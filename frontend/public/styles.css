@@ -1672,6 +1672,27 @@ body.dark .friend-profile-marker {
 .friend-profile-party {
   height: 100%;
 }
+
+.party-profile-player-trigger {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.public-profile-card {
+  align-items: center;
+}
+
+.public-profile-actions {
+  margin-top: 0.25rem;
+}
+
 .friend-profile-home {
   font-size: 0.85rem;
   color: var(--color-text-muted);
