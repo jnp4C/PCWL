@@ -7195,6 +7195,23 @@ function computeProfileTotalPrestige(profile) {
   }, 0);
 }
 
+function resolvePartyDisplayName(code, fallback = '') {
+  const normalized = normalisePartyCode(code || '');
+  if (!normalized) {
+    return fallback;
+  }
+  const cached = partyProfileCache.get(normalized);
+  if (cached && cached.party && typeof cached.party.name === 'string' && cached.party.name.trim()) {
+    return cached.party.name.trim();
+  }
+  const live = getActivePartyState();
+  const liveCode = live ? normalisePartyCode(live.code || live.partyCode || live.party_code || '') : '';
+  if (live && liveCode && liveCode === normalized && typeof live.name === 'string' && live.name.trim()) {
+    return live.name.trim();
+  }
+  return fallback || `Party ${normalized}`;
+}
+
 function resolveLatestPartyFromHistory(primaryHistory, excludeCodes = new Set(), fallbackHistory = null) {
   const pool = Array.isArray(primaryHistory) && primaryHistory.length
     ? primaryHistory
@@ -7231,7 +7248,8 @@ function resolveLatestPartyFromHistory(primaryHistory, excludeCodes = new Set(),
         ? Number(entry.prestigePoints)
         : Number(entry.points) || 0;
     const lastActiveAt = Number(entry.timestamp) || null;
-    return { code, name, points, lastActiveAt };
+    const resolvedName = resolvePartyDisplayName(code, name);
+    return { code, name: resolvedName, points, lastActiveAt };
   }
   return null;
 }
@@ -8374,10 +8392,12 @@ function updateRecentCheckinsDrawerContent(profile = undefined) {
         (typeof entry.party_code === 'string' && entry.party_code.trim()) ||
         '';
       const normalizedParty = normalisePartyCode(partyCode);
-      const partyDisplay =
+      const partyDisplay = resolvePartyDisplayName(
+        normalizedParty,
         (typeof entry.partyName === 'string' && entry.partyName.trim()) ||
-        (typeof entry.party_name === 'string' && entry.party_name.trim()) ||
-        (normalizedParty ? `Party ${normalizedParty}` : '');
+          (typeof entry.party_name === 'string' && entry.party_name.trim()) ||
+          (normalizedParty ? `Party ${normalizedParty}` : ''),
+      );
       if (normalizedParty) {
         partyChip = document.createElement('button');
         partyChip.type = 'button';
@@ -14932,11 +14952,14 @@ function renderCharacterPartyPrestige(profile = null) {
       latestParty = {
         code,
         name:
-          typeof liveParty.name === 'string' && liveParty.name.trim()
-            ? liveParty.name.trim()
-            : liveParty.code
-            ? `Party ${liveParty.code}`
-            : 'Active party',
+          resolvePartyDisplayName(
+            code,
+            typeof liveParty.name === 'string' && liveParty.name.trim()
+              ? liveParty.name.trim()
+              : liveParty.code
+              ? `Party ${liveParty.code}`
+              : 'Active party',
+          ),
         points: prestigePoints,
         lastActiveAt: lastActiveTs || Date.now(),
         statusLabel: activeDistrictLabel ? `Active in ${activeDistrictLabel}` : 'Active party',
