@@ -11713,9 +11713,10 @@ function renderPartyProfileContent(profile) {
   const { party, topPlayers, districts } = profile;
   const header = document.createElement('div');
   header.className = 'party-profile-header';
-  const title = document.createElement('h3');
+  const title = document.createElement('h2');
+  title.className = 'party-profile-title';
   title.textContent = party.name ? party.name : `Party ${party.code}`;
-  const subtitle = document.createElement('p');
+  const subtitle = document.createElement('div');
   subtitle.className = 'party-profile-subtitle';
   const memberCount = Number.isFinite(Number(party.memberCount)) ? Number(party.memberCount) : 0;
   const lifetimeCount = Math.max(memberCount, party.lifetimeMemberCount || 0);
@@ -11739,10 +11740,10 @@ function renderPartyProfileContent(profile) {
     }
   }
   if (lifetimeCount && lifetimeCount !== party.memberCount) {
-    subtitleParts.push(`${lifetimeCount} all-time`);
+    subtitleParts.push(`${lifetimeCount} players joined all-time`);
   }
   if (party.lastActiveAt) {
-    subtitleParts.push(`Last active ${formatTimeAgo(party.lastActiveAt)} ago`);
+    subtitleParts.push(`Last active ${formatTimeAgo(party.lastActiveAt)}`);
   }
   subtitleParts.filter(Boolean).forEach((part, index) => {
     if (index > 0) {
@@ -11824,7 +11825,7 @@ function renderPartyProfileContent(profile) {
       badge.textContent = `+${prestige.toLocaleString()} pts`;
       const parts = [`atk ${attack.toLocaleString()} / def ${defend.toLocaleString()}`];
       if (entry.lastActiveAt) {
-        parts.push(`${formatTimeAgo(entry.lastActiveAt)} ago`);
+        parts.push(formatTimeAgo(entry.lastActiveAt));
       }
       const nameLabel = document.createElement('span');
       nameLabel.textContent = name;
@@ -11882,13 +11883,6 @@ function renderPartyProfileContent(profile) {
   contributorsCard.appendChild(contribList);
 
   partyProfileBody.appendChild(header);
-  const leadingBanner = buildLeadingPartyBanner({
-    partyProfile: profile,
-    fallbackParty: party,
-  });
-  if (leadingBanner) {
-    partyProfileBody.appendChild(leadingBanner);
-  }
   if (membersCard) {
     partyProfileBody.appendChild(membersCard);
   }
