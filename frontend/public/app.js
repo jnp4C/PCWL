@@ -7194,6 +7194,42 @@ function computeProfileTotalPrestige(profile) {
   }, 0);
 }
 
+function resolveLatestPartyFromHistory(history, excludeCodes = new Set()) {
+  if (!Array.isArray(history) || !history.length) {
+    return null;
+  }
+  const excluded = new Set(Array.from(excludeCodes || []).map((code) => normalisePartyCode(code || '')));
+  const sorted = [...history].sort((a, b) => {
+    const aTs = Number(a?.timestamp) || 0;
+    const bTs = Number(b?.timestamp) || 0;
+    return bTs - aTs;
+  });
+  for (const entry of sorted) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+    const rawCode =
+      (typeof entry.partyCode === 'string' && entry.partyCode.trim()) ||
+      (typeof entry.party_code === 'string' && entry.party_code.trim()) ||
+      '';
+    const code = normalisePartyCode(rawCode);
+    if (!code || excluded.has(code)) {
+      continue;
+    }
+    const name =
+      (typeof entry.partyName === 'string' && entry.partyName.trim()) ||
+      (typeof entry.party_name === 'string' && entry.party_name.trim()) ||
+      '';
+    const points =
+      Number.isFinite(Number(entry.prestigePoints)) && Number(entry.prestigePoints) > 0
+        ? Number(entry.prestigePoints)
+        : Number(entry.points) || 0;
+    const lastActiveAt = Number(entry.timestamp) || null;
+    return { code, name, points, lastActiveAt };
+  }
+  return null;
+}
+
 function buildPartyPrestigeCardElement({ partyCode, partyName, prestigePoints, statusLabel, detailParts }) {
   const prestigeCard = document.createElement('div');
   prestigeCard.className = 'character-card friend-profile-party';
@@ -10851,12 +10887,18 @@ function renderFriendProfileContent(friend) {
     partyCardGrid.addEventListener('keydown', handlePartyCardActivate);
     partyCardGrid.dataset.handlersAttached = 'true';
   }
+  const excludeCodes = new Set();
   const leadingPartyBanner = buildLeadingPartyBanner({
     partyProfile: leaderHighlightProfile,
     fallbackParty: leaderHighlightProfile?.party || leaderHighlight,
   });
   if (leadingPartyBanner) {
     partyCardGrid.appendChild(leadingPartyBanner);
+    if (leaderHighlightProfile?.party?.code) {
+      excludeCodes.add(normalisePartyCode(leaderHighlightProfile.party.code));
+    } else if (leaderHighlight?.code) {
+      excludeCodes.add(normalisePartyCode(leaderHighlight.code));
+    }
   }
 
   const buildPartyPrestigeCard = ({ partyCode, partyName, prestigePoints, statusLabel, detailParts }) => {
@@ -11062,6 +11104,7 @@ function renderFriendProfileContent(friend) {
       detailParts,
     });
     partyCardGrid.appendChild(otherCard);
+    excludeCodes.add(normalisePartyCode(topOtherParty.code || ''));
   } else {
     const placeholder = buildPartyPrestigeCard({
       partyCode: '',
@@ -11073,6 +11116,23 @@ function renderFriendProfileContent(friend) {
     placeholder.removeAttribute('role');
     placeholder.tabIndex = -1;
     partyCardGrid.appendChild(placeholder);
+  }
+
+  const latestParty = resolveLatestPartyFromHistory(friend.checkins, excludeCodes);
+  if (latestParty) {
+    const detailParts = [];
+    if (latestParty.lastActiveAt) {
+      detailParts.push(`Joined ${formatTimeAgo(latestParty.lastActiveAt)}`);
+    }
+    detailParts.push('Most recent party session');
+    const latestCard = buildPartyPrestigeCard({
+      partyCode: latestParty.code,
+      partyName: latestParty.name || `Party ${latestParty.code}`,
+      prestigePoints: Math.max(0, Math.round(latestParty.points || 0)),
+      statusLabel: 'Latest party joined',
+      detailParts,
+    });
+    partyCardGrid.appendChild(latestCard);
   }
 
   friendProfileBody.appendChild(partyCardGrid);
@@ -14564,12 +14624,18 @@ function renderCharacterPartyPrestige(profile = null) {
   const leaderHighlight = selfHighlights && selfHighlights.leaderParty ? selfHighlights.leaderParty : null;
   const liveParty = getActivePartyState() || profile.activeParty || profile.active_party || null;
 
+  const excludeCodes = new Set();
   const leadingPartyBanner = buildLeadingPartyBanner({
     partyProfile: leaderHighlightProfile,
     fallbackParty: leaderHighlightProfile?.party || leaderHighlight,
   });
   if (leadingPartyBanner) {
     characterPartyGrid.appendChild(leadingPartyBanner);
+    if (leaderHighlightProfile?.party?.code) {
+      excludeCodes.add(normalisePartyCode(leaderHighlightProfile.party.code));
+    } else if (leaderHighlight?.code) {
+      excludeCodes.add(normalisePartyCode(leaderHighlight.code));
+    }
   }
 
   let leaderCardRendered = Boolean(leadingPartyBanner);
@@ -14598,6 +14664,9 @@ function renderCharacterPartyPrestige(profile = null) {
     });
     characterPartyGrid.appendChild(leaderCard);
     leaderCardRendered = true;
+    if (partyCode) {
+      excludeCodes.add(partyCode);
+    }
   } else if (!leaderCardRendered && liveParty && typeof liveParty === 'object') {
     const partyCode = normalisePartyCode(
       liveParty.code || liveParty.partyCode || liveParty.party_code || ''
@@ -14646,6 +14715,9 @@ function renderCharacterPartyPrestige(profile = null) {
     });
     characterPartyGrid.appendChild(leaderCard);
     leaderCardRendered = true;
+    if (partyCode) {
+      excludeCodes.add(partyCode);
+    }
   }
 
   if (!leaderCardRendered) {
@@ -14737,6 +14809,7 @@ function renderCharacterPartyPrestige(profile = null) {
       detailParts,
     });
     characterPartyGrid.appendChild(otherCard);
+    excludeCodes.add(partyCode);
   } else {
     const placeholder = buildPartyPrestigeCardElement({
       partyCode: '',
@@ -14748,6 +14821,23 @@ function renderCharacterPartyPrestige(profile = null) {
     placeholder.removeAttribute('role');
     placeholder.tabIndex = -1;
     characterPartyGrid.appendChild(placeholder);
+  }
+
+  const latestParty = resolveLatestPartyFromHistory(profile.checkins, excludeCodes);
+  if (latestParty) {
+    const detailParts = [];
+    if (latestParty.lastActiveAt) {
+      detailParts.push(`Joined ${formatTimeAgo(latestParty.lastActiveAt)}`);
+    }
+    detailParts.push('Most recent party session');
+    const latestCard = buildPartyPrestigeCardElement({
+      partyCode: latestParty.code,
+      partyName: latestParty.name || `Party ${latestParty.code}`,
+      prestigePoints: Math.max(0, Math.round(latestParty.points || 0)),
+      statusLabel: 'Latest party joined',
+      detailParts,
+    });
+    characterPartyGrid.appendChild(latestCard);
   }
 }
 function updateCharacterDrawerContent(profile = null) {
