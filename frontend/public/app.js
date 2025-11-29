@@ -7327,6 +7327,128 @@ function buildLeadingPartyBanner({ partyProfile = null, fallbackParty = null } =
   return banner;
 }
 
+function buildIdentityFlipCard({
+  username = '',
+  displayName = '',
+  bio = '',
+  markerColor = '',
+  tagline = '',
+  editable = false,
+  fallbackBioHint = 'Tap to view message',
+  classes = '',
+} = {}) {
+  const cleanUsername = typeof username === 'string' ? username.replace(/^@/, '').trim() : '';
+  const card = document.createElement('div');
+  card.className = `character-card character-identity friend-profile-identity-card flip-card ${classes || ''}`.trim();
+  if (markerColor) {
+    card.style.setProperty('--player-marker-color', markerColor);
+  }
+  const inner = document.createElement('div');
+  inner.className = 'flip-card-inner';
+
+  const front = document.createElement('div');
+  front.className = 'flip-card-face flip-card-front public-identity-front';
+  const avatar = document.createElement('div');
+  avatar.className = 'character-avatar';
+  const initial = cleanUsername ? cleanUsername.charAt(0).toUpperCase() : 'P';
+  avatar.textContent = initial || 'P';
+  const metaBlock = document.createElement('div');
+  metaBlock.className = 'character-meta';
+  const nameEl = document.createElement('h3');
+  nameEl.className = 'public-identity-name';
+  nameEl.textContent = displayName || (cleanUsername ? `@${cleanUsername}` : 'Player');
+  const usernameLabel = document.createElement('p');
+  usernameLabel.className = 'character-tagline';
+  usernameLabel.textContent = cleanUsername ? `@${cleanUsername}` : '';
+  const bioPreview = document.createElement('p');
+  bioPreview.className = 'character-tagline public-bio-preview';
+  bioPreview.textContent = bio ? bio : fallbackBioHint;
+  metaBlock.appendChild(nameEl);
+  if (usernameLabel.textContent) {
+    metaBlock.appendChild(usernameLabel);
+  }
+  if (tagline) {
+    const taglineEl = document.createElement('p');
+    taglineEl.className = 'character-tagline';
+    taglineEl.textContent = tagline;
+    metaBlock.appendChild(taglineEl);
+  }
+  metaBlock.appendChild(bioPreview);
+  front.appendChild(avatar);
+  front.appendChild(metaBlock);
+
+  const back = document.createElement('div');
+  back.className = 'flip-card-face flip-card-back public-identity-back';
+  if (editable) {
+    const label = document.createElement('label');
+    label.className = 'public-bio-label';
+    label.textContent = 'Profile message (max 50 chars)';
+    const input = document.createElement('textarea');
+    input.className = 'public-bio-input';
+    input.maxLength = 50;
+    input.value = bio || '';
+    input.placeholder = 'Share a short message with other players…';
+    const saveRow = document.createElement('div');
+    saveRow.className = 'public-bio-actions';
+    const saveButton = document.createElement('button');
+    saveButton.type = 'button';
+    saveButton.className = 'primary small';
+    saveButton.textContent = 'Save';
+    saveButton.addEventListener('click', async () => {
+      saveButton.disabled = true;
+      saveButton.textContent = 'Saving…';
+      const saved = await saveProfileBio(input.value);
+      saveButton.disabled = false;
+      saveButton.textContent = 'Save';
+      if (saved && typeof saved.profile_bio === 'string') {
+        const nextBio = saved.profile_bio.slice(0, 50);
+        bioPreview.textContent = nextBio || fallbackBioHint;
+        toggleCard(false);
+        updateStatus('Profile message saved.');
+      }
+    });
+    saveRow.appendChild(saveButton);
+    back.appendChild(label);
+    back.appendChild(input);
+    back.appendChild(saveRow);
+  } else {
+    const label = document.createElement('p');
+    label.className = 'public-bio-label';
+    label.textContent = 'Profile message';
+    const body = document.createElement('p');
+    body.className = 'public-bio-body';
+    body.textContent = bio || 'No message yet.';
+    back.appendChild(label);
+    back.appendChild(body);
+  }
+
+  inner.appendChild(front);
+  inner.appendChild(back);
+  card.appendChild(inner);
+  const toggleCard = (showBack = null) => {
+    const next = showBack === null ? !card.classList.contains('is-flipped') : Boolean(showBack);
+    card.classList.toggle('is-flipped', next);
+    card.setAttribute('aria-pressed', next ? 'true' : 'false');
+    front.setAttribute('aria-hidden', next ? 'true' : 'false');
+    back.setAttribute('aria-hidden', next ? 'false' : 'true');
+  };
+  const toggleHandler = (event) => {
+    const isKey = event.type === 'keypress';
+    if (isKey && event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+    event.preventDefault();
+    toggleCard();
+  };
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  card.setAttribute('aria-pressed', 'false');
+  card.addEventListener('click', toggleHandler);
+  card.addEventListener('keypress', toggleHandler);
+  nameEl.addEventListener('click', toggleHandler);
+  return card;
+}
+
 function sanitizePublicProfile(raw) {
   if (!raw || typeof raw !== 'object') {
     return null;
@@ -8768,6 +8890,9 @@ function normaliseFriendEntry(raw) {
   const friend = { ...raw };
   friend.activeParty = sanitizePartyPreview(raw.activeParty || raw.active_party);
   friend.topOtherParty = sanitizeOtherParty(raw.top_other_party || raw.topOtherParty);
+  if (typeof raw.profile_bio === 'string') {
+    friend.profile_bio = raw.profile_bio.slice(0, 50);
+  }
   return friend;
 }
 
@@ -10736,35 +10861,19 @@ function renderFriendProfileContent(friend) {
   const summary = document.createElement('div');
   summary.className = 'character-summary friend-profile-summary';
 
-  const identityCard = document.createElement('div');
-  identityCard.className = 'character-card character-identity friend-profile-identity-card';
+  const taglineText = homeLabel ? `Champion of ${homeLabel}` : formatFriendStatsSummary(friend);
+  const identityCard = buildIdentityFlipCard({
+    username: friend.username,
+    displayName: displayName || `@${friend.username}`,
+    bio: friend.profile_bio || friend.profileBio || '',
+    markerColor,
+    tagline: taglineText,
+    editable: currentUser && friend.username && friend.username.toLowerCase() === currentUser.toLowerCase(),
+    fallbackBioHint: 'Tap to view message',
+  });
   if (markerColor) {
     identityCard.style.setProperty('--player-marker-color', markerColor);
   }
-  const avatar = document.createElement('div');
-  avatar.className = 'character-avatar';
-  const initial = friend.username ? friend.username.trim().charAt(0).toUpperCase() : 'P';
-  avatar.textContent = initial || 'P';
-  identityCard.appendChild(avatar);
-
-  const meta = document.createElement('div');
-  meta.className = 'character-meta';
-  const nameEl = document.createElement('h3');
-  nameEl.id = '';
-  nameEl.textContent = displayName || `@${friend.username}`;
-  if (markerColor) {
-    nameEl.style.color = markerColor;
-  }
-  meta.appendChild(nameEl);
-  const tagline = document.createElement('p');
-  tagline.className = 'character-tagline';
-  if (homeLabel) {
-    tagline.textContent = `Champion of ${homeLabel}`;
-  } else {
-    tagline.textContent = formatFriendStatsSummary(friend);
-  }
-  meta.appendChild(tagline);
-  identityCard.appendChild(meta);
 
   const streak = getFriendStreakMeta(friend);
   const streakCard = document.createElement('div');
@@ -11392,107 +11501,16 @@ async function openPublicProfileDrawer(username, { displayName = '', meta = '', 
 }
 
 function buildPublicIdentityCard(profile, { editable = false, fallbackMeta = '', fallbackDisplayName = '' } = {}) {
-  const card = document.createElement('div');
-  card.className = 'character-card character-identity friend-profile-identity-card public-profile-card flip-card';
-  if (profile.mapMarkerColor) {
-    card.style.setProperty('--player-marker-color', profile.mapMarkerColor);
-  }
-  const inner = document.createElement('div');
-  inner.className = 'flip-card-inner';
-
-  const front = document.createElement('div');
-  front.className = 'flip-card-face flip-card-front public-identity-front';
-  const avatar = document.createElement('div');
-  avatar.className = 'character-avatar';
-  const initial = profile.username ? profile.username.trim().charAt(0).toUpperCase() : 'P';
-  avatar.textContent = initial || 'P';
-  const metaBlock = document.createElement('div');
-  metaBlock.className = 'character-meta';
-  const nameEl = document.createElement('h3');
-  nameEl.className = 'public-identity-name';
-  nameEl.textContent = profile.displayName || fallbackDisplayName || `@${profile.username}`;
-  const usernameLabel = document.createElement('p');
-  usernameLabel.className = 'character-tagline';
-  usernameLabel.textContent = `@${profile.username}`;
-  const bioPreview = document.createElement('p');
-  bioPreview.className = 'character-tagline public-bio-preview';
-  bioPreview.textContent = profile.profileBio ? profile.profileBio : fallbackMeta || 'Tap to view message';
-  metaBlock.appendChild(nameEl);
-  metaBlock.appendChild(usernameLabel);
-  metaBlock.appendChild(bioPreview);
-  front.appendChild(avatar);
-  front.appendChild(metaBlock);
-
-  const back = document.createElement('div');
-  back.className = 'flip-card-face flip-card-back public-identity-back';
-  if (editable) {
-    const label = document.createElement('label');
-    label.className = 'public-bio-label';
-    label.textContent = 'Profile message (max 50 chars)';
-    const input = document.createElement('textarea');
-    input.className = 'public-bio-input';
-    input.maxLength = 50;
-    input.value = profile.profileBio || '';
-    input.placeholder = 'Share a short message with other players…';
-    const saveRow = document.createElement('div');
-    saveRow.className = 'public-bio-actions';
-    const saveButton = document.createElement('button');
-    saveButton.type = 'button';
-    saveButton.className = 'primary small';
-    saveButton.textContent = 'Save';
-    saveButton.addEventListener('click', async () => {
-      saveButton.disabled = true;
-      saveButton.textContent = 'Saving…';
-      const saved = await saveProfileBio(input.value);
-      saveButton.disabled = false;
-      saveButton.textContent = 'Save';
-      if (saved && typeof saved.profile_bio === 'string') {
-        profile.profileBio = saved.profile_bio.slice(0, 50);
-        bioPreview.textContent = profile.profileBio || 'Tap to view message';
-        toggleCard(false);
-        updateStatus('Profile message saved.');
-      }
-    });
-    saveRow.appendChild(saveButton);
-    back.appendChild(label);
-    back.appendChild(input);
-    back.appendChild(saveRow);
-  } else {
-    const label = document.createElement('p');
-    label.className = 'public-bio-label';
-    label.textContent = 'Profile message';
-    const body = document.createElement('p');
-    body.className = 'public-bio-body';
-    body.textContent = profile.profileBio || 'No message yet.';
-    back.appendChild(label);
-    back.appendChild(body);
-  }
-
-  inner.appendChild(front);
-  inner.appendChild(back);
-  card.appendChild(inner);
-  const toggleCard = (showBack = null) => {
-    const next = showBack === null ? !card.classList.contains('is-flipped') : Boolean(showBack);
-    card.classList.toggle('is-flipped', next);
-    card.setAttribute('aria-pressed', next ? 'true' : 'false');
-    front.setAttribute('aria-hidden', next ? 'true' : 'false');
-    back.setAttribute('aria-hidden', next ? 'false' : 'true');
-  };
-  const toggleHandler = (event) => {
-    const isKey = event.type === 'keypress';
-    if (isKey && event.key !== 'Enter' && event.key !== ' ') {
-      return;
-    }
-    event.preventDefault();
-    toggleCard();
-  };
-  card.tabIndex = 0;
-  card.setAttribute('role', 'button');
-  card.setAttribute('aria-pressed', 'false');
-  card.addEventListener('click', toggleHandler);
-  card.addEventListener('keypress', toggleHandler);
-  nameEl.addEventListener('click', toggleHandler);
-  return card;
+  return buildIdentityFlipCard({
+    username: profile.username,
+    displayName: profile.displayName || fallbackDisplayName || `@${profile.username}`,
+    bio: profile.profileBio,
+    markerColor: profile.mapMarkerColor,
+    tagline: '',
+    editable,
+    fallbackBioHint: fallbackMeta || 'Tap to view message',
+    classes: 'public-profile-card',
+  });
 }
 
 function buildPublicStreakCard(profile) {
