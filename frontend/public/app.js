@@ -7195,12 +7195,17 @@ function computeProfileTotalPrestige(profile) {
   }, 0);
 }
 
-function resolveLatestPartyFromHistory(history, excludeCodes = new Set()) {
-  if (!Array.isArray(history) || !history.length) {
+function resolveLatestPartyFromHistory(primaryHistory, excludeCodes = new Set(), fallbackHistory = null) {
+  const pool = Array.isArray(primaryHistory) && primaryHistory.length
+    ? primaryHistory
+    : Array.isArray(fallbackHistory) && fallbackHistory.length
+    ? fallbackHistory
+    : null;
+  if (!pool) {
     return null;
   }
   const excluded = new Set(Array.from(excludeCodes || []).map((code) => normalisePartyCode(code || '')));
-  const sorted = [...history].sort((a, b) => {
+  const sorted = [...pool].sort((a, b) => {
     const aTs = Number(a?.timestamp) || 0;
     const bTs = Number(b?.timestamp) || 0;
     return bTs - aTs;
@@ -11258,7 +11263,7 @@ function renderFriendProfileContent(friend) {
     partyCardGrid.appendChild(placeholder);
   }
 
-  let latestParty = resolveLatestPartyFromHistory(friend.checkins, excludeCodes);
+  let latestParty = resolveLatestPartyFromHistory(friend.checkins, excludeCodes, friend.recent_checkins);
   if (!latestParty && liveParty && liveParty.code) {
     const code = normalisePartyCode(liveParty.code || liveParty.partyCode || liveParty.party_code || '');
     if (code && !excludeCodes.has(code)) {
@@ -11304,6 +11309,17 @@ function renderFriendProfileContent(friend) {
       detailParts,
     });
     partyCardGrid.appendChild(latestCard);
+  } else {
+    const placeholder = buildPartyPrestigeCard({
+      partyCode: '',
+      partyName: 'Recent party',
+      prestigePoints: 0,
+      statusLabel: 'No recent party',
+      detailParts: ['Join a party to see it here'],
+    });
+    placeholder.removeAttribute('role');
+    placeholder.tabIndex = -1;
+    partyCardGrid.appendChild(placeholder);
   }
 
   friendProfileBody.appendChild(partyCardGrid);
