@@ -7388,12 +7388,18 @@ function buildIdentityFlipCard({
     input.maxLength = 50;
     input.value = bio || '';
     input.placeholder = 'Share a short message with other players…';
+    ['click', 'mousedown', 'keypress', 'keydown', 'keyup'].forEach((evt) => {
+      input.addEventListener(evt, (e) => e.stopPropagation(), { capture: true });
+    });
     const saveRow = document.createElement('div');
     saveRow.className = 'public-bio-actions';
     const saveButton = document.createElement('button');
     saveButton.type = 'button';
     saveButton.className = 'primary small';
     saveButton.textContent = 'Save';
+    ['click', 'mousedown'].forEach((evt) => {
+      saveButton.addEventListener(evt, (e) => e.stopPropagation(), { capture: true });
+    });
     saveButton.addEventListener('click', async () => {
       saveButton.disabled = true;
       saveButton.textContent = 'Saving…';
