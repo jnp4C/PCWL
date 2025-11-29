@@ -8405,6 +8405,15 @@ function updateRecentCheckinsDrawerContent(profile = undefined) {
         partyChip.dataset.partyCode = normalizedParty;
         partyChip.textContent = partyDisplay || normalizedParty;
         partyChip.setAttribute('aria-label', `Open party ${partyDisplay || normalizedParty}`);
+        if (!partyDisplay || partyDisplay === `Party ${normalizedParty}`) {
+          fetchPartyProfile(normalizedParty, { silent: true }).then((profile) => {
+            if (!profile || !profile.party || !profile.party.name) return;
+            if (partyChip && partyChip.dataset.partyCode === normalizedParty) {
+              partyChip.textContent = profile.party.name;
+              partyChip.setAttribute('aria-label', `Open party ${profile.party.name}`);
+            }
+          });
+        }
         partyChip.addEventListener('click', (event) => {
           event.preventDefault();
           if (document.body.classList.contains('recent-checkins-open')) {
@@ -14980,6 +14989,20 @@ function renderCharacterPartyPrestige(profile = null) {
       detailParts,
     });
     characterPartyGrid.appendChild(latestCard);
+    if (!latestParty.name && latestParty.code) {
+      fetchPartyProfile(latestParty.code, { silent: true }).then((profile) => {
+        if (
+          profile &&
+          profile.party &&
+          profile.party.name &&
+          latestCard &&
+          latestCard.dataset.partyCode === normalisePartyCode(latestParty.code)
+        ) {
+          const chip = latestCard.querySelector('.streak-chip');
+          if (chip) chip.textContent = profile.party.name;
+        }
+      });
+    }
   }
 }
 function updateCharacterDrawerContent(profile = null) {
