@@ -1777,9 +1777,16 @@ body.dark .friend-profile-marker {
   align-items: center;
 }
 
-body.friend-profile-open .sheet-drawer:not(.friend-profile-drawer) {
+body.friend-profile-open .party-profile-drawer,
+body.friend-profile-open .friends-drawer,
+body.friend-profile-open .district-drawer,
+body.friend-profile-open .character-drawer {
   filter: blur(6px);
   transition: filter 160ms ease;
+}
+
+.friend-profile-drawer {
+  z-index: 2400;
 }
 
 .party-profile-player-trigger {
