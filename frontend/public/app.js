@@ -11447,7 +11447,23 @@ function openFriendProfileDrawer(username, trigger = null) {
   if (!friendProfileDrawer || !friendProfileOverlay) {
     return;
   }
-  const friend = normaliseFriendEntry(findFriendByUsername(username));
+  let friend = normaliseFriendEntry(findFriendByUsername(username));
+  if (
+    (!friend || typeof friend !== 'object') &&
+    currentUser &&
+    typeof username === 'string' &&
+    username.toLowerCase() === currentUser.toLowerCase()
+  ) {
+    const selfProfile = ensurePlayerProfile(currentUser);
+    if (selfProfile) {
+      friend = normaliseFriendEntry({
+        ...selfProfile,
+        username: currentUser,
+        profile_bio: selfProfile.profileBio || selfProfile.profile_bio || '',
+        is_favorite: false,
+      });
+    }
+  }
   if (!friend) {
     updateStatus(`Unable to load @${username}'s profile.`);
     return;
@@ -16778,7 +16794,7 @@ if (mobileCheckInButton) {
 if (currentUserTag) {
   currentUserTag.addEventListener('click', () => {
     if (currentUser) {
-      openCharacterDrawer(currentUserTag);
+      openFriendProfileDrawer(currentUser, currentUserTag);
     }
   });
   currentUserTag.addEventListener('keydown', (event) => {
@@ -16787,7 +16803,7 @@ if (currentUserTag) {
     }
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      openCharacterDrawer(currentUserTag);
+      openFriendProfileDrawer(currentUser, currentUserTag);
     }
   });
 }
