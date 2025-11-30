@@ -1326,17 +1326,20 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
             }
 
         incoming_by_district = {}
+        incoming_counts = {}
         for row in incoming_qs:
             code = row.attacker_home_district.code if row.attacker_home_district else ""
             name = row.attacker_home_district.name if row.attacker_home_district else ""
-            effect = _ddos_debuff_percent(row.district, now=now) if row.district else 0
             if not code:
                 continue
-            incoming_by_district[code] = {
-                "code": code,
-                "name": name,
-                "effect_percent": round(effect * 100, 2),
-            }
+            incoming_counts[code] = incoming_counts.get(code, 0) + 1
+            incoming_by_district.setdefault(code, {"code": code, "name": name})
+
+        for code, count in incoming_counts.items():
+            # 0.1% per attacker from this district, capped at 100%
+            effect_percent = min(100.0, round(count * 0.1, 2))
+            if code in incoming_by_district:
+                incoming_by_district[code]["effect_percent"] = effect_percent
 
         payload = {
             "active": [serialize_entry(entry, kind="ddos") for entry in active_attacks],
