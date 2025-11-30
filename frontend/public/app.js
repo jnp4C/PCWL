@@ -3188,7 +3188,7 @@ function ensureActionContextMenu() {
     heading.textContent = title;
     heading.setAttribute('role', 'presentation');
     cyberMenu.appendChild(heading);
-    items.forEach(({ key, label, note }) => {
+    items.forEach(({ key, label, note, handler }) => {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'context-menu-item';
@@ -3197,9 +3197,13 @@ function ensureActionContextMenu() {
         btn.title = note;
       }
       btn.addEventListener('click', () => {
-        updateStatus(`${label} queued. Mechanics coming soon.`);
-        hideCyberMenu();
-        hideActionContextMenu();
+        if (typeof handler === 'function') {
+          handler();
+        } else {
+          updateStatus(`${label} queued. Mechanics coming soon.`);
+          hideCyberMenu();
+          hideActionContextMenu();
+        }
       });
       cyberMenu.appendChild(btn);
     });
@@ -3309,14 +3313,35 @@ function ensureActionContextMenu() {
         ? safeId(profile.home_district_code)
         : null;
     const isHome = Boolean(menu.isHomeTarget || (homeId && targetId && homeId === targetId));
+    const targetCode = menu.targetDistrictId || (menu.targetDistrictName || '').toString();
     const options = isHome
       ? [
-          { key: 'deworm', label: 'deWorm', note: 'Purge hostile code from home systems.' },
-          { key: 'firewall', label: 'Firewall', note: 'Reinforce defenses against incursions.' },
+          {
+            key: COOLDOWN_KEYS.DEWORM,
+            label: 'deWorm',
+            note: 'Purge hostile code from home systems.',
+            handler: () => triggerCyberAction(COOLDOWN_KEYS.DEWORM, targetCode, { mode: 'defense' }),
+          },
+          {
+            key: COOLDOWN_KEYS.FIREWALL,
+            label: 'Firewall',
+            note: 'Reinforce defenses against incursions.',
+            handler: () => triggerCyberAction(COOLDOWN_KEYS.FIREWALL, targetCode, { mode: 'defense' }),
+          },
         ]
       : [
-          { key: 'ddos', label: 'DDoS', note: 'Overwhelm the district\'s comms.' },
-          { key: 'worm', label: 'Worm Core Infrastructure', note: 'Slip a worm into critical links.' },
+          {
+            key: COOLDOWN_KEYS.DDOS,
+            label: 'DDoS',
+            note: 'Overwhelm the district\'s comms.',
+            handler: () => triggerCyberAction(COOLDOWN_KEYS.DDOS, targetCode, { mode: 'attack' }),
+          },
+          {
+            key: COOLDOWN_KEYS.WORM,
+            label: 'Worm Core Infrastructure',
+            note: 'Slip a worm into critical links.',
+            handler: () => triggerCyberAction(COOLDOWN_KEYS.WORM, targetCode, { mode: 'attack' }),
+          },
         ];
     const title = isHome ? 'Cyber Defense' : 'Cyberattack';
     showCyberMenu(options, title);
@@ -3339,6 +3364,63 @@ function ensureActionContextMenu() {
     positionCyberMenu: null,
   };
   return actionContextMenu;
+}
+
+async function triggerCyberAction(actionKey, targetCode, { mode = 'cyber' } = {}) {
+  const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+  if (!profile) {
+    updateStatus('Sign in to use cyber actions.');
+    hideActionContextMenu();
+    return;
+  }
+  const code =
+    (targetCode && targetCode.toString().trim()) ||
+    profile.homeDistrictId ||
+    profile.homeDistrictCode ||
+    null;
+  if (!code) {
+    updateStatus('Select a district first.');
+    return;
+  }
+  const normalizedCode = safeId(code);
+  const duration = CYBER_COOLDOWNS_MS[actionKey] || 0;
+  const hideMenus = () => {
+    if (actionContextMenu && typeof actionContextMenu.hideCyberMenu === 'function') {
+      actionContextMenu.hideCyberMenu();
+    }
+    hideActionContextMenu();
+  };
+
+  const endpoint =
+    actionKey === COOLDOWN_KEYS.DDOS
+      ? 'ddos'
+      : actionKey === COOLDOWN_KEYS.FIREWALL
+      ? 'firewall'
+      : null;
+
+  if (endpoint) {
+    try {
+      await apiRequest(`districts/${encodeURIComponent(normalizedCode)}/${endpoint}/`, { method: 'POST' });
+      if (duration) {
+        setProfileCooldown(profile, actionKey, duration, { mode });
+        renderDistrictCyberActivity(profile);
+      }
+      updateStatus(`${formatCooldownLabel(actionKey)} launched.`);
+    } catch (error) {
+      console.warn('Cyber action failed', error);
+      updateStatus('Unable to perform cyber action right now.');
+      hideMenus();
+      return;
+    }
+  } else {
+    if (duration) {
+      setProfileCooldown(profile, actionKey, duration, { mode });
+      renderDistrictCyberActivity(profile);
+    }
+    updateStatus(`${formatCooldownLabel(actionKey)} primed (placeholder).`);
+  }
+
+  hideMenus();
 }
 
 function hideActionContextMenu() {
@@ -3472,7 +3554,9 @@ function showActionContextMenu(lng, lat, point, options = {}) {
     const nowLocal = Date.now();
     const chargeOnCooldown = profile ? isActionOnCooldown(profile, COOLDOWN_KEYS.CHARGE, nowLocal) : true;
     const chargeMultiplier = profile ? (profile.nextCheckinMultiplier > 1 ? profile.nextCheckinMultiplier : 1) : 1;
-    const homeId = profile && profile.homeDistrictId ? safeId(profile.homeDistrictId) : null;
+    const homeId =
+      (profile && profile.homeDistrictId ? safeId(profile.homeDistrictId) : null) ||
+      (profile && profile.homeDistrictCode ? safeId(profile.homeDistrictCode) : null);
     const targetId = menu.targetDistrictId ? safeId(menu.targetDistrictId) : null;
     const locationInfo = profile ? getCurrentLocationDistrictInfo({ profile, allowHomeFallback: true }) : null;
     const locationSource = locationInfo ? locationInfo.source : null;
@@ -4231,6 +4315,12 @@ const CYBER_SLOTS = [
   { key: COOLDOWN_KEYS.FIREWALL, label: 'Firewall', tone: 'defense' },
   { key: COOLDOWN_KEYS.DEWORM, label: 'deWorm', tone: 'defense' },
 ];
+const CYBER_COOLDOWNS_MS = {
+  [COOLDOWN_KEYS.DDOS]: 3 * 60 * 60 * 1000, // 3h
+  [COOLDOWN_KEYS.WORM]: 3 * 60 * 60 * 1000, // mirror ddos for now
+  [COOLDOWN_KEYS.FIREWALL]: 90 * 60 * 1000, // 1.5h
+  [COOLDOWN_KEYS.DEWORM]: 90 * 60 * 1000, // mirror firewall for now
+};
 
 function loadDistrictStrengthCache() {
   if (typeof window === 'undefined' || !window.localStorage) {
