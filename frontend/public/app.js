@@ -276,6 +276,9 @@ const districtPerformanceBlurb = document.getElementById('district-performance-b
 const districtCheckinsCountValue = document.getElementById('district-checkins-count');
 const districtLastContestedValue = document.getElementById('district-last-contested');
 const districtControlStatusValue = document.getElementById('district-control-status');
+const districtCyberSection = document.getElementById('district-cyber-section');
+const districtCyberFeed = document.getElementById('district-cyber-feed');
+const districtCyberEmpty = document.getElementById('district-cyber-empty');
 const districtLeaderboardContainer = document.getElementById('district-leaderboard');
 const districtLeaderboardEmpty = document.getElementById('district-leaderboard-empty');
 const districtLeaderboardAggressive = document.getElementById('district-leaderboard-aggressive');
@@ -14832,9 +14835,76 @@ function updateDistrictDrawerContent(profile = null) {
     (resolvedProfile.homeDistrictCode ? safeId(resolvedProfile.homeDistrictCode) : null);
   if (homeCode) {
     refreshDistrictPartyActivity(homeCode, { silent: true, force: true });
+    renderDistrictCyberActivity(resolvedProfile);
   } else {
     updateDistrictPartySection([]);
+    renderDistrictCyberActivity(null);
   }
+}
+
+function renderDistrictCyberActivity(profile) {
+  if (!districtCyberSection || !districtCyberFeed || !districtCyberEmpty) {
+    return;
+  }
+  districtCyberFeed.innerHTML = '';
+  districtCyberEmpty.classList.add('hidden');
+
+  if (!profile || !profile.homeDistrictName || !profile.homeDistrictId) {
+    districtCyberSection.classList.add('hidden');
+    return;
+  }
+
+  const entries = [];
+  const ip = profile.district_ip_address || 'home-ip';
+  const now = Date.now();
+  const lastKnown =
+    profile.lastKnownLocation && profile.lastKnownLocation.districtName
+      ? profile.lastKnownLocation.districtName
+      : null;
+  const homeName =
+    typeof profile.homeDistrictName === 'string' && profile.homeDistrictName.trim()
+      ? profile.homeDistrictName.trim()
+      : 'Home district';
+
+  const ddosCooldown = profile.cooldowns ? profile.cooldowns[COOLDOWN_KEYS.DDOS] : null;
+  if (ddosCooldown && ddosCooldown > now) {
+    const effectPercent = Math.min(100, Math.max(10, Math.round((now % 10000) / 100)));
+    entries.push({
+      title: 'DDoS in progress',
+      body: `${ip} performed a DDoS on ${lastKnown || 'an enemy district'}, increasing its disruption to ${effectPercent}%.`,
+    });
+  }
+
+  const firewallCooldown = profile.cooldowns ? profile.cooldowns[COOLDOWN_KEYS.FIREWALL] : null;
+  if (firewallCooldown && firewallCooldown > now) {
+    const attackerIp = 'attacker-IP';
+    entries.push({
+      title: 'Firewall deployed',
+      body: `${ip} knocked off incoming DDoS traffic from ${attackerIp} to protect ${homeName}.`,
+    });
+  }
+
+  if (!entries.length) {
+    districtCyberSection.classList.remove('hidden');
+    districtCyberEmpty.classList.remove('hidden');
+    return;
+  }
+
+  entries.forEach((entry) => {
+    const li = document.createElement('li');
+    li.className = 'district-cyber-item';
+    const title = document.createElement('p');
+    title.className = 'district-cyber-title';
+    title.textContent = entry.title;
+    const body = document.createElement('p');
+    body.className = 'district-cyber-meta';
+    body.textContent = entry.body;
+    li.appendChild(title);
+    li.appendChild(body);
+    districtCyberFeed.appendChild(li);
+  });
+
+  districtCyberSection.classList.remove('hidden');
 }
 
 function openDistrictDrawer(trigger = null) {

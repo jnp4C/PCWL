@@ -2382,6 +2382,13 @@ body.friend-profile-open .character-drawer {
   font-weight: 600;
 }
 
+.district-detail {
+  background: var(--color-panel-bg);
+  border-radius: 16px;
+  padding: 1.25rem;
+  box-shadow: var(--color-panel-shadow);
+}
+
 .district-detail h3 {
   margin: 0;
   font-size: 1.05rem;
@@ -2413,6 +2420,77 @@ body.friend-profile-open .character-drawer {
   margin: 0;
   font-size: 0.9rem;
   color: var(--color-text-muted);
+}
+
+.district-cyber-section {
+  margin-top: 1rem;
+  background: linear-gradient(135deg, rgba(10, 35, 20, 0.6), rgba(18, 60, 36, 0.5));
+  border: 1px solid rgba(90, 255, 160, 0.22);
+  border-radius: 16px;
+  padding: 1rem 1.1rem;
+  box-shadow: 0 18px 36px rgba(10, 35, 20, 0.35), inset 0 0 0 1px rgba(60, 140, 95, 0.28);
+  backdrop-filter: blur(6px);
+  color: rgba(190, 255, 210, 0.92);
+}
+
+.district-cyber-section.hidden {
+  display: none;
+}
+
+.district-cyber-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.district-cyber-header h3 {
+  margin: 0;
+  color: rgba(210, 255, 220, 0.95);
+}
+
+.district-cyber-note {
+  font-size: 0.82rem;
+  color: rgba(190, 255, 210, 0.8);
+}
+
+.district-cyber-feed {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.district-cyber-item {
+  background: rgba(15, 50, 30, 0.55);
+  border: 1px solid rgba(110, 255, 185, 0.25);
+  border-radius: 12px;
+  padding: 0.65rem 0.75rem;
+  box-shadow: 0 12px 22px rgba(10, 30, 20, 0.28);
+  backdrop-filter: blur(4px);
+}
+
+.district-cyber-title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: rgba(210, 255, 220, 0.92);
+  margin: 0 0 0.2rem;
+}
+
+.district-cyber-meta {
+  font-size: 0.85rem;
+  color: rgba(170, 215, 190, 0.9);
+  margin: 0;
+}
+
+.district-cyber-empty {
+  margin: 0.25rem 0 0;
+  font-size: 0.9rem;
+  color: rgba(190, 235, 210, 0.75);
 }
 
 .district-leaderboard-group {
@@ -3428,14 +3506,17 @@ body.modal-open {
   padding: 0.65rem 0.75rem;
   height: auto;
   min-height: 3.5rem;
+  background: rgba(20, 55, 35, 0.22);
+  border-color: rgba(90, 255, 160, 0.35);
+  box-shadow: 0 18px 36px rgba(10, 35, 20, 0.35), 0 0 16px rgba(110, 255, 180, 0.28);
 }
 
 .cyber-chip-title {
   font-size: 0.75rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(240, 240, 255, 0.9);
-  opacity: 0.9;
+  color: rgba(180, 255, 210, 0.92);
+  opacity: 0.88;
 }
 
 .cyber-chip-grid {
@@ -3449,8 +3530,8 @@ body.modal-open {
   padding-top: 0.25rem;
   min-height: 2.35rem;
   border-radius: 14px;
-  background: rgba(35, 18, 58, 0.32);
-  border: 1px solid rgba(180, 150, 255, 0.25);
+  background: rgba(15, 45, 28, 0.28);
+  border: 1px solid rgba(110, 255, 185, 0.28);
   overflow: hidden;
 }
 
@@ -3468,7 +3549,7 @@ body.modal-open {
   font-size: 0.8rem;
   font-weight: 700;
   letter-spacing: 0.05em;
-  color: rgba(245, 240, 255, 0.96);
+  color: rgba(200, 255, 220, 0.95);
 }
 
 .cyber-slot .cooldown-track {
@@ -3480,7 +3561,7 @@ body.modal-open {
 }
 
 .cyber-slot.inactive .cooldown-time {
-  color: rgba(220, 220, 235, 0.55);
+  color: rgba(170, 200, 185, 0.55);
 }
 
 .cyber-slot-time {
@@ -3489,11 +3570,11 @@ body.modal-open {
 }
 
 .cyber-slot-attack {
-  box-shadow: 0 10px 28px rgba(255, 125, 170, 0.18);
+  box-shadow: 0 10px 28px rgba(120, 255, 185, 0.16);
 }
 
 .cyber-slot-defense {
-  box-shadow: 0 10px 28px rgba(120, 210, 255, 0.18);
+  box-shadow: 0 10px 28px rgba(120, 255, 185, 0.18);
 }
 
 .recent-checkin-cooldown {
