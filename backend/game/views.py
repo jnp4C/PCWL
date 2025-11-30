@@ -1310,8 +1310,10 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
             .order_by("-ended_at")[:20]
         )
         # Incoming attacks against this district from other districts
-        incoming_qs = DistrictDdosEntry.objects.select_related("attacker_home_district", "district", "attacker").filter(
-            district__code=code_normalized, ended_at__isnull=True, expires_at__gt=now
+        incoming_qs = (
+            DistrictDdosEntry.objects.select_related("attacker_home_district", "district", "attacker")
+            .filter(district__code=code_normalized, ended_at__isnull=True, expires_at__gt=now)
+            .exclude(attacker_home_district__code=code_normalized)
         )
         # Limit recent incoming entries for the feed but aggregate over all active to populate the popover
         incoming_recent = incoming_qs.order_by("-started_at")[:40]
