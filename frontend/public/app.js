@@ -3691,13 +3691,22 @@ function showActionContextMenu(lng, lat, point, options = {}) {
       if (menu.targetDistrictId) {
         menu.cyberButton.style.display = 'block';
         const ddosOnCooldown = profile ? isActionOnCooldown(profile, COOLDOWN_KEYS.DDOS, nowLocal) : true;
-        const wormOnCooldown = profile ? isActionOnCooldown(profile, COOLDOWN_KEYS.WORM, nowLocal) : true;
-        const allCyberBlocked = ddosOnCooldown && wormOnCooldown;
-        menu.cyberButton.disabled = allCyberBlocked;
-        menu.cyberButton.textContent = willDefend ? 'Cyberdefense' : allCyberBlocked ? 'Cyberattack (Cooldown)' : 'Cyberattack';
+        const firewallOnCooldown = profile ? isActionOnCooldown(profile, COOLDOWN_KEYS.FIREWALL, nowLocal) : true;
+        // For attackers: disable only if DDOS is on cooldown; for defenders: disable if firewall is on cooldown.
+        const disabled = willDefend ? firewallOnCooldown : ddosOnCooldown;
+        menu.cyberButton.disabled = disabled;
+        menu.cyberButton.textContent = willDefend
+          ? firewallOnCooldown
+            ? 'Cyberdefense (Cooldown)'
+            : 'Cyberdefense'
+          : ddosOnCooldown
+          ? 'Cyberattack (Cooldown)'
+          : 'Cyberattack';
         menu.cyberButton.title = willDefend
-          ? 'Deploy cyber defenses for your home district.'
-          : allCyberBlocked
+          ? firewallOnCooldown
+            ? 'Cyberdefense cooldown active. Wait until it completes.'
+            : 'Deploy cyber defenses for your home district.'
+          : ddosOnCooldown
           ? 'Cyberattack cooldown active. Wait until it completes.'
           : 'Launch a remote cyber strike on this district.';
       } else {
