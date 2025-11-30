@@ -3690,10 +3690,15 @@ function showActionContextMenu(lng, lat, point, options = {}) {
     if (menu.cyberButton) {
       if (menu.targetDistrictId) {
         menu.cyberButton.style.display = 'block';
-        menu.cyberButton.disabled = false;
-        menu.cyberButton.textContent = willDefend ? 'Cyberdefense' : 'Cyberattack';
+        const ddosOnCooldown = profile ? isActionOnCooldown(profile, COOLDOWN_KEYS.DDOS, nowLocal) : true;
+        const wormOnCooldown = profile ? isActionOnCooldown(profile, COOLDOWN_KEYS.WORM, nowLocal) : true;
+        const allCyberBlocked = ddosOnCooldown && wormOnCooldown;
+        menu.cyberButton.disabled = allCyberBlocked;
+        menu.cyberButton.textContent = willDefend ? 'Cyberdefense' : allCyberBlocked ? 'Cyberattack (Cooldown)' : 'Cyberattack';
         menu.cyberButton.title = willDefend
           ? 'Deploy cyber defenses for your home district.'
+          : allCyberBlocked
+          ? 'Cyberattack cooldown active. Wait until it completes.'
           : 'Launch a remote cyber strike on this district.';
       } else {
         menu.cyberButton.style.display = 'none';
