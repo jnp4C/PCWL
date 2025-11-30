@@ -1243,6 +1243,10 @@ class ChargeAttackView(PlayerScopedAPIView):
 class DdosAttackView(PlayerScopedAPIView):
     """Launch a DDoS cyberattack against a target district."""
 
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
+
     def post(self, request, code: str):
         player = self.get_current_player(request)
         try:
