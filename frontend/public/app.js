@@ -282,6 +282,8 @@ const districtCyberEmpty = document.getElementById('district-cyber-empty');
 const districtCyberIp = document.getElementById('district-cyber-ip');
 const districtCyberIncoming = document.getElementById('district-cyber-incoming');
 const districtCyberIncomingText = document.getElementById('district-cyber-incoming-text');
+let districtCyberIncomingData = null;
+let districtCyberIncomingBound = false;
 const districtLeaderboardContainer = document.getElementById('district-leaderboard');
 const districtLeaderboardEmpty = document.getElementById('district-leaderboard-empty');
 const districtLeaderboardAggressive = document.getElementById('district-leaderboard-aggressive');
@@ -14982,6 +14984,7 @@ async function renderDistrictCyberActivity(profile) {
     if (districtCyberIncomingText) {
       districtCyberIncomingText.textContent = 'No incoming DDoS';
     }
+    districtCyberIncomingData = null;
   }
 
   if (!profile || !profile.homeDistrictName || !profile.homeDistrictId) {
@@ -15103,17 +15106,28 @@ async function renderDistrictCyberActivity(profile) {
         districtCyberIncomingText.textContent = text;
         districtCyberIncoming.classList.remove('hidden');
         districtCyberIncoming.setAttribute('aria-expanded', 'false');
-        districtCyberIncoming.onclick = () => {
-          showIncomingDdosPopover(incomingByDistrict);
-        };
-        districtCyberIncoming.onkeypress = (evt) => {
-          if (evt.key === 'Enter' || evt.key === ' ') {
+        districtCyberIncomingData = incomingByDistrict;
+        if (!districtCyberIncomingBound) {
+          districtCyberIncomingBound = true;
+          const triggerPopover = () => {
+            if (districtCyberIncomingData) {
+              showIncomingDdosPopover(districtCyberIncomingData);
+            }
+          };
+          districtCyberIncoming.addEventListener('click', (evt) => {
             evt.preventDefault();
-            showIncomingDdosPopover(incomingByDistrict);
-          }
-        };
+            triggerPopover();
+          });
+          districtCyberIncoming.addEventListener('keydown', (evt) => {
+            if (evt.key === 'Enter' || evt.key === ' ') {
+              evt.preventDefault();
+              triggerPopover();
+            }
+          });
+        }
       } else {
         districtCyberIncoming.classList.add('hidden');
+        districtCyberIncomingData = null;
       }
     }
 
