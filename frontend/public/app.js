@@ -2344,6 +2344,9 @@ function applyServerPlayerData(profile, apiPlayer) {
   } else {
     profile.mapMarkerColor = normaliseMarkerColor(profile.mapMarkerColor);
   }
+  if (typeof apiPlayer.district_ip_address === 'string' && apiPlayer.district_ip_address.trim()) {
+    profile.district_ip_address = apiPlayer.district_ip_address.trim();
+  }
   if (typeof apiPlayer.preferred_party_name === 'string') {
     profile.preferredPartyName = apiPlayer.preferred_party_name.trim();
   } else if (typeof profile.preferredPartyName !== 'string') {
