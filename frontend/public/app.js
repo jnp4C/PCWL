@@ -1843,9 +1843,10 @@ function renderCyberCooldownChip(profile, now = Date.now()) {
       const messages = [];
       const ip = (slot.meta && slot.meta.sourceIp) || profile.district_ip_address || 'district IP';
       messages.push(formatCooldownTime(slot.remaining));
-      messages.push(`Outgoing from ${ip}`);
       if (slot.meta && slot.meta.canceledBy) {
         messages.push(`DDoS canceled by ${slot.meta.canceledBy}`);
+      } else {
+        messages.push(`Outgoing from ${ip}`);
       }
       const idx = Math.floor(now / 2000) % messages.length;
       time.textContent = messages[idx];
