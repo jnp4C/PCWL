@@ -3394,17 +3394,11 @@ async function triggerCyberAction(actionKey, targetCode, { mode = 'cyber' } = {}
     hideActionContextMenu();
     return;
   }
-  const code =
-    (targetCode && targetCode.toString().trim()) ||
-    profile.homeDistrictId ||
-    profile.homeDistrictCode ||
-    profile.home_district_code ||
-    null;
-  if (!code) {
+  const normalizedCode = targetCode ? safeId(targetCode) : null;
+  if (!normalizedCode) {
     updateStatus('Select a district first.');
     return;
   }
-  const normalizedCode = safeId(code);
   const duration = CYBER_COOLDOWNS_MS[actionKey] || 0;
   const hideMenus = () => {
     if (actionContextMenu && typeof actionContextMenu.hideCyberMenu === 'function') {
