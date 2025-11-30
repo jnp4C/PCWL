@@ -1841,16 +1841,14 @@ function renderCyberCooldownChip(profile, now = Date.now()) {
 
     if (slot.active && slot.key === COOLDOWN_KEYS.DDOS) {
       const messages = [];
-      const ip = profile.district_ip_address || 'district IP';
+      const ip = (slot.meta && slot.meta.sourceIp) || profile.district_ip_address || 'district IP';
       messages.push(formatCooldownTime(slot.remaining));
       messages.push(`Outgoing from ${ip}`);
       if (slot.meta && slot.meta.canceledBy) {
         messages.push(`DDoS canceled by ${slot.meta.canceledBy}`);
       }
-      const idx = cyberSlotMessageState.get(slot.key) || 0;
-      const nextMessage = messages[idx % messages.length];
-      time.textContent = nextMessage;
-      cyberSlotMessageState.set(slot.key, (idx + 1) % messages.length);
+      const idx = Math.floor(now / 2000) % messages.length;
+      time.textContent = messages[idx];
     } else {
       time.textContent = slot.active ? formatCooldownTime(slot.remaining) : 'Ready';
     }
@@ -4119,7 +4117,6 @@ let activeBuildingGifMarker = null;
 let activeParkGifMarker = null;
 let activeAttackHitmarker = null;
 const activeCooldowns = new Map();
-const cyberSlotMessageState = new Map();
 let cooldownTickerId = null;
 let districtGeoJson = null;
 let districtGeoJsonPromise = null;
