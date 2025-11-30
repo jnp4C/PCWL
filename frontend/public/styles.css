@@ -2500,6 +2500,56 @@ body.friend-profile-open .character-drawer {
   display: none;
 }
 
+.district-cyber-popover {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(0.98);
+  width: min(420px, calc(100% - 2rem));
+  max-height: 70vh;
+  padding: 1rem 1.1rem;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(10, 35, 20, 0.82), rgba(18, 60, 36, 0.74));
+  border: 1px solid rgba(110, 255, 185, 0.35);
+  box-shadow: 0 24px 48px rgba(10, 35, 20, 0.45), 0 0 22px rgba(110, 255, 185, 0.2);
+  color: rgba(210, 255, 220, 0.95);
+  backdrop-filter: blur(10px);
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 3100;
+}
+
+.sheet-overlay--modal.visible .district-cyber-popover {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.district-cyber-popover-title {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.district-cyber-popover-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.district-cyber-popover-item {
+  padding: 0.55rem 0.7rem;
+  border-radius: 12px;
+  background: rgba(20, 55, 35, 0.28);
+  border: 1px solid rgba(110, 255, 185, 0.22);
+  color: rgba(200, 255, 220, 0.92);
+}
+
 .district-cyber-note {
   font-size: 0.82rem;
   color: rgba(190, 255, 210, 0.8);
