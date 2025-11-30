@@ -3328,7 +3328,7 @@ function ensureActionContextMenu() {
         : profile && profile.home_district_code
         ? safeId(profile.home_district_code)
         : null;
-    const isHome = Boolean(menu.isHomeTarget || (homeId && targetId && homeId === targetId));
+    const isHome = Boolean(menu.isHomeTarget || (homeId && targetId && safeId(homeId) === safeId(targetId)));
     const targetCode = menu.targetDistrictId || (menu.targetDistrictName || '').toString();
     const options = isHome
       ? [
@@ -3393,6 +3393,7 @@ async function triggerCyberAction(actionKey, targetCode, { mode = 'cyber' } = {}
     (targetCode && targetCode.toString().trim()) ||
     profile.homeDistrictId ||
     profile.homeDistrictCode ||
+    profile.home_district_code ||
     null;
   if (!code) {
     updateStatus('Select a district first.');
@@ -14962,7 +14963,8 @@ async function renderDistrictCyberActivity(profile) {
 
   const homeCode =
     (profile.homeDistrictId ? safeId(profile.homeDistrictId) : null) ||
-    (profile.homeDistrictCode ? safeId(profile.homeDistrictCode) : null);
+    (profile.homeDistrictCode ? safeId(profile.homeDistrictCode) : null) ||
+    (profile.home_district_code ? safeId(profile.home_district_code) : null);
   if (!homeCode) {
     districtCyberSection.classList.add('hidden');
     return;
