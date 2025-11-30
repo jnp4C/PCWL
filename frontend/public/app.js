@@ -3323,6 +3323,9 @@ function ensureActionContextMenu() {
   cyberButton.addEventListener('click', (event) => {
     event.preventDefault();
     if (cyberButton.disabled) {
+      if (actionContextMenu && actionContextMenu.cyberActionDisabledReason) {
+        updateStatus(actionContextMenu.cyberActionDisabledReason);
+      }
       return;
     }
     const profile = currentUser ? ensurePlayerProfile(currentUser) : null;
@@ -3383,6 +3386,7 @@ function ensureActionContextMenu() {
     hideCyberMenu,
     cyberMenuVisible: false,
     positionCyberMenu: null,
+    cyberActionDisabledReason: '',
   };
   return actionContextMenu;
 }
@@ -3694,6 +3698,12 @@ function showActionContextMenu(lng, lat, point, options = {}) {
         const firewallOnCooldown = profile ? isActionOnCooldown(profile, COOLDOWN_KEYS.FIREWALL, nowLocal) : true;
         // For attackers: disable only if DDOS is on cooldown; for defenders: disable if firewall is on cooldown.
         const disabled = willDefend ? firewallOnCooldown : ddosOnCooldown;
+        menu.cyberActionDisabledReason = '';
+        if (disabled) {
+          menu.cyberActionDisabledReason = willDefend
+            ? 'Cyberdefense cooldown active. Wait until it completes.'
+            : 'Cyberattack cooldown active. Wait until it completes.';
+        }
         menu.cyberButton.disabled = disabled;
         menu.cyberButton.textContent = willDefend
           ? firewallOnCooldown
