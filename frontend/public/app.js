@@ -14842,7 +14842,7 @@ function updateDistrictDrawerContent(profile = null) {
   }
 }
 
-function renderDistrictCyberActivity(profile) {
+async function renderDistrictCyberActivity(profile) {
   if (!districtCyberSection || !districtCyberFeed || !districtCyberEmpty) {
     return;
   }
@@ -14854,57 +14854,65 @@ function renderDistrictCyberActivity(profile) {
     return;
   }
 
-  const entries = [];
-  const ip = profile.district_ip_address || 'home-ip';
-  const now = Date.now();
-  const lastKnown =
-    profile.lastKnownLocation && profile.lastKnownLocation.districtName
-      ? profile.lastKnownLocation.districtName
-      : null;
-  const homeName =
-    typeof profile.homeDistrictName === 'string' && profile.homeDistrictName.trim()
-      ? profile.homeDistrictName.trim()
-      : 'Home district';
-
-  const ddosCooldown = profile.cooldowns ? profile.cooldowns[COOLDOWN_KEYS.DDOS] : null;
-  if (ddosCooldown && ddosCooldown > now) {
-    const effectPercent = Math.min(100, Math.max(10, Math.round((now % 10000) / 100)));
-    entries.push({
-      title: 'DDoS in progress',
-      body: `${ip} performed a DDoS on ${lastKnown || 'an enemy district'}, increasing its disruption to ${effectPercent}%.`,
-    });
-  }
-
-  const firewallCooldown = profile.cooldowns ? profile.cooldowns[COOLDOWN_KEYS.FIREWALL] : null;
-  if (firewallCooldown && firewallCooldown > now) {
-    const attackerIp = 'attacker-IP';
-    entries.push({
-      title: 'Firewall deployed',
-      body: `${ip} knocked off incoming DDoS traffic from ${attackerIp} to protect ${homeName}.`,
-    });
-  }
-
-  if (!entries.length) {
-    districtCyberSection.classList.remove('hidden');
-    districtCyberEmpty.classList.remove('hidden');
+  const homeCode =
+    (profile.homeDistrictId ? safeId(profile.homeDistrictId) : null) ||
+    (profile.homeDistrictCode ? safeId(profile.homeDistrictCode) : null);
+  if (!homeCode) {
+    districtCyberSection.classList.add('hidden');
     return;
   }
 
-  entries.forEach((entry) => {
-    const li = document.createElement('li');
-    li.className = 'district-cyber-item';
-    const title = document.createElement('p');
-    title.className = 'district-cyber-title';
-    title.textContent = entry.title;
-    const body = document.createElement('p');
-    body.className = 'district-cyber-meta';
-    body.textContent = entry.body;
-    li.appendChild(title);
-    li.appendChild(body);
-    districtCyberFeed.appendChild(li);
-  });
+  try {
+    const payload = await apiRequest(`districts/${encodeURIComponent(homeCode)}/cyber-activity/`);
+    const entries = [];
+    const active = Array.isArray(payload?.active) ? payload.active : [];
+    const blocked = Array.isArray(payload?.blocked) ? payload.blocked : [];
 
-  districtCyberSection.classList.remove('hidden');
+    active.forEach((item) => {
+      const effect = Number(item.effect_percent);
+      const effectLabel = Number.isFinite(effect) ? `${Math.min(100, Math.max(0, effect)).toFixed(1)}%` : '—';
+      const target = item.target_name || item.target_code || 'target district';
+      const ip = item.attacker_ip || 'district IP';
+      entries.push({
+        title: 'DDoS in progress',
+        body: `${ip} performed a DDoS on ${target}, increasing disruption to ${effectLabel}.`,
+      });
+    });
+
+    blocked.forEach((item) => {
+      const target = item.target_name || item.target_code || 'home district';
+      const ip = item.attacker_ip || 'district IP';
+      entries.push({
+        title: 'Firewall deployed',
+        body: `${ip} knocked off incoming DDoS traffic to protect ${target}.`,
+      });
+    });
+
+    if (!entries.length) {
+      districtCyberSection.classList.remove('hidden');
+      districtCyberEmpty.classList.remove('hidden');
+      return;
+    }
+
+    entries.forEach((entry) => {
+      const li = document.createElement('li');
+      li.className = 'district-cyber-item';
+      const title = document.createElement('p');
+      title.className = 'district-cyber-title';
+      title.textContent = entry.title;
+      const body = document.createElement('p');
+      body.className = 'district-cyber-meta';
+      body.textContent = entry.body;
+      li.appendChild(title);
+      li.appendChild(body);
+      districtCyberFeed.appendChild(li);
+    });
+
+    districtCyberSection.classList.remove('hidden');
+  } catch (error) {
+    console.warn('Failed to load cyber activity', error);
+    districtCyberSection.classList.add('hidden');
+  }
 }
 
 function openDistrictDrawer(trigger = null) {

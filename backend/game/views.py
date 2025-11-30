@@ -27,6 +27,7 @@ from .models import (
     District,
     DistrictContributionStat,
     DistrictEngagement,
+    DistrictDdosEntry,
     DistrictPartyStat,
     FriendLink,
     FriendRequest,
@@ -68,6 +69,7 @@ from .services import (
     PARTY_ATTACK_BONUS_PER_PLAYER,
     PARTY_CONTRIBUTION_DISTRICT_PER_PLAYER,
     PARTY_CONTRIBUTION_PLAYER_MULTIPLIER,
+    _ddos_debuff_percent,
     _normalise_district_code,
     _determine_party_active_district,
     respond_to_party_invitation,
@@ -1274,6 +1276,53 @@ class FirewallView(PlayerScopedAPIView):
             "removed_attack_id": result["removed"],
             "active_attackers": result["active_attackers"],
             "debuff": result["debuff"],
+        }
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class DistrictCyberActivityView(PlayerScopedAPIView):
+    """Return recent cyber activity for the given district (home-only visibility)."""
+
+    def get(self, request, code: str):
+        player = self.get_current_player(request)
+        code_normalized = _normalise_district_code(code)
+        if not code_normalized:
+            raise ValidationError({"detail": "Invalid district code."})
+        player_home = _normalise_district_code(getattr(player, "home_district_code", None))
+        if not player_home or player_home != code_normalized:
+            return Response({"detail": "Cyber activity is restricted to home district members."}, status=status.HTTP_403_FORBIDDEN)
+
+        now = timezone.now()
+        # Active DDoS launched by this district's players
+        active_attacks = (
+            DistrictDdosEntry.objects.select_related("district", "attacker")
+            .filter(attacker_home_district__code=code_normalized, ended_at__isnull=True, expires_at__gt=now)
+            .order_by("-started_at")[:20]
+        )
+        # Recently ended attacks on this district (firewall effect)
+        recent_blocked = (
+            DistrictDdosEntry.objects.select_related("district", "attacker_home_district")
+            .filter(district__code=code_normalized, ended_at__isnull=False)
+            .order_by("-ended_at")[:20]
+        )
+
+        def serialize_entry(entry, *, kind: str):
+            target_name = entry.district.name if entry.district else entry.district_id or ""
+            effect = _ddos_debuff_percent(entry.district, now=now) if entry.district else 0
+            return {
+                "type": kind,
+                "attacker_ip": entry.attacker_ip or "",
+                "attacker_home_code": entry.attacker_home_district.code if entry.attacker_home_district else "",
+                "target_code": entry.district.code if entry.district else "",
+                "target_name": target_name,
+                "started_at": entry.started_at,
+                "ended_at": entry.ended_at,
+                "effect_percent": round(effect * 100, 2),
+            }
+
+        payload = {
+            "active": [serialize_entry(entry, kind="ddos") for entry in active_attacks],
+            "blocked": [serialize_entry(entry, kind="firewall") for entry in recent_blocked],
         }
         return Response(payload, status=status.HTTP_200_OK)
 
