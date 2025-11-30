@@ -755,6 +755,20 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   display: none;
 }
 
+.context-menu-nested {
+  z-index: 3501;
+}
+
+.context-menu-heading {
+  padding: 0.5rem 1rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border-soft);
+  background: var(--color-panel-bg);
+}
+
 .context-menu-item {
   padding: 0.75rem 1rem;
   background: transparent;

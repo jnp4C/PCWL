@@ -3050,10 +3050,59 @@ function ensureActionContextMenu() {
   chargeButton.className = 'context-menu-item';
   chargeButton.textContent = 'Charge Attack';
 
+  const cyberButton = document.createElement('button');
+  cyberButton.type = 'button';
+  cyberButton.className = 'context-menu-item';
+  cyberButton.textContent = 'Cyberattack';
+
   menu.appendChild(checkButton);
   menu.appendChild(rangedButton);
   menu.appendChild(chargeButton);
+  menu.appendChild(cyberButton);
   mapContainer.appendChild(menu);
+
+  const cyberMenu = document.createElement('div');
+  cyberMenu.className = 'context-menu context-menu-nested hidden';
+  mapContainer.appendChild(cyberMenu);
+
+  const hideCyberMenu = () => {
+    cyberMenu.classList.add('hidden');
+    cyberMenu.innerHTML = '';
+    actionContextMenu.cyberMenuVisible = false;
+  };
+
+  const renderCyberMenu = (items = [], title = 'Cyberattack') => {
+    cyberMenu.innerHTML = '';
+    const heading = document.createElement('div');
+    heading.className = 'context-menu-heading';
+    heading.textContent = title;
+    heading.setAttribute('role', 'presentation');
+    cyberMenu.appendChild(heading);
+    items.forEach(({ key, label, note }) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'context-menu-item';
+      btn.textContent = label;
+      if (note) {
+        btn.title = note;
+      }
+      btn.addEventListener('click', () => {
+        updateStatus(`${label} queued. Mechanics coming soon.`);
+        hideCyberMenu();
+        hideActionContextMenu();
+      });
+      cyberMenu.appendChild(btn);
+    });
+  };
+
+  const showCyberMenu = (items = [], title = 'Cyberattack') => {
+    renderCyberMenu(items, title);
+    cyberMenu.classList.remove('hidden');
+    actionContextMenu.cyberMenuVisible = true;
+    if (typeof actionContextMenu.positionCyberMenu === 'function') {
+      actionContextMenu.positionCyberMenu();
+    }
+  };
 
   checkButton.addEventListener('click', async (event) => {
     event.preventDefault();
@@ -3133,14 +3182,40 @@ function ensureActionContextMenu() {
     }
   });
 
+  cyberButton.addEventListener('click', (event) => {
+    event.preventDefault();
+    if (cyberButton.disabled) {
+      return;
+    }
+    const isHome = Boolean(menu.isHomeTarget);
+    const options = isHome
+      ? [
+          { key: 'deworm', label: 'deWorm', note: 'Purge hostile code from home systems.' },
+          { key: 'firewall', label: 'Firewall', note: 'Reinforce defenses against incursions.' },
+        ]
+      : [
+          { key: 'ddos', label: 'DDoS', note: 'Overwhelm the district\'s comms.' },
+          { key: 'worm', label: 'Worm Core Infrastructure', note: 'Slip a worm into critical links.' },
+        ];
+    const title = isHome ? 'Cyber Defense' : 'Cyberattack';
+    showCyberMenu(options, title);
+  });
+
   actionContextMenu = {
     element: menu,
     checkButton,
     rangedButton,
     chargeButton,
+    cyberButton,
+    cyberMenu,
     targetDistrictId: null,
     targetDistrictName: null,
     isLocal: false,
+    isHomeTarget: false,
+    showCyberMenu,
+    hideCyberMenu,
+    cyberMenuVisible: false,
+    positionCyberMenu: null,
   };
   return actionContextMenu;
 }
@@ -3156,6 +3231,11 @@ function hideActionContextMenu() {
   actionContextMenu.targetDistrictId = null;
   actionContextMenu.targetDistrictName = null;
   actionContextMenu.isLocal = false;
+  actionContextMenu.isHomeTarget = false;
+  actionContextMenu.positionCyberMenu = null;
+  if (actionContextMenu.hideCyberMenu) {
+    actionContextMenu.hideCyberMenu();
+  }
 }
 
 function showActionContextMenu(lng, lat, point, options = {}) {
@@ -3189,6 +3269,10 @@ function showActionContextMenu(lng, lat, point, options = {}) {
   menu.targetDistrictId = null;
   menu.targetDistrictName = null;
   menu.isLocal = false;
+  menu.isHomeTarget = false;
+  if (menu.hideCyberMenu) {
+    menu.hideCyberMenu();
+  }
 
   if (menu.checkButton) {
     menu.checkButton.style.display = 'none';
@@ -3229,6 +3313,30 @@ function showActionContextMenu(lng, lat, point, options = {}) {
     element.style.left = `${left}px`;
     element.style.top = `${top}px`;
   };
+  const positionCyberMenu = () => {
+    if (!menu || !menu.cyberMenu || menu.cyberMenu.classList.contains('hidden') || !mapContainer) {
+      return;
+    }
+    const baseRect = element.getBoundingClientRect();
+    const nestedRect = menu.cyberMenu.getBoundingClientRect();
+    const containerRect = mapContainer.getBoundingClientRect();
+    const gutter = 12;
+    const nestedWidth = nestedRect.width || menu.cyberMenu.offsetWidth || 200;
+    const nestedHeight = nestedRect.height || menu.cyberMenu.offsetHeight || 0;
+    let left = baseRect.right - containerRect.left + gutter;
+    let top = baseRect.top - containerRect.top;
+    if (left + nestedWidth + gutter > containerRect.width) {
+      left = baseRect.left - containerRect.left - nestedWidth - gutter;
+    }
+    if (top + nestedHeight + gutter > containerRect.height) {
+      top = containerRect.height - nestedHeight - gutter;
+    }
+    left = Math.max(gutter, left);
+    top = Math.max(gutter, top);
+    menu.cyberMenu.style.left = `${left}px`;
+    menu.cyberMenu.style.top = `${top}px`;
+  };
+  menu.positionCyberMenu = positionCyberMenu;
   const profile = currentUser ? ensurePlayerProfile(currentUser) : null;
 
   const applyButtonStates = () => {
@@ -3273,6 +3381,7 @@ function showActionContextMenu(lng, lat, point, options = {}) {
       hasLocalPresence &&
       (!homeId || homeId !== localId)
     );
+    menu.isHomeTarget = Boolean(willDefend);
 
     if (menu.chargeButton) {
       menu.chargeButton.style.display = 'block';
@@ -3343,7 +3452,24 @@ function showActionContextMenu(lng, lat, point, options = {}) {
       }
     }
 
-    const visibleItems = [menu.checkButton, menu.rangedButton, menu.chargeButton].filter(
+    if (menu.cyberButton) {
+      if (menu.targetDistrictId) {
+        menu.cyberButton.style.display = 'block';
+        menu.cyberButton.disabled = false;
+        menu.cyberButton.textContent = willDefend ? 'Cyberdefense' : 'Cyberattack';
+        menu.cyberButton.title = willDefend
+          ? 'Deploy cyber defenses for your home district.'
+          : 'Launch a remote cyber strike on this district.';
+      } else {
+        menu.cyberButton.style.display = 'none';
+        menu.cyberButton.disabled = true;
+        if (menu.hideCyberMenu) {
+          menu.hideCyberMenu();
+        }
+      }
+    }
+
+    const visibleItems = [menu.checkButton, menu.rangedButton, menu.chargeButton, menu.cyberButton].filter(
       (btn) => btn && btn.style.display !== 'none'
     );
     visibleItems.forEach((btn, index) => {
@@ -3354,6 +3480,7 @@ function showActionContextMenu(lng, lat, point, options = {}) {
   actionContextMenuVisible = true;
   applyButtonStates();
   positionMenu();
+  positionCyberMenu();
 
   resolveDistrictAtLngLat(lng, lat)
     .then((feature) => {
@@ -3372,11 +3499,17 @@ function showActionContextMenu(lng, lat, point, options = {}) {
           menu.targetDistrictId = safeId(profile.lastKnownLocation.districtId);
           menu.targetDistrictName = profile.lastKnownLocation.districtName || `District ${menu.targetDistrictId}`;
           menu.isLocal = false;
+          if (menu.hideCyberMenu) {
+            menu.hideCyberMenu();
+          }
           applyButtonStates();
           positionMenu();
         } else {
           menu.targetDistrictId = null;
           menu.targetDistrictName = null;
+          if (menu.hideCyberMenu) {
+            menu.hideCyberMenu();
+          }
           applyButtonStates();
           positionMenu();
         }
@@ -3396,8 +3529,12 @@ function showActionContextMenu(lng, lat, point, options = {}) {
         (locationSourceUpdate === 'map' || locationSourceUpdate === 'geolocated')
       );
       menu.isLocal = isPreciseLocal;
+      if (menu.hideCyberMenu) {
+        menu.hideCyberMenu();
+      }
       applyButtonStates();
       positionMenu();
+      positionCyberMenu();
     })
     .catch((error) => {
       console.warn('Failed to resolve district for context menu', error);
@@ -4913,6 +5050,9 @@ document.addEventListener('click', (event) => {
     return;
   }
   if (actionContextMenu.element.contains(event.target)) {
+    return;
+  }
+  if (actionContextMenu.cyberMenu && actionContextMenu.cyberMenu.contains(event.target)) {
     return;
   }
   hideActionContextMenu();
