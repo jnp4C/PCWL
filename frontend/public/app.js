@@ -1470,11 +1470,13 @@ function setProfileCooldown(profile, actionKey, duration, details = {}) {
     mode: typeof details.mode === 'string' ? details.mode : null,
     duration: safeDuration,
     startedAt: now,
+    meta: details.meta || null,
   };
   activeCooldowns.set(actionKey, {
     deadline,
     duration: safeDuration,
     mode: typeof details.mode === 'string' ? details.mode : null,
+    meta: details.meta || null,
   });
   startCooldownTicker();
   renderCooldownStrip(now);
@@ -1792,7 +1794,7 @@ function renderCyberCooldownChip(profile, now = Date.now()) {
     const remaining = Math.max(0, info.deadline - now);
     const duration = Math.max(1, Number(info.duration) || remaining);
     const ratio = Math.max(0, Math.min(1, remaining / duration));
-    return { ...slot, active: true, remaining, duration, ratio };
+    return { ...slot, active: true, remaining, duration, ratio, meta: info.meta || null };
   });
   const hasAny = slots.some((slot) => slot.active);
   if (!hasAny) {
@@ -1836,7 +1838,22 @@ function renderCyberCooldownChip(profile, now = Date.now()) {
 
     const time = document.createElement('div');
     time.className = 'cooldown-time cyber-slot-time';
-    time.textContent = slot.active ? formatCooldownTime(slot.remaining) : 'Ready';
+
+    if (slot.active && slot.key === COOLDOWN_KEYS.DDOS) {
+      const messages = [];
+      const ip = profile.district_ip_address || 'district IP';
+      messages.push(formatCooldownTime(slot.remaining));
+      messages.push(`Outgoing from ${ip}`);
+      if (slot.meta && slot.meta.canceledBy) {
+        messages.push(`DDoS canceled by ${slot.meta.canceledBy}`);
+      }
+      const idx = cyberSlotMessageState.get(slot.key) || 0;
+      const nextMessage = messages[idx % messages.length];
+      time.textContent = nextMessage;
+      cyberSlotMessageState.set(slot.key, (idx + 1) % messages.length);
+    } else {
+      time.textContent = slot.active ? formatCooldownTime(slot.remaining) : 'Ready';
+    }
 
     slotEl.appendChild(track);
     slotEl.appendChild(time);
@@ -3402,7 +3419,7 @@ async function triggerCyberAction(actionKey, targetCode, { mode = 'cyber' } = {}
     try {
       await apiRequest(`districts/${encodeURIComponent(normalizedCode)}/${endpoint}/`, { method: 'POST' });
       if (duration) {
-        setProfileCooldown(profile, actionKey, duration, { mode });
+        setProfileCooldown(profile, actionKey, duration, { mode, meta: { sourceIp: profile.district_ip_address || null } });
         renderDistrictCyberActivity(profile);
       }
       updateStatus(`${formatCooldownLabel(actionKey)} launched.`);
@@ -4102,6 +4119,7 @@ let activeBuildingGifMarker = null;
 let activeParkGifMarker = null;
 let activeAttackHitmarker = null;
 const activeCooldowns = new Map();
+const cyberSlotMessageState = new Map();
 let cooldownTickerId = null;
 let districtGeoJson = null;
 let districtGeoJsonPromise = null;
