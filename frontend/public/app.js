@@ -3425,7 +3425,7 @@ async function triggerCyberAction(actionKey, targetCode, { mode = 'cyber' } = {}
         const meta = {
           sourceIp: profile.district_ip_address || null,
           targetCode: normalizedCode,
-          targetName: (menu && menu.targetDistrictName) || null,
+          targetName: (actionContextMenu && actionContextMenu.targetDistrictName) || null,
         };
         if (response && typeof response.debuff === 'number') {
           meta.debuff = Number(response.debuff) * 100;
@@ -3436,7 +3436,8 @@ async function triggerCyberAction(actionKey, targetCode, { mode = 'cyber' } = {}
       updateStatus(`${formatCooldownLabel(actionKey)} launched.`);
     } catch (error) {
       console.warn('Cyber action failed', error);
-      updateStatus('Unable to perform cyber action right now.');
+      const detail = error && error.message ? error.message : 'Unable to perform cyber action right now.';
+      updateStatus(detail);
       hideMenus();
       return;
     }
@@ -15002,6 +15003,7 @@ async function renderDistrictCyberActivity(profile) {
     const entries = [];
     const active = Array.isArray(payload?.active) ? payload.active : [];
     const blocked = Array.isArray(payload?.blocked) ? payload.blocked : [];
+    const incoming = Array.isArray(payload?.incoming) ? payload.incoming : [];
     const incomingByDistrict = payload?.incoming_by_district || {};
 
     active.forEach((item) => {
@@ -15045,6 +15047,23 @@ async function renderDistrictCyberActivity(profile) {
       entries.push({
         title: 'Firewall deployed',
         body: `${ip} knocked off incoming DDoS traffic to protect ${target}.`,
+      });
+    });
+
+    incoming.forEach((item) => {
+      const effect = Number(item.effect_percent);
+      const effectLabel = Number.isFinite(effect) ? `${Math.min(100, Math.max(0, effect)).toFixed(1)}%` : '—';
+      const target =
+        profile.homeDistrictName ||
+        profile.home_district_name ||
+        item.target_name ||
+        item.target_code ||
+        'home district';
+      const ip = item.attacker_ip || 'district IP';
+      const sourceCode = item.attacker_home_code || 'unknown district';
+      entries.push({
+        title: 'Incoming DDoS',
+        body: `${ip} from ${sourceCode} performed a DDoS on ${target}, raising disruption to ${effectLabel}.`,
       });
     });
 

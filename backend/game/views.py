@@ -1307,8 +1307,9 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
         )
         # Incoming attacks against this district from other districts
         incoming_qs = (
-            DistrictDdosEntry.objects.select_related("attacker_home_district", "district")
+            DistrictDdosEntry.objects.select_related("attacker_home_district", "district", "attacker")
             .filter(district__code=code_normalized, ended_at__isnull=True, expires_at__gt=now)
+            .order_by("-started_at")[:20]
         )
 
         def serialize_entry(entry, *, kind: str):
@@ -1344,6 +1345,7 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
         payload = {
             "active": [serialize_entry(entry, kind="ddos") for entry in active_attacks],
             "blocked": [serialize_entry(entry, kind="firewall") for entry in recent_blocked],
+            "incoming": [serialize_entry(entry, kind="incoming") for entry in incoming_qs],
             "incoming_by_district": incoming_by_district,
         }
         return Response(payload, status=status.HTTP_200_OK)

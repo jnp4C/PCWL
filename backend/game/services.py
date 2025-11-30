@@ -1575,8 +1575,10 @@ def start_ddos_attack(player: Player, target_code: str) -> Dict[str, Any]:
         if not locked.home_district_code:
             raise DdosError("Set a home district before launching a DDoS.")
 
-        target_district = _resolve_target_district(target_code)
         attacker_home = _get_or_create_district_record(locked.home_district_code, locked.home_district_name)
+        target_district = _resolve_target_district(target_code)
+        if attacker_home and target_district and attacker_home.code == target_district.code:
+            raise DdosError("DDoS must target an enemy district.")
 
         # Enforce single active DDoS per attacker
         existing_active = DistrictDdosEntry.objects.filter(attacker=locked, ended_at__isnull=True, expires_at__gt=now).first()
