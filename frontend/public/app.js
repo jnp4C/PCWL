@@ -1803,32 +1803,17 @@ function renderCyberCooldownChip(profile, now = Date.now()) {
   }
 
   const chip = document.createElement('div');
-  chip.className = 'cooldown-item cyber-chip';
+  chip.className = 'cyber-strip-group';
   chip.setAttribute('aria-label', 'Cyberwarfare cooldowns');
 
-  const title = document.createElement('div');
-  title.className = 'cyber-chip-title';
-  title.textContent = 'Cyberwarfare';
-  chip.appendChild(title);
-
-  const grid = document.createElement('div');
-  grid.className = 'cyber-chip-grid';
   slots.forEach((slot) => {
     const colors = resolveCooldownColors(slot.key);
     const slotEl = document.createElement('div');
-    slotEl.className = `cyber-slot cyber-slot-${slot.tone} ${slot.active ? 'active' : 'inactive'}`;
+    slotEl.className = `cooldown-item cyber-strip ${slot.active ? 'active' : 'inactive'} cyber-strip-${slot.tone}`;
     slotEl.style.setProperty('--cooldown-track-color', colors.track);
     slotEl.style.setProperty('--cooldown-fill-color', colors.fill);
     slotEl.style.setProperty('--cooldown-text-color', colors.text);
     slotEl.dataset.cooldownAction = slot.key;
-
-    const labelRow = document.createElement('div');
-    labelRow.className = 'cyber-slot-header';
-    const label = document.createElement('span');
-    label.className = 'cyber-slot-label';
-    label.textContent = slot.label;
-    labelRow.appendChild(label);
-    slotEl.appendChild(labelRow);
 
     const track = document.createElement('div');
     track.className = 'cooldown-track';
@@ -1843,24 +1828,31 @@ function renderCyberCooldownChip(profile, now = Date.now()) {
     if (slot.active && slot.key === COOLDOWN_KEYS.DDOS) {
       const messages = [];
       const ip = (slot.meta && slot.meta.sourceIp) || profile.district_ip_address || 'district IP';
-      messages.push(formatCooldownTime(slot.remaining));
+      const targetName = (slot.meta && slot.meta.targetName) || (slot.meta && slot.meta.targetCode) || '';
+      const effect = Number(slot.meta && slot.meta.debuff) || null;
+      messages.push(`${formatCooldownTime(slot.remaining)} • ${slot.label}`);
+      messages.push(`Outgoing from ${ip}`);
+      if (targetName) {
+        messages.push(`${slot.label} on ${targetName}`);
+      }
+      if (Number.isFinite(effect)) {
+        messages.push(`Disruption at ${Math.min(100, Math.max(0, effect)).toFixed(1)}%`);
+      }
       if (slot.meta && slot.meta.canceledBy) {
         messages.push(`DDoS canceled by ${slot.meta.canceledBy}`);
-      } else {
-        messages.push(`Outgoing from ${ip}`);
       }
       const idx = Math.floor(now / 2000) % messages.length;
       time.textContent = messages[idx];
     } else {
-      time.textContent = slot.active ? formatCooldownTime(slot.remaining) : 'Ready';
+      const baseText = slot.active ? formatCooldownTime(slot.remaining) : 'Ready';
+      time.textContent = slot.active ? `${baseText} • ${slot.label}` : baseText;
     }
 
     slotEl.appendChild(track);
     slotEl.appendChild(time);
-    grid.appendChild(slotEl);
+    chip.appendChild(slotEl);
   });
 
-  chip.appendChild(grid);
   return chip;
 }
 
@@ -3418,9 +3410,17 @@ async function triggerCyberAction(actionKey, targetCode, { mode = 'cyber' } = {}
 
   if (endpoint) {
     try {
-      await apiRequest(`districts/${encodeURIComponent(normalizedCode)}/${endpoint}/`, { method: 'POST' });
+      const response = await apiRequest(`districts/${encodeURIComponent(normalizedCode)}/${endpoint}/`, { method: 'POST' });
       if (duration) {
-        setProfileCooldown(profile, actionKey, duration, { mode, meta: { sourceIp: profile.district_ip_address || null } });
+        const meta = {
+          sourceIp: profile.district_ip_address || null,
+          targetCode: normalizedCode,
+          targetName: (menu && menu.targetDistrictName) || null,
+        };
+        if (response && typeof response.debuff === 'number') {
+          meta.debuff = Number(response.debuff) * 100;
+        }
+        setProfileCooldown(profile, actionKey, duration, { mode, meta });
         renderDistrictCyberActivity(profile);
       }
       updateStatus(`${formatCooldownLabel(actionKey)} launched.`);
@@ -14989,6 +14989,30 @@ async function renderDistrictCyberActivity(profile) {
         title: 'DDoS in progress',
         body: `${ip} performed a DDoS on ${target}, increasing disruption to ${effectLabel}.`,
       });
+
+      // Update active DDoS meta if this user is the attacker, so the chip shows current disruption
+      if (
+        profile &&
+        profile.district_ip_address &&
+        item.attacker_ip &&
+        item.attacker_ip === profile.district_ip_address &&
+        activeCooldowns.has(COOLDOWN_KEYS.DDOS)
+      ) {
+        const info = activeCooldowns.get(COOLDOWN_KEYS.DDOS);
+        const meta = {
+          ...(info?.meta || {}),
+          sourceIp: profile.district_ip_address,
+          targetCode: item.target_code || null,
+          targetName: target,
+        };
+        if (Number.isFinite(effect)) {
+          meta.debuff = effect;
+        }
+        activeCooldowns.set(COOLDOWN_KEYS.DDOS, {
+          ...info,
+          meta,
+        });
+      }
     });
 
     blocked.forEach((item) => {
