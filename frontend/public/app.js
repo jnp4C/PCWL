@@ -3329,7 +3329,12 @@ function ensureActionContextMenu() {
       return;
     }
     const profile = currentUser ? ensurePlayerProfile(currentUser) : null;
-    const targetId = menu.targetDistrictId ? safeId(menu.targetDistrictId) : null;
+    let targetId = menu.targetDistrictId ? safeId(menu.targetDistrictId) : null;
+    let targetName = menu.targetDistrictName || null;
+    if (!targetId && profile && profile.homeDistrictId) {
+      targetId = safeId(profile.homeDistrictId);
+      targetName = profile.homeDistrictName || `District ${targetId}`;
+    }
     const homeId =
       profile && profile.homeDistrictId
         ? safeId(profile.homeDistrictId)
@@ -3337,7 +3342,7 @@ function ensureActionContextMenu() {
         ? safeId(profile.home_district_code)
         : null;
     const isHome = Boolean(menu.isHomeTarget || (homeId && targetId && safeId(homeId) === safeId(targetId)));
-    const targetCode = menu.targetDistrictId || (menu.targetDistrictName || '').toString();
+    const targetCode = targetId || (targetName || '').toString();
     const options = isHome
       ? [
           {
