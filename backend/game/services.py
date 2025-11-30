@@ -1565,27 +1565,27 @@ def _ddos_debuff_percent(district: District, *, now=None) -> float:
 
 
 def start_ddos_attack(player: Player, target_code: str) -> Dict[str, Any]:
-    now = timezone.now()
-    locked = Player.objects.select_for_update().get(pk=player.pk)
-    # ensure cooldown
-    if _is_on_cooldown(locked, COOLDOWN_KEYS["ddos"], now_ms=int(now.timestamp() * 1000)):
-        raise CooldownActive("DDoS cooldown is active.")
-
-    if not locked.home_district_code:
-        raise DdosError("Set a home district before launching a DDoS.")
-
-    target_district = _resolve_target_district(target_code)
-    attacker_home = _get_or_create_district_record(locked.home_district_code, locked.home_district_name)
-
-    # Enforce single active DDoS per attacker
-    existing_active = DistrictDdosEntry.objects.filter(attacker=locked, ended_at__isnull=True, expires_at__gt=now).first()
-    if existing_active:
-        raise DdosError("You already have an active DDoS.")
-
-    attacker_ip = _clean_district_ip(_ensure_player_district_ip(locked))
-    expires_at = now + timedelta(hours=3)
-
     with transaction.atomic():
+        now = timezone.now()
+        locked = Player.objects.select_for_update().get(pk=player.pk)
+        # ensure cooldown
+        if _is_on_cooldown(locked, COOLDOWN_KEYS["ddos"], now_ms=int(now.timestamp() * 1000)):
+            raise CooldownActive("DDoS cooldown is active.")
+
+        if not locked.home_district_code:
+            raise DdosError("Set a home district before launching a DDoS.")
+
+        target_district = _resolve_target_district(target_code)
+        attacker_home = _get_or_create_district_record(locked.home_district_code, locked.home_district_name)
+
+        # Enforce single active DDoS per attacker
+        existing_active = DistrictDdosEntry.objects.filter(attacker=locked, ended_at__isnull=True, expires_at__gt=now).first()
+        if existing_active:
+            raise DdosError("You already have an active DDoS.")
+
+        attacker_ip = _clean_district_ip(_ensure_player_district_ip(locked))
+        expires_at = now + timedelta(hours=3)
+
         entry = DistrictDdosEntry.objects.create(
             district=target_district,
             attacker=locked,
