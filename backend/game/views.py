@@ -1240,12 +1240,9 @@ class ChargeAttackView(PlayerScopedAPIView):
         return Response({"player": serialized.data}, status=status.HTTP_200_OK)
 
 
+@method_decorator(csrf_exempt, name="dispatch")
 class DdosAttackView(PlayerScopedAPIView):
     """Launch a DDoS cyberattack against a target district."""
-
-    @method_decorator(csrf_exempt)
-    def dispatch(self, *args, **kwargs):
-        return super().dispatch(*args, **kwargs)
 
     def post(self, request, code: str):
         player = self.get_current_player(request)
