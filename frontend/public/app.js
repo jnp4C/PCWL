@@ -280,6 +280,8 @@ const districtCyberSection = document.getElementById('district-cyber-section');
 const districtCyberFeed = document.getElementById('district-cyber-feed');
 const districtCyberEmpty = document.getElementById('district-cyber-empty');
 const districtCyberIp = document.getElementById('district-cyber-ip');
+const districtCyberIncoming = document.getElementById('district-cyber-incoming');
+const districtCyberIncomingText = document.getElementById('district-cyber-incoming-text');
 const districtLeaderboardContainer = document.getElementById('district-leaderboard');
 const districtLeaderboardEmpty = document.getElementById('district-leaderboard-empty');
 const districtLeaderboardAggressive = document.getElementById('district-leaderboard-aggressive');
@@ -14959,6 +14961,13 @@ async function renderDistrictCyberActivity(profile) {
   if (districtCyberIp) {
     districtCyberIp.textContent = profile && profile.district_ip_address ? profile.district_ip_address : '—';
   }
+  if (districtCyberIncoming) {
+    districtCyberIncoming.classList.add('hidden');
+    districtCyberIncoming.setAttribute('aria-expanded', 'false');
+    if (districtCyberIncomingText) {
+      districtCyberIncomingText.textContent = 'No incoming DDoS';
+    }
+  }
 
   if (!profile || !profile.homeDistrictName || !profile.homeDistrictId) {
     districtCyberSection.classList.add('hidden');
@@ -14979,6 +14988,7 @@ async function renderDistrictCyberActivity(profile) {
     const entries = [];
     const active = Array.isArray(payload?.active) ? payload.active : [];
     const blocked = Array.isArray(payload?.blocked) ? payload.blocked : [];
+    const incomingByDistrict = payload?.incoming_by_district || {};
 
     active.forEach((item) => {
       const effect = Number(item.effect_percent);
@@ -15024,6 +15034,28 @@ async function renderDistrictCyberActivity(profile) {
       });
     });
 
+    const incomingDistricts = Object.keys(incomingByDistrict || {}).filter(Boolean);
+    if (districtCyberIncoming) {
+      if (incomingDistricts.length) {
+        const labelName = profile.homeDistrictName || profile.home_district_name || homeCode;
+        const text = `${labelName} is targeted by ${incomingDistricts.length} district${incomingDistricts.length === 1 ? '' : 's'}`;
+        districtCyberIncomingText.textContent = text;
+        districtCyberIncoming.classList.remove('hidden');
+        districtCyberIncoming.setAttribute('aria-expanded', 'false');
+        districtCyberIncoming.onclick = () => {
+          showIncomingDdosPopover(incomingByDistrict);
+        };
+        districtCyberIncoming.onkeypress = (evt) => {
+          if (evt.key === 'Enter' || evt.key === ' ') {
+            evt.preventDefault();
+            showIncomingDdosPopover(incomingByDistrict);
+          }
+        };
+      } else {
+        districtCyberIncoming.classList.add('hidden');
+      }
+    }
+
     if (!entries.length) {
       districtCyberSection.classList.remove('hidden');
       districtCyberEmpty.classList.remove('hidden');
@@ -15049,6 +15081,49 @@ async function renderDistrictCyberActivity(profile) {
     console.warn('Failed to load cyber activity', error);
     districtCyberSection.classList.add('hidden');
   }
+}
+
+function showIncomingDdosPopover(incomingMap = {}) {
+  const entries = Object.entries(incomingMap || {}).filter(([code]) => code);
+  if (!entries.length) {
+    return;
+  }
+  const overlay = document.createElement('div');
+  overlay.className = 'sheet-overlay sheet-overlay--modal';
+  const popover = document.createElement('div');
+  popover.className = 'district-cyber-popover';
+  const title = document.createElement('div');
+  title.className = 'district-cyber-popover-title';
+  title.textContent = 'Incoming DDoS sources';
+  const list = document.createElement('ul');
+  list.className = 'district-cyber-popover-list';
+  entries.forEach(([code, payload]) => {
+    const li = document.createElement('li');
+    li.className = 'district-cyber-popover-item';
+    const name = typeof payload?.name === 'string' ? payload.name : '';
+    const percent = Number(payload?.effect_percent);
+    const pctLabel = Number.isFinite(percent) ? `${Math.min(100, Math.max(0, percent)).toFixed(1)}%` : '—';
+    li.textContent = `${name || code} • ${pctLabel}`;
+    list.appendChild(li);
+  });
+  popover.appendChild(title);
+  popover.appendChild(list);
+  overlay.appendChild(popover);
+  document.body.appendChild(overlay);
+  const close = () => {
+    overlay.remove();
+  };
+  overlay.addEventListener('click', (evt) => {
+    if (evt.target === overlay) {
+      close();
+    }
+  });
+  popover.addEventListener('click', (evt) => {
+    evt.stopPropagation();
+  });
+  window.setTimeout(() => {
+    overlay.classList.add('visible');
+  }, 10);
 }
 
 function openDistrictDrawer(trigger = null) {

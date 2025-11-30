@@ -1305,6 +1305,11 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
             .filter(district__code=code_normalized, ended_at__isnull=False)
             .order_by("-ended_at")[:20]
         )
+        # Incoming attacks against this district from other districts
+        incoming_qs = (
+            DistrictDdosEntry.objects.select_related("attacker_home_district", "district")
+            .filter(district__code=code_normalized, ended_at__isnull=True, expires_at__gt=now)
+        )
 
         def serialize_entry(entry, *, kind: str):
             target_name = entry.district.name if entry.district else entry.district_id or ""
@@ -1320,9 +1325,23 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
                 "effect_percent": round(effect * 100, 2),
             }
 
+        incoming_by_district = {}
+        for row in incoming_qs:
+            code = row.attacker_home_district.code if row.attacker_home_district else ""
+            name = row.attacker_home_district.name if row.attacker_home_district else ""
+            effect = _ddos_debuff_percent(row.district, now=now) if row.district else 0
+            if not code:
+                continue
+            incoming_by_district[code] = {
+                "code": code,
+                "name": name,
+                "effect_percent": round(effect * 100, 2),
+            }
+
         payload = {
             "active": [serialize_entry(entry, kind="ddos") for entry in active_attacks],
             "blocked": [serialize_entry(entry, kind="firewall") for entry in recent_blocked],
+            "incoming_by_district": incoming_by_district,
         }
         return Response(payload, status=status.HTTP_200_OK)
 

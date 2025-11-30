@@ -2475,6 +2475,31 @@ body.friend-profile-open .character-drawer {
   color: rgba(210, 255, 220, 0.96);
 }
 
+.district-cyber-incoming {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  margin: 0.1rem 0 0.65rem;
+  border-radius: 12px;
+  background: rgba(20, 55, 35, 0.22);
+  border: 1px solid rgba(90, 255, 160, 0.28);
+  color: rgba(200, 255, 220, 0.95);
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.district-cyber-incoming:hover,
+.district-cyber-incoming:focus-visible {
+  background: rgba(30, 75, 48, 0.28);
+  border-color: rgba(120, 255, 190, 0.4);
+  outline: none;
+}
+
+.district-cyber-incoming.hidden {
+  display: none;
+}
+
 .district-cyber-note {
   font-size: 0.82rem;
   color: rgba(190, 255, 210, 0.8);
