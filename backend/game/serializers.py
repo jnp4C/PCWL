@@ -129,6 +129,7 @@ class PlayerSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         # Ensure home district fields are populated in responses even if legacy data was incomplete.
         self._ensure_home_district(instance)
+        self._ensure_district_ip(instance)
         try:
             _refresh_streak_state(instance, save=True)
         except Exception:
@@ -159,6 +160,16 @@ class PlayerSerializer(serializers.ModelSerializer):
         )
         if district:
             instance.assign_home_district(district, save=True)
+
+    def _ensure_district_ip(self, instance: Player) -> None:
+        """Generate a district IP if missing for legacy players."""
+        if not instance or instance.district_ip_address:
+            return
+        try:
+            instance.district_ip_address = instance._generate_district_ip()
+            instance.save(update_fields=["district_ip_address", "updated_at"])
+        except Exception:
+            pass
 
     def validate_home_district_code(self, value: Any) -> str:
         if value in (None, ""):
