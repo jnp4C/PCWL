@@ -279,6 +279,7 @@ const districtControlStatusValue = document.getElementById('district-control-sta
 const districtCyberSection = document.getElementById('district-cyber-section');
 const districtCyberFeed = document.getElementById('district-cyber-feed');
 const districtCyberEmpty = document.getElementById('district-cyber-empty');
+const districtCyberIp = document.getElementById('district-cyber-ip');
 const districtLeaderboardContainer = document.getElementById('district-leaderboard');
 const districtLeaderboardEmpty = document.getElementById('district-leaderboard-empty');
 const districtLeaderboardAggressive = document.getElementById('district-leaderboard-aggressive');
@@ -14955,6 +14956,9 @@ async function renderDistrictCyberActivity(profile) {
   }
   districtCyberFeed.innerHTML = '';
   districtCyberEmpty.classList.add('hidden');
+  if (districtCyberIp) {
+    districtCyberIp.textContent = profile && profile.district_ip_address ? profile.district_ip_address : '—';
+  }
 
   if (!profile || !profile.homeDistrictName || !profile.homeDistrictId) {
     districtCyberSection.classList.add('hidden');

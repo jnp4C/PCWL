@@ -2450,6 +2450,31 @@ body.friend-profile-open .character-drawer {
   color: rgba(210, 255, 220, 0.95);
 }
 
+.district-cyber-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.5rem 0.65rem;
+  margin: 0 0 0.5rem;
+  border-radius: 12px;
+  background: rgba(12, 38, 24, 0.6);
+  border: 1px solid rgba(110, 255, 185, 0.25);
+}
+
+.district-cyber-ip-label {
+  font-size: 0.82rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgba(180, 235, 200, 0.85);
+}
+
+.district-cyber-ip {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 0.95rem;
+  color: rgba(210, 255, 220, 0.96);
+}
+
 .district-cyber-note {
   font-size: 0.82rem;
   color: rgba(190, 255, 210, 0.8);
