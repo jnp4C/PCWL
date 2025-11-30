@@ -15005,9 +15005,35 @@ async function renderDistrictCyberActivity(profile) {
     const blocked = Array.isArray(payload?.blocked) ? payload.blocked : [];
     const incoming = Array.isArray(payload?.incoming) ? payload.incoming : [];
     const incomingByDistrict = payload?.incoming_by_district || {};
+    const now = Date.now();
+    const ddosGrowthEffect = (progressRatio) => {
+      const clamped = Math.max(0, Math.min(1, progressRatio));
+      const base = 0.1;
+      const peak = 0.2;
+      const growth = Math.log1p(clamped * 9) / Math.log(10);
+      return base + (peak - base) * growth;
+    };
+    const appendMilestones = (item, targetLabel, ip, list) => {
+      const startedAt = parseServerTimestamp(item.started_at);
+      if (!startedAt || !Number.isFinite(startedAt)) {
+        return;
+      }
+      const elapsed = Math.max(0, now - startedAt);
+      const total = 3 * 60 * 60 * 1000; // 3 hours
+      const intervals = Math.min(3, Math.floor(elapsed / (30 * 60 * 1000)));
+      for (let i = 1; i <= intervals; i += 1) {
+        const progress = Math.min(1, (i * 30 * 60 * 1000) / total);
+        const eff = ddosGrowthEffect(progress);
+        const label = `${eff.toFixed(1)}%`;
+        list.push({
+          title: 'DDoS ramped',
+          body: `${ip} increased disruption on ${targetLabel} to ${label} after ${i * 30} minutes.`,
+        });
+      }
+    };
 
     active.forEach((item) => {
-      const effect = Number(item.effect_percent);
+      const effect = Number.isFinite(item.entry_effect_percent) ? Number(item.entry_effect_percent) : Number(item.effect_percent);
       const effectLabel = Number.isFinite(effect) ? `${Math.min(100, Math.max(0, effect)).toFixed(1)}%` : '—';
       const target = item.target_name || item.target_code || 'target district';
       const ip = item.attacker_ip || 'district IP';
@@ -15015,6 +15041,7 @@ async function renderDistrictCyberActivity(profile) {
         title: 'DDoS in progress',
         body: `${ip} performed a DDoS on ${target}, increasing disruption to ${effectLabel}.`,
       });
+      appendMilestones(item, target, ip, entries);
 
       // Update active DDoS meta if this user is the attacker, so the chip shows current disruption
       if (
@@ -15051,7 +15078,7 @@ async function renderDistrictCyberActivity(profile) {
     });
 
     incoming.forEach((item) => {
-      const effect = Number(item.effect_percent);
+      const effect = Number.isFinite(item.entry_effect_percent) ? Number(item.entry_effect_percent) : Number(item.effect_percent);
       const effectLabel = Number.isFinite(effect) ? `${Math.min(100, Math.max(0, effect)).toFixed(1)}%` : '—';
       const target =
         profile.homeDistrictName ||
@@ -15065,6 +15092,7 @@ async function renderDistrictCyberActivity(profile) {
         title: 'Incoming DDoS',
         body: `${ip} from ${sourceCode} performed a DDoS on ${target}, raising disruption to ${effectLabel}.`,
       });
+      appendMilestones(item, target, ip, entries);
     });
 
     const incomingDistricts = Object.keys(incomingByDistrict || {}).filter(Boolean);

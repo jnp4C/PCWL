@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
+import math
 
 from .models import (
     CheckIn,
@@ -1558,10 +1559,27 @@ def _active_ddos_qs(district: District, *, now=None):
 
 def _ddos_debuff_percent(district: District, *, now=None) -> float:
     qs = _active_ddos_qs(district, now=now)
-    active_count = qs.count()
-    # 100 attackers -> 10%, 1000 attackers -> 100% (cap at 100%)
-    debuff = min(1.0, active_count * 0.001)
-    return round(debuff, 4)
+    debuff = 0.0
+    for entry in qs:
+        debuff += _ddos_entry_effect(entry, now=now)
+    return round(min(1.0, debuff), 4)
+
+
+def _ddos_entry_effect(entry: DistrictDdosEntry, *, now=None) -> float:
+    """Return the current disruption contribution for a single DDoS entry."""
+    if not entry:
+        return 0.0
+    now = now or timezone.now()
+    base = 0.001  # 0.1%
+    peak = 0.002  # 0.2% per attacker max over duration
+    start = entry.started_at or now
+    end = entry.expires_at or (start + timedelta(hours=3))
+    total_seconds = max(1, (end - start).total_seconds())
+    elapsed_seconds = max(0.0, min((now - start).total_seconds(), total_seconds))
+    ratio = elapsed_seconds / total_seconds
+    growth = math.log1p(ratio * 9) / math.log(10) if ratio > 0 else 0.0
+    contribution = base + (peak - base) * growth
+    return max(0.0, min(peak, round(contribution, 6)))
 
 
 def start_ddos_attack(player: Player, target_code: str) -> Dict[str, Any]:

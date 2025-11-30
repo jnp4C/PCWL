@@ -1320,7 +1320,8 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
 
         def serialize_entry(entry, *, kind: str):
             target_name = entry.district.name if entry.district else entry.district_id or ""
-            effect = _ddos_debuff_percent(entry.district, now=now) if entry.district else 0
+            effect_total = _ddos_debuff_percent(entry.district, now=now) if entry.district else 0
+            entry_effect = _ddos_entry_effect(entry, now=now)
             return {
                 "type": kind,
                 "attacker_ip": entry.attacker_ip or "",
@@ -1329,11 +1330,12 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
                 "target_name": target_name,
                 "started_at": entry.started_at,
                 "ended_at": entry.ended_at,
-                "effect_percent": round(effect * 100, 2),
+                "effect_percent": round(effect_total * 100, 2),
+                "entry_effect_percent": round(entry_effect * 100, 2),
             }
 
         incoming_by_district = {}
-        incoming_counts = {}
+        incoming_effects = {}
         for row in incoming_qs:
             code = None
             name = ""
@@ -1346,12 +1348,11 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
             code = code or ""
             if not code:
                 continue
-            incoming_counts[code] = incoming_counts.get(code, 0) + 1
             incoming_by_district.setdefault(code, {"code": code, "name": name})
+            incoming_effects[code] = incoming_effects.get(code, 0.0) + _ddos_entry_effect(row, now=now)
 
-        for code, count in incoming_counts.items():
-            # 0.1% per attacker from this district, capped at 100%
-            effect_percent = min(100.0, round(count * 0.1, 2))
+        for code, effect in incoming_effects.items():
+            effect_percent = min(100.0, round(effect * 100, 2))
             if code in incoming_by_district:
                 incoming_by_district[code]["effect_percent"] = effect_percent
 
