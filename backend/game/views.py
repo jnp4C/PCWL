@@ -70,6 +70,7 @@ from .services import (
     PARTY_CONTRIBUTION_DISTRICT_PER_PLAYER,
     PARTY_CONTRIBUTION_PLAYER_MULTIPLIER,
     _ddos_debuff_percent,
+    _ddos_entry_effect,
     _normalise_district_code,
     _determine_party_active_district,
     respond_to_party_invitation,
