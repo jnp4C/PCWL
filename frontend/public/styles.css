@@ -3608,12 +3608,12 @@ body.modal-open {
 
 .cyber-strip {
   height: 1.25rem;
-  background: rgba(20, 55, 35, 0.14);
-  border-color: rgba(110, 255, 185, 0.28);
+  background: rgba(20, 55, 35, 0.16);
+  border-color: rgba(110, 255, 185, 0.32);
 }
 
 .cyber-strip.active {
-  background: rgba(20, 55, 35, 0.22);
+  background: rgba(20, 75, 45, 0.26);
 }
 
 .cyber-strip .cooldown-time {
