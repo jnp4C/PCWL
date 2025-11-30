@@ -1621,7 +1621,12 @@ function renderCooldownStrip(now = Date.now()) {
   }
   const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
   const cooldownEntries = Array.from(activeCooldowns.entries())
-    .filter(([, info]) => info && typeof info.deadline === 'number')
+    .filter(
+      ([key, info]) =>
+        info &&
+        typeof info.deadline === 'number' &&
+        !CYBER_COOLDOWN_KEYS.has(key)
+    )
     .map(([key, info]) => ({
       type: 'cooldown',
       key,
@@ -4335,6 +4340,12 @@ const CYBER_SLOTS = [
   { key: COOLDOWN_KEYS.FIREWALL, label: 'Firewall', tone: 'defense' },
   { key: COOLDOWN_KEYS.DEWORM, label: 'deWorm', tone: 'defense' },
 ];
+const CYBER_COOLDOWN_KEYS = new Set([
+  COOLDOWN_KEYS.DDOS,
+  COOLDOWN_KEYS.WORM,
+  COOLDOWN_KEYS.FIREWALL,
+  COOLDOWN_KEYS.DEWORM,
+]);
 const CYBER_COOLDOWNS_MS = {
   [COOLDOWN_KEYS.DDOS]: 3 * 60 * 60 * 1000, // 3h
   [COOLDOWN_KEYS.WORM]: 3 * 60 * 60 * 1000, // mirror ddos for now
