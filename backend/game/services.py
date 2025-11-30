@@ -14,6 +14,7 @@ from .models import (
     District,
     DistrictContributionStat,
     DistrictEngagement,
+    DistrictDdosEntry,
     FriendLink,
     Party,
     PartyInvitation,
@@ -34,6 +35,8 @@ COOLDOWN_KEYS = {
     "attack": "attack",
     "defend": "defend",
     "charge": "charge",
+    "ddos": "ddos",
+    "firewall": "firewall",
 }
 
 COOLDOWN_DURATIONS_MS = {
@@ -41,6 +44,8 @@ COOLDOWN_DURATIONS_MS = {
     "defend_local": 3 * 60 * 1000,
     "defend_remote": 10 * 60 * 1000,
     "charge": 2 * 60 * 1000,
+    "ddos": 3 * 60 * 60 * 1000,  # 3h
+    "firewall": int(1.5 * 60 * 60 * 1000),  # 1.5h
 }
 
 PARTY_ATTACK_BONUS_PER_PLAYER = Decimal("2")
@@ -92,6 +97,10 @@ class PartyError(Exception):
 
 class PartyInviteError(PartyError):
     """Raised when party invitations cannot be processed."""
+
+
+class DdosError(Exception):
+    """Raised for invalid cyberattack actions."""
 
 
 def _now_ms() -> int:
@@ -1516,3 +1525,117 @@ def apply_checkin(
                     )
 
         return CheckInResult(player=locked, checkin=checkin, points_awarded=points_awarded)
+
+
+# --- Cyberattack mechanics (DDoS / Firewall) ---
+
+
+def _clean_district_ip(ip: Optional[str]) -> str:
+    if not ip:
+        return ""
+    return str(ip).strip()[:32]
+
+
+def _ensure_player_district_ip(player: Player) -> str:
+    if player.district_ip_address:
+        return player.district_ip_address
+    player.district_ip_address = player._generate_district_ip()
+    player.save(update_fields=["district_ip_address", "updated_at"])
+    return player.district_ip_address
+
+
+def _resolve_target_district(code: Optional[str]) -> District:
+    district = _get_or_create_district_record(code, code)
+    if not district:
+        raise DdosError("Invalid target district.")
+    return district
+
+
+def _active_ddos_qs(district: District, *, now=None):
+    now = now or timezone.now()
+    return DistrictDdosEntry.objects.filter(district=district, ended_at__isnull=True, expires_at__gt=now)
+
+
+def _ddos_debuff_percent(district: District, *, now=None) -> float:
+    qs = _active_ddos_qs(district, now=now)
+    active_count = qs.count()
+    # 100 attackers -> 10%, 1000 attackers -> 100% (cap at 100%)
+    debuff = min(1.0, active_count * 0.001)
+    return round(debuff, 4)
+
+
+def start_ddos_attack(player: Player, target_code: str) -> Dict[str, Any]:
+    now = timezone.now()
+    locked = Player.objects.select_for_update().get(pk=player.pk)
+    # ensure cooldown
+    if _is_on_cooldown(locked, COOLDOWN_KEYS["ddos"], now_ms=int(now.timestamp() * 1000)):
+        raise CooldownActive("DDoS cooldown is active.")
+
+    if not locked.home_district_code:
+        raise DdosError("Set a home district before launching a DDoS.")
+
+    target_district = _resolve_target_district(target_code)
+    attacker_home = _get_or_create_district_record(locked.home_district_code, locked.home_district_name)
+
+    # Enforce single active DDoS per attacker
+    existing_active = DistrictDdosEntry.objects.filter(attacker=locked, ended_at__isnull=True, expires_at__gt=now).first()
+    if existing_active:
+        raise DdosError("You already have an active DDoS.")
+
+    attacker_ip = _clean_district_ip(_ensure_player_district_ip(locked))
+    expires_at = now + timedelta(hours=3)
+
+    with transaction.atomic():
+        entry = DistrictDdosEntry.objects.create(
+            district=target_district,
+            attacker=locked,
+            attacker_home_district=attacker_home,
+            attacker_ip=attacker_ip,
+            started_at=now,
+            expires_at=expires_at,
+        )
+        _update_cooldown(locked, COOLDOWN_KEYS["ddos"], COOLDOWN_DURATIONS_MS["ddos"], now_ms=int(now.timestamp() * 1000))
+        locked.save(update_fields=["cooldowns", "cooldown_details", "updated_at", "district_ip_address"])
+
+    debuff = _ddos_debuff_percent(target_district, now=now)
+    return {
+        "entry": entry,
+        "active_attackers": _active_ddos_qs(target_district, now=now).count(),
+        "debuff": debuff,
+        "expires_at": expires_at,
+    }
+
+
+def apply_firewall(player: Player, target_code: str) -> Dict[str, Any]:
+    now = timezone.now()
+    locked = Player.objects.select_for_update().get(pk=player.pk)
+    if not locked.home_district_code:
+        raise DdosError("Set a home district to deploy a firewall.")
+    home_code = _normalise_district_code(locked.home_district_code)
+    target_code_normalized = _normalise_district_code(target_code)
+    if not target_code_normalized or home_code != target_code_normalized:
+        raise DdosError("Firewall can only be deployed on your home district.")
+    if _is_on_cooldown(locked, COOLDOWN_KEYS["firewall"], now_ms=int(now.timestamp() * 1000)):
+        raise CooldownActive("Firewall cooldown is active.")
+
+    target_district = _resolve_target_district(target_code)
+
+    qs = _active_ddos_qs(target_district, now=now)
+    count = qs.count()
+    removed_entry = None
+    if count:
+        # Pick a pseudo-random active entry without loading all rows
+        idx = int(_now_ms() % count)
+        removed_entry = qs.order_by("id")[idx]
+        removed_entry.ended_at = now
+        removed_entry.save(update_fields=["ended_at", "updated_at"])
+
+    _update_cooldown(locked, COOLDOWN_KEYS["firewall"], COOLDOWN_DURATIONS_MS["firewall"], now_ms=int(now.timestamp() * 1000))
+    locked.save(update_fields=["cooldowns", "cooldown_details", "updated_at"])
+
+    debuff = _ddos_debuff_percent(target_district, now=now)
+    return {
+        "removed": removed_entry.pk if removed_entry else None,
+        "active_attackers": _active_ddos_qs(target_district, now=now).count(),
+        "debuff": debuff,
+    }

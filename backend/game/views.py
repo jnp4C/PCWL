@@ -52,7 +52,9 @@ from .serializers import (
 from .services import (
     CooldownActive,
     apply_checkin,
+    apply_firewall,
     create_party,
+    DdosError,
     get_active_party,
     invite_player_to_party,
     leave_party,
@@ -70,6 +72,7 @@ from .services import (
     _determine_party_active_district,
     respond_to_party_invitation,
     start_charge,
+    start_ddos_attack,
 )
 
 
@@ -1233,6 +1236,46 @@ class ChargeAttackView(PlayerScopedAPIView):
             return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
         serialized = PlayerSerializer(updated_player, context={"request": request})
         return Response({"player": serialized.data}, status=status.HTTP_200_OK)
+
+
+class DdosAttackView(PlayerScopedAPIView):
+    """Launch a DDoS cyberattack against a target district."""
+
+    def post(self, request, code: str):
+        player = self.get_current_player(request)
+        try:
+            result = start_ddos_attack(player, code)
+        except CooldownActive as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        except DdosError as exc:
+            raise ValidationError({"detail": str(exc)})
+        payload = {
+            "district": code,
+            "active_attackers": result["active_attackers"],
+            "debuff": result["debuff"],
+            "expires_at": result["expires_at"],
+        }
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class FirewallView(PlayerScopedAPIView):
+    """Deploy a firewall to remove one active DDoS attacker on the home district."""
+
+    def post(self, request, code: str):
+        player = self.get_current_player(request)
+        try:
+            result = apply_firewall(player, code)
+        except CooldownActive as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        except DdosError as exc:
+            raise ValidationError({"detail": str(exc)})
+        payload = {
+            "district": code,
+            "removed_attack_id": result["removed"],
+            "active_attackers": result["active_attackers"],
+            "debuff": result["debuff"],
+        }
+        return Response(payload, status=status.HTTP_200_OK)
 
 
 class CheckInView(PlayerScopedAPIView):

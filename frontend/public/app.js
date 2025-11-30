@@ -3067,6 +3067,7 @@ function ensureActionContextMenu() {
 
   const hideCyberMenu = () => {
     cyberMenu.classList.add('hidden');
+    cyberMenu.classList.remove('context-menu-nested--visible');
     cyberMenu.innerHTML = '';
     actionContextMenu.cyberMenuVisible = false;
   };
@@ -3098,6 +3099,9 @@ function ensureActionContextMenu() {
   const showCyberMenu = (items = [], title = 'Cyberattack') => {
     renderCyberMenu(items, title);
     cyberMenu.classList.remove('hidden');
+    requestAnimationFrame(() => {
+      cyberMenu.classList.add('context-menu-nested--visible');
+    });
     actionContextMenu.cyberMenuVisible = true;
     if (typeof actionContextMenu.positionCyberMenu === 'function') {
       actionContextMenu.positionCyberMenu();
@@ -3187,7 +3191,15 @@ function ensureActionContextMenu() {
     if (cyberButton.disabled) {
       return;
     }
-    const isHome = Boolean(menu.isHomeTarget);
+    const profile = currentUser ? ensurePlayerProfile(currentUser) : null;
+    const targetId = menu.targetDistrictId ? safeId(menu.targetDistrictId) : null;
+    const homeId =
+      profile && profile.homeDistrictId
+        ? safeId(profile.homeDistrictId)
+        : profile && profile.home_district_code
+        ? safeId(profile.home_district_code)
+        : null;
+    const isHome = Boolean(menu.isHomeTarget || (homeId && targetId && homeId === targetId));
     const options = isHome
       ? [
           { key: 'deworm', label: 'deWorm', note: 'Purge hostile code from home systems.' },
@@ -3286,6 +3298,10 @@ function showActionContextMenu(lng, lat, point, options = {}) {
     menu.chargeButton.style.display = 'block';
     menu.chargeButton.disabled = true;
   }
+  if (menu.cyberButton) {
+    menu.cyberButton.style.display = 'none';
+    menu.cyberButton.disabled = true;
+  }
 
   const positionMenu = () => {
     if (!actionContextMenuVisible || !mapContainer) {
@@ -3333,6 +3349,7 @@ function showActionContextMenu(lng, lat, point, options = {}) {
     }
     left = Math.max(gutter, left);
     top = Math.max(gutter, top);
+    menu.cyberMenu.style.minWidth = `${baseRect.width}px`;
     menu.cyberMenu.style.left = `${left}px`;
     menu.cyberMenu.style.top = `${top}px`;
   };

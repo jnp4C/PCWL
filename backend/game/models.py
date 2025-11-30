@@ -61,6 +61,12 @@ class Player(models.Model):
         default="#6366f1",
         help_text="Hex color (e.g. #ff0000) used to render the player's map marker.",
     )
+    district_ip_address = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text="Synthetic IP derived from home district code to support cyber mechanics.",
+    )
     profile_bio = models.CharField(
         max_length=50,
         blank=True,
@@ -148,8 +154,40 @@ class Player(models.Model):
                 self.home_district = district.name
 
     def save(self, *args, **kwargs):
+        if not self.district_ip_address:
+            self.district_ip_address = self._generate_district_ip()
         self._sync_home_fields()
         super().save(*args, **kwargs)
+
+    def _generate_district_ip(self) -> str:
+        """
+        Generate a pseudo IP address namespaced to the home district code.
+        Uses the first 3 digits of the home district code (or 100 fallback) as the prefix.
+        Ensures a deterministic-ish but unique value per player by mixing in the PK or username.
+        """
+        import random
+        import re
+
+        # Extract a 3-digit prefix from the home district code, fallback to 100
+        digits = re.sub(r"[^0-9]", "", self.home_district_code or "")
+        prefix = (digits[:3] or "100").ljust(3, "0")
+        try:
+            prefix_int = max(1, min(223, int(prefix)))  # keep within unicast range
+        except ValueError:
+            prefix_int = 100
+
+        # Salt with username/PK to reduce collisions; keep it simple and reproducible enough.
+        salt = abs(hash(self.username or f"player-{random.randint(0, 9999)}")) % 65535
+
+        for _ in range(5):
+            octet2 = (salt // 256) % 255
+            octet3 = (salt % 255 + random.randint(0, 254)) % 255
+            octet4 = random.randint(10, 250)
+            candidate = f"{prefix_int}.{octet2}.{octet3}.{octet4}"
+            if not Player.objects.filter(district_ip_address=candidate).exists():
+                return candidate
+        # Fallback: let DB enforce uniqueness; still return last candidate.
+        return candidate
 
     def ensure_auth_user(self, password=None):
         """
@@ -182,17 +220,21 @@ class Player(models.Model):
             self.home_district_code = ""
             self.home_district_name = ""
             self.home_district = ""
+            self.district_ip_address = ""
         else:
             self.home_district_ref = district
             self.home_district_code = district.code
             self.home_district_name = district.name
             self.home_district = district.name
+            if not self.district_ip_address:
+                self.district_ip_address = self._generate_district_ip()
         if save:
             update_fields = [
                 "home_district_ref",
                 "home_district_code",
                 "home_district_name",
                 "home_district",
+                "district_ip_address",
                 "updated_at",
             ]
             self.save(update_fields=update_fields)
@@ -252,6 +294,47 @@ class CheckIn(models.Model):
 
     def __str__(self):
         return f"{self.player.username} {self.action} {self.district_code or '?'} ({self.points_awarded} pts)"
+
+
+class DistrictDdosEntry(models.Model):
+    """Tracks active DDoS contributions against a district."""
+
+    district = models.ForeignKey(
+        District,
+        on_delete=models.CASCADE,
+        related_name="active_ddos_entries",
+    )
+    attacker = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="ddos_attacks",
+    )
+    attacker_home_district = models.ForeignKey(
+        District,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="outgoing_ddos_entries",
+    )
+    attacker_ip = models.CharField(max_length=32, blank=True, default="")
+    started_at = models.DateTimeField(default=timezone.now)
+    expires_at = models.DateTimeField()
+    ended_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["district", "expires_at"]),
+            models.Index(fields=["attacker", "expires_at"]),
+        ]
+
+    def is_active(self, now=None) -> bool:
+        now = now or timezone.now()
+        return self.ended_at is None and self.expires_at > now
+
+    def __str__(self):
+        return f"DDoS {self.attacker_ip or self.attacker_id} -> {self.district.code}"
 
 
 class DistrictEngagement(models.Model):

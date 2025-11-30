@@ -30,6 +30,8 @@ from .views import (
     SessionCurrentView,
     SessionLoginView,
     SessionLogoutView,
+    DdosAttackView,
+    FirewallView,
     migration_status,
     health,
 )
@@ -58,6 +60,8 @@ urlpatterns = [
     path("districts/catalog/", DistrictCatalogView.as_view(), name="district-catalog"),
     path("districts/strategy/", DistrictStrategyView.as_view(), name="district-strategy"),
     path("districts/<str:code>/activity/", DistrictActivityView.as_view(), name="district-activity"),
+    path("districts/<str:code>/ddos/", DdosAttackView.as_view(), name="district-ddos"),
+    path("districts/<str:code>/firewall/", FirewallView.as_view(), name="district-firewall"),
     path("friends/", FriendListView.as_view(), name="friend-list"),
     path("friends/bubble/", FriendBubbleView.as_view(), name="friend-bubble"),
     path("friends/search/", FriendSearchView.as_view(), name="friend-search"),
