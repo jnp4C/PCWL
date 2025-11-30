@@ -1204,6 +1204,18 @@ function formatCooldownLabel(actionKey, mode = null) {
   if (actionKey === COOLDOWN_KEYS.CHARGE) {
     return 'Charge';
   }
+  if (actionKey === COOLDOWN_KEYS.DDOS) {
+    return 'DDoS';
+  }
+  if (actionKey === COOLDOWN_KEYS.WORM) {
+    return 'Worm';
+  }
+  if (actionKey === COOLDOWN_KEYS.FIREWALL) {
+    return 'Firewall';
+  }
+  if (actionKey === COOLDOWN_KEYS.DEWORM) {
+    return 'deWorm';
+  }
   return 'Attack';
 }
 
@@ -1229,6 +1241,20 @@ function resolveCooldownColors(actionKey, mode = null) {
       text: 'rgba(246, 240, 255, 0.94)',
     };
   }
+  if (actionKey === COOLDOWN_KEYS.DDOS || actionKey === COOLDOWN_KEYS.WORM) {
+    return {
+      fill: 'linear-gradient(135deg, rgba(237, 95, 163, 0.92), rgba(255, 142, 93, 0.8))',
+      track: 'rgba(255, 130, 160, 0.2)',
+      text: 'rgba(255, 240, 245, 0.94)',
+    };
+  }
+  if (actionKey === COOLDOWN_KEYS.FIREWALL || actionKey === COOLDOWN_KEYS.DEWORM) {
+    return {
+      fill: 'linear-gradient(135deg, rgba(92, 198, 255, 0.92), rgba(125, 255, 205, 0.8))',
+      track: 'rgba(110, 210, 255, 0.2)',
+      text: 'rgba(230, 245, 255, 0.94)',
+    };
+  }
   return {
     fill: 'linear-gradient(135deg, rgba(236, 35, 74, 0.68), rgba(255, 125, 145, 0.42))',
     track: 'rgba(236, 35, 74, 0.18)',
@@ -1236,7 +1262,15 @@ function resolveCooldownColors(actionKey, mode = null) {
   };
 }
 
-const VALID_COOLDOWN_ACTIONS = new Set(['attack', 'defend', 'charge']);
+const VALID_COOLDOWN_ACTIONS = new Set([
+  'attack',
+  'defend',
+  'charge',
+  'ddos',
+  'worm',
+  'firewall',
+  'deworm',
+]);
 const VALID_COOLDOWN_MODES = new Set(['local', 'remote', 'ranged', 'party']);
 
 function ensureProfileCooldownState(profile) {
@@ -1577,6 +1611,7 @@ function renderCooldownStrip(now = Date.now()) {
   if (!cooldownStrip) {
     return;
   }
+  const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
   const cooldownEntries = Array.from(activeCooldowns.entries())
     .filter(([, info]) => info && typeof info.deadline === 'number')
     .map(([key, info]) => ({
@@ -1621,7 +1656,8 @@ function renderCooldownStrip(now = Date.now()) {
   }
 
   const combinedEntries = partyEntries.concat(cooldownEntries).concat(inviteEntries);
-  if (!combinedEntries.length) {
+  const cyberChip = renderCyberCooldownChip(profile, now);
+  if (!combinedEntries.length && !cyberChip) {
     cooldownStrip.classList.add('hidden');
     cooldownStrip.innerHTML = '';
     return;
@@ -1629,6 +1665,9 @@ function renderCooldownStrip(now = Date.now()) {
 
   cooldownStrip.classList.remove('hidden');
   const fragment = document.createDocumentFragment();
+  if (cyberChip) {
+    fragment.appendChild(cyberChip);
+  }
   combinedEntries
     .sort((a, b) => {
       const deadlineA = a.info.deadline ?? Number.POSITIVE_INFINITY;
@@ -1736,6 +1775,73 @@ function renderCooldownStrip(now = Date.now()) {
 
   cooldownStrip.innerHTML = '';
   cooldownStrip.appendChild(fragment);
+}
+
+function renderCyberCooldownChip(profile, now = Date.now()) {
+  if (!profile) {
+    return null;
+  }
+  const slots = CYBER_SLOTS.map((slot) => {
+    const info = activeCooldowns.get(slot.key);
+    if (!info || typeof info.deadline !== 'number' || !info.duration) {
+      return { ...slot, active: false, remaining: 0, duration: 1, ratio: 0 };
+    }
+    const remaining = Math.max(0, info.deadline - now);
+    const duration = Math.max(1, Number(info.duration) || remaining);
+    const ratio = Math.max(0, Math.min(1, remaining / duration));
+    return { ...slot, active: true, remaining, duration, ratio };
+  });
+  const hasAny = slots.some((slot) => slot.active);
+  if (!hasAny) {
+    return null;
+  }
+
+  const chip = document.createElement('div');
+  chip.className = 'cooldown-item cyber-chip';
+  chip.setAttribute('aria-label', 'Cyberwarfare cooldowns');
+
+  const title = document.createElement('div');
+  title.className = 'cyber-chip-title';
+  title.textContent = 'Cyberwarfare';
+  chip.appendChild(title);
+
+  const grid = document.createElement('div');
+  grid.className = 'cyber-chip-grid';
+  slots.forEach((slot) => {
+    const colors = resolveCooldownColors(slot.key);
+    const slotEl = document.createElement('div');
+    slotEl.className = `cyber-slot cyber-slot-${slot.tone} ${slot.active ? 'active' : 'inactive'}`;
+    slotEl.style.setProperty('--cooldown-track-color', colors.track);
+    slotEl.style.setProperty('--cooldown-fill-color', colors.fill);
+    slotEl.style.setProperty('--cooldown-text-color', colors.text);
+    slotEl.dataset.cooldownAction = slot.key;
+
+    const labelRow = document.createElement('div');
+    labelRow.className = 'cyber-slot-header';
+    const label = document.createElement('span');
+    label.className = 'cyber-slot-label';
+    label.textContent = slot.label;
+    labelRow.appendChild(label);
+    slotEl.appendChild(labelRow);
+
+    const track = document.createElement('div');
+    track.className = 'cooldown-track';
+    const fill = document.createElement('div');
+    fill.className = 'cooldown-fill';
+    fill.style.transform = `scaleX(${slot.ratio})`;
+    track.appendChild(fill);
+
+    const time = document.createElement('div');
+    time.className = 'cooldown-time cyber-slot-time';
+    time.textContent = slot.active ? formatCooldownTime(slot.remaining) : 'Ready';
+
+    slotEl.appendChild(track);
+    slotEl.appendChild(time);
+    grid.appendChild(slotEl);
+  });
+
+  chip.appendChild(grid);
+  return chip;
 }
 
 function resolveCheckInAction(profile, options = {}) {
@@ -4111,7 +4217,17 @@ const COOLDOWN_KEYS = {
   ATTACK: 'attack',
   DEFEND: 'defend',
   CHARGE: 'charge',
+  DDOS: 'ddos',
+  WORM: 'worm',
+  FIREWALL: 'firewall',
+  DEWORM: 'deworm',
 };
+const CYBER_SLOTS = [
+  { key: COOLDOWN_KEYS.DDOS, label: 'DDoS', tone: 'attack' },
+  { key: COOLDOWN_KEYS.WORM, label: 'Worm', tone: 'attack' },
+  { key: COOLDOWN_KEYS.FIREWALL, label: 'Firewall', tone: 'defense' },
+  { key: COOLDOWN_KEYS.DEWORM, label: 'deWorm', tone: 'defense' },
+];
 
 function loadDistrictStrengthCache() {
   if (typeof window === 'undefined' || !window.localStorage) {

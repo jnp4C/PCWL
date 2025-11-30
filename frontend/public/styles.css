@@ -3421,6 +3421,81 @@ body.modal-open {
   outline-offset: 2px;
 }
 
+.cooldown-item.cyber-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.65rem 0.75rem;
+  height: auto;
+  min-height: 3.5rem;
+}
+
+.cyber-chip-title {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(240, 240, 255, 0.9);
+  opacity: 0.9;
+}
+
+.cyber-chip-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem 0.75rem;
+}
+
+.cyber-slot {
+  position: relative;
+  padding-top: 0.25rem;
+  min-height: 2.35rem;
+  border-radius: 14px;
+  background: rgba(35, 18, 58, 0.32);
+  border: 1px solid rgba(180, 150, 255, 0.25);
+  overflow: hidden;
+}
+
+.cyber-slot-header {
+  position: relative;
+  z-index: 2;
+  padding: 0 0.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.15rem;
+}
+
+.cyber-slot-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: rgba(245, 240, 255, 0.96);
+}
+
+.cyber-slot .cooldown-track {
+  opacity: 0.9;
+}
+
+.cyber-slot.inactive .cooldown-fill {
+  opacity: 0.25;
+}
+
+.cyber-slot.inactive .cooldown-time {
+  color: rgba(220, 220, 235, 0.55);
+}
+
+.cyber-slot-time {
+  position: relative;
+  z-index: 2;
+}
+
+.cyber-slot-attack {
+  box-shadow: 0 10px 28px rgba(255, 125, 170, 0.18);
+}
+
+.cyber-slot-defense {
+  box-shadow: 0 10px 28px rgba(120, 210, 255, 0.18);
+}
+
 .recent-checkin-cooldown {
   display: inline-flex;
   align-items: center;
