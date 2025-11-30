@@ -14719,9 +14719,9 @@ function renderDistrictPartyList(entries) {
   const displayEntries = districtPartyExpanded
     ? sortedEntries
     : sortedEntries.slice(0, DISTRICT_PARTY_VISIBLE_COUNT);
-  displayEntries.forEach((entry) => {
-    const li = document.createElement('li');
-    li.className = 'district-party-leader';
+    displayEntries.forEach((entry) => {
+      const li = document.createElement('li');
+      li.className = 'district-party-leader';
     if (entry.code) {
       li.dataset.partyCode = entry.code;
       li.tabIndex = 0;
@@ -14741,18 +14741,18 @@ function renderDistrictPartyList(entries) {
     nameRow.className = 'district-party-leader-name';
     const heading = document.createElement('span');
     heading.textContent = entry.name || entry.code || 'Party';
-    const score = document.createElement('span');
-    score.className = 'district-party-score';
-    const prestigeValue = scoreForEntry(entry);
-    const attackPoints = Math.max(0, Math.round(Number(entry.attack_points) || 0));
-    const defendPoints = Math.max(0, Math.round(Number(entry.defend_points) || 0));
-    const totalLabel = prestigeValue.toLocaleString();
-    const attackLabel = `+${attackPoints.toLocaleString()}`;
-    const defendLabel = defendPoints ? `-${defendPoints.toLocaleString()}` : '-0';
-    const badge = document.createElement('span');
-    badge.className = 'party-district-prestige-badge';
-    badge.textContent = totalLabel;
-    score.textContent = `Prestige ${attackLabel} / ${defendLabel}`;
+      const score = document.createElement('span');
+      score.className = 'district-party-score';
+      const prestigeValue = scoreForEntry(entry);
+      const attackCount = Math.max(0, Math.round(Number(entry.attack_count) || Number(entry.attack_points) || 0));
+      const defendCount = Math.max(0, Math.round(Number(entry.defend_count) || Number(entry.defend_points) || 0));
+      const totalLabel = prestigeValue.toLocaleString();
+      const defendLabel = `+${defendCount.toLocaleString()}`;
+      const attackLabel = attackCount ? `-${attackCount.toLocaleString()}` : '-0';
+      const badge = document.createElement('span');
+      badge.className = 'party-district-prestige-badge';
+      badge.textContent = totalLabel;
+      score.textContent = `District impact ${defendLabel} defend / ${attackLabel} attack`;
     nameRow.appendChild(heading);
     nameRow.appendChild(badge);
     nameRow.appendChild(score);

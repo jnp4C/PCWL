@@ -1306,11 +1306,11 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
             .order_by("-ended_at")[:20]
         )
         # Incoming attacks against this district from other districts
-        incoming_qs = (
-            DistrictDdosEntry.objects.select_related("attacker_home_district", "district", "attacker")
-            .filter(district__code=code_normalized, ended_at__isnull=True, expires_at__gt=now)
-            .order_by("-started_at")[:20]
+        incoming_qs = DistrictDdosEntry.objects.select_related("attacker_home_district", "district", "attacker").filter(
+            district__code=code_normalized, ended_at__isnull=True, expires_at__gt=now
         )
+        # Limit recent incoming entries for the feed but aggregate over all active to populate the popover
+        incoming_recent = incoming_qs.order_by("-started_at")[:40]
 
         def serialize_entry(entry, *, kind: str):
             target_name = entry.district.name if entry.district else entry.district_id or ""
@@ -1329,8 +1329,15 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
         incoming_by_district = {}
         incoming_counts = {}
         for row in incoming_qs:
-            code = row.attacker_home_district.code if row.attacker_home_district else ""
-            name = row.attacker_home_district.name if row.attacker_home_district else ""
+            code = None
+            name = ""
+            if row.attacker_home_district:
+                code = row.attacker_home_district.code
+                name = row.attacker_home_district.name or ""
+            elif row.attacker:
+                code = _normalise_district_code(getattr(row.attacker, "home_district_code", None))
+                name = getattr(row.attacker, "home_district_name", "") or ""
+            code = code or ""
             if not code:
                 continue
             incoming_counts[code] = incoming_counts.get(code, 0) + 1
@@ -1345,7 +1352,7 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
         payload = {
             "active": [serialize_entry(entry, kind="ddos") for entry in active_attacks],
             "blocked": [serialize_entry(entry, kind="firewall") for entry in recent_blocked],
-            "incoming": [serialize_entry(entry, kind="incoming") for entry in incoming_qs],
+            "incoming": [serialize_entry(entry, kind="incoming") for entry in incoming_recent],
             "incoming_by_district": incoming_by_district,
         }
         return Response(payload, status=status.HTTP_200_OK)
@@ -1878,6 +1885,8 @@ class DistrictActivityView(APIView):
                 "prestige_points": entry.get("prestige_points", entry.get("score", 0)),
                 "member_count": entry.get("member_count", 0),
                 "last_active_at": entry.get("last_activity_at"),
+                "attack_count": entry.get("attack_count", 0),
+                "defend_count": entry.get("defend_count", 0),
             }
             for entry in top_parties
         ]
@@ -2505,6 +2514,24 @@ def _build_district_party_rankings(
                 ),
                 0,
             ),
+            attack_count=Coalesce(
+                Sum(
+                    Case(
+                        When(action=CheckIn.Action.ATTACK, then=1),
+                        default=0,
+                    )
+                ),
+                0,
+            ),
+            defend_count=Coalesce(
+                Sum(
+                    Case(
+                        When(is_party_contribution=True, then=1),
+                        default=0,
+                    )
+                ),
+                0,
+            ),
             last_activity=Max("occurred_at"),
         )
     )
@@ -2591,10 +2618,14 @@ def _build_district_party_rankings(
         prestige_total = int(row.get("prestige") or 0)
         attack_total = abs(int(row.get("attack_points") or 0))
         defend_total = abs(int(row.get("defend_points") or 0))
+        attack_count = abs(int(row.get("attack_count") or 0))
+        defend_count = abs(int(row.get("defend_count") or 0))
         if prestige_total:
             target_entry["prestige_points"] = max(target_entry.get("prestige_points", 0), prestige_total)
         target_entry["attack_points"] = max(target_entry.get("attack_points", 0), attack_total)
         target_entry["defend_points"] = max(target_entry.get("defend_points", 0), defend_total)
+        target_entry["attack_count"] = max(target_entry.get("attack_count", 0), attack_count)
+        target_entry["defend_count"] = max(target_entry.get("defend_count", 0), defend_count)
         last_activity = row.get("last_activity")
         if last_activity and (
             not target_entry.get("last_activity_at") or last_activity > target_entry["last_activity_at"]
@@ -2633,6 +2664,8 @@ def _build_district_party_rankings(
             entry["score"] = int(entry.get("prestige_points") or 0)
             entry["attack_points"] = int(entry.get("attack_points") or 0)
             entry["defend_points"] = int(entry.get("defend_points") or 0)
+            entry["attack_count"] = int(entry.get("attack_count") or 0)
+            entry["defend_count"] = int(entry.get("defend_count") or 0)
             entries.append(entry)
         entries.sort(
             key=lambda e: (
