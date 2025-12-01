@@ -184,6 +184,8 @@ const characterAvatarInitial = document.getElementById('character-avatar-initial
 const characterNameLabel = document.getElementById('character-name');
 const characterHomeBadge = document.getElementById('character-home-badge');
 const characterTagline = document.getElementById('character-tagline');
+const characterIdentityCard = document.getElementById('character-identity-card');
+const CHARACTER_BIO_PREVIEW_ID = 'character-bio-preview';
 const characterPointsValue = document.getElementById('character-points');
 const characterLevelValue = document.getElementById('character-level');
 const characterCheckinsValue = document.getElementById('character-checkins');
@@ -15389,6 +15391,105 @@ function updateStreakProgress(streakDays = 0, streakMultiplier = 1, elements = n
   }
 }
 
+function enhanceCharacterIdentityCard(profile) {
+  if (!characterIdentityCard) {
+    return null;
+  }
+  if (!characterIdentityCard.dataset.bioEnhanced) {
+    const front = document.createElement('div');
+    front.className = 'flip-card-face flip-card-front public-identity-front';
+    while (characterIdentityCard.firstChild) {
+      front.appendChild(characterIdentityCard.firstChild);
+    }
+    characterIdentityCard.appendChild(front);
+
+    const back = document.createElement('div');
+    back.className = 'flip-card-face flip-card-back public-identity-back';
+    const label = document.createElement('label');
+    label.className = 'public-bio-label';
+    label.textContent = 'Profile message (max 50 chars)';
+    const input = document.createElement('textarea');
+    input.className = 'public-bio-input';
+    input.maxLength = 50;
+    input.placeholder = 'Share a short message with other players…';
+    ['click', 'mousedown', 'keypress', 'keydown', 'keyup'].forEach((evt) => {
+      input.addEventListener(evt, (e) => e.stopPropagation(), { capture: true });
+    });
+    const actions = document.createElement('div');
+    actions.className = 'public-bio-actions';
+    const save = document.createElement('button');
+    save.type = 'button';
+    save.className = 'primary small';
+    save.textContent = 'Save';
+    ['click', 'mousedown'].forEach((evt) => {
+      save.addEventListener(evt, (e) => e.stopPropagation(), { capture: true });
+    });
+    save.addEventListener('click', async () => {
+      save.disabled = true;
+      save.textContent = 'Saving…';
+      const saved = await saveProfileBio(input.value);
+      save.disabled = false;
+      save.textContent = 'Save';
+      if (saved && typeof saved.profile_bio === 'string') {
+        const nextBio = saved.profile_bio.slice(0, 50);
+        const preview = document.getElementById(CHARACTER_BIO_PREVIEW_ID);
+        if (preview) {
+          preview.textContent = nextBio || 'Tap to view message';
+        }
+        characterIdentityCard.classList.remove('is-flipped');
+        updateStatus('Profile message saved.');
+      }
+    });
+    actions.appendChild(save);
+    back.appendChild(label);
+    back.appendChild(input);
+    back.appendChild(actions);
+    characterIdentityCard.appendChild(back);
+    characterIdentityCard.classList.add('flip-card');
+    characterIdentityCard.dataset.bioEnhanced = 'true';
+    characterIdentityCard.tabIndex = 0;
+    const toggleCard = (event) => {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target && (target.closest('textarea') || target.closest('input') || target.closest('button'))) {
+        return;
+      }
+      const isKey = event.type === 'keypress';
+      if (isKey && event.key !== 'Enter' && event.key !== ' ') {
+        return;
+      }
+      event.preventDefault();
+      characterIdentityCard.classList.toggle('is-flipped');
+    };
+    characterIdentityCard.addEventListener('click', toggleCard);
+    characterIdentityCard.addEventListener('keypress', toggleCard);
+  }
+
+  const preview =
+    document.getElementById(CHARACTER_BIO_PREVIEW_ID) ||
+    (() => {
+      const el = document.createElement('p');
+      el.id = CHARACTER_BIO_PREVIEW_ID;
+      el.className = 'character-tagline public-bio-preview';
+      const meta = characterIdentityCard.querySelector('.character-meta');
+      if (meta) {
+        meta.appendChild(el);
+      } else {
+        characterIdentityCard.appendChild(el);
+      }
+      return el;
+    })();
+  const backInput = characterIdentityCard.querySelector('.public-bio-input');
+  if (backInput) {
+    const bioText =
+      (profile && profile.profileBio) ||
+      (profile && profile.profile_bio) ||
+      (profile && profile.profileBioPreview) ||
+      '';
+    backInput.value = bioText || '';
+  }
+  return preview;
+}
+
 function handlePartyCardActivate(event) {
   const isKey = event.type === 'keydown';
   if (isKey && event.key !== 'Enter' && event.key !== ' ') {
@@ -15701,6 +15802,10 @@ function updateCharacterDrawerContent(profile = null) {
     characterNameLabel.textContent = 'Guest';
     characterAvatarInitial.textContent = 'G';
     characterTagline.textContent = 'Sign in to personalise your character.';
+    const preview = document.getElementById(CHARACTER_BIO_PREVIEW_ID);
+    if (preview) {
+      preview.textContent = 'Tap to view message';
+    }
     if (characterHomeBadge) {
       characterHomeBadge.textContent = 'Not set';
       characterHomeBadge.classList.add('neutral');
@@ -15722,6 +15827,7 @@ function updateCharacterDrawerContent(profile = null) {
     characterInteractionsEmpty.hidden = false;
     return;
   }
+  const bioPreview = enhanceCharacterIdentityCard(resolvedProfile);
 
   const displayName = currentUser;
   const trimmedName = displayName.trim();
@@ -15740,6 +15846,14 @@ function updateCharacterDrawerContent(profile = null) {
     characterTagline.textContent = `Rising with ${Math.round(resolvedProfile.points).toLocaleString()} pts earned.`;
   } else {
     characterTagline.textContent = 'Set a home district to unlock territory bonuses.';
+  }
+  if (bioPreview) {
+    const bioText =
+      resolvedProfile.profileBio ||
+      resolvedProfile.profile_bio ||
+      resolvedProfile.profileBioPreview ||
+      '';
+    bioPreview.textContent = bioText || 'Tap to view message';
   }
   if (characterHomeBadge) {
     characterHomeBadge.textContent = homeName || 'Not set';
