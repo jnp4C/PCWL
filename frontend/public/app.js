@@ -3331,10 +3331,6 @@ function ensureActionContextMenu() {
     const profile = currentUser ? ensurePlayerProfile(currentUser) : null;
     let targetId = menu.targetDistrictId ? safeId(menu.targetDistrictId) : null;
     let targetName = menu.targetDistrictName || null;
-    if (!targetId && profile && profile.homeDistrictId) {
-      targetId = safeId(profile.homeDistrictId);
-      targetName = profile.homeDistrictName || `District ${targetId}`;
-    }
     const homeId =
       profile && profile.homeDistrictId
         ? safeId(profile.homeDistrictId)
@@ -3342,7 +3338,15 @@ function ensureActionContextMenu() {
         ? safeId(profile.home_district_code)
         : null;
     const isHome = Boolean(menu.isHomeTarget || (homeId && targetId && safeId(homeId) === safeId(targetId)));
-    const targetCode = targetId || (targetName || '').toString();
+    if ((!targetId || !targetName) && isHome && homeId) {
+      targetId = homeId;
+      targetName = profile && profile.homeDistrictName ? profile.homeDistrictName : `District ${homeId}`;
+    }
+    if (!targetId || !targetName) {
+      updateStatus('Select a district first.');
+      return;
+    }
+    const targetCode = targetId;
     const options = isHome
       ? [
           {
