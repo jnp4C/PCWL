@@ -10,11 +10,12 @@ from channels.auth import AuthMiddlewareStack
 from channels.routing import ProtocolTypeRouter, URLRouter
 from django.core.asgi import get_asgi_application
 
-import game.routing
-
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "pcwl_backend.settings")
 
 django_asgi_app = get_asgi_application()
+
+# Import routing after Django setup to avoid app registry errors.
+import game.routing  # noqa: E402
 
 application = ProtocolTypeRouter(
     {
