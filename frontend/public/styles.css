@@ -745,7 +745,7 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   background: var(--color-panel-bg);
   border-radius: 12px;
   box-shadow: var(--color-panel-shadow);
-  overflow: hidden;
+  overflow: visible; /* allow nested cyber menu to render outside the base menu */
   z-index: 3500;
   display: flex;
   flex-direction: column;
