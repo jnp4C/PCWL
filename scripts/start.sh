@@ -22,12 +22,16 @@ rsync -a frontend/public/ "$FRONTEND_ROOT"/
 
 envsubst '$PORT $BACKEND_PORT' < deploy/nginx.conf.template > /etc/nginx/conf.d/default.conf
 
-daphne pcwl_backend.asgi:application \
-  --chdir backend \
-  --bind "0.0.0.0" \
-  --port "${BACKEND_PORT}" \
-  --access-log "-" \
-  --proxy-headers &
+DAPHNE_CMD=(
+  daphne
+  pcwl_backend.asgi:application
+  --bind "0.0.0.0"
+  --port "${BACKEND_PORT}"
+  --access-log "-"
+  --proxy-headers
+)
+
+(cd backend && "${DAPHNE_CMD[@]}") &
 DAPHNE_PID=$!
 
 nginx -g "daemon off;" &
