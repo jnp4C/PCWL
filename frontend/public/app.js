@@ -284,6 +284,8 @@ const districtCyberEmpty = document.getElementById('district-cyber-empty');
 const districtCyberIp = document.getElementById('district-cyber-ip');
 const districtCyberIncoming = document.getElementById('district-cyber-incoming');
 const districtCyberIncomingText = document.getElementById('district-cyber-incoming-text');
+const districtCyberToggle = document.querySelectorAll('.cyber-toggle-btn');
+let districtCyberViewMode = 'both'; // both | feed | chat
 let districtCyberIncomingData = null;
 let districtCyberIncomingBound = false;
 const districtChatContainer = document.getElementById('district-chat');
@@ -15037,6 +15039,33 @@ function setDistrictChatStatus(label, { live = false } = {}) {
   }
 }
 
+function applyCyberViewMode(mode) {
+  const nextMode = mode === 'feed' || mode === 'chat' ? mode : 'both';
+  districtCyberViewMode = nextMode;
+  districtCyberToggle.forEach((btn) => {
+    const btnMode = btn.dataset.cyberMode;
+    btn.setAttribute('aria-pressed', btnMode === nextMode ? 'true' : 'false');
+  });
+  if (districtCyberFeed) {
+    districtCyberFeed.classList.remove('hidden');
+    if (nextMode === 'chat') {
+      districtCyberFeed.classList.add('hidden');
+    }
+  }
+  if (districtCyberEmpty) {
+    districtCyberEmpty.classList.remove('hidden');
+    if (nextMode === 'chat') {
+      districtCyberEmpty.classList.add('hidden');
+    }
+  }
+  if (districtChatContainer) {
+    districtChatContainer.classList.remove('hidden');
+    if (nextMode === 'feed') {
+      districtChatContainer.classList.add('hidden');
+    }
+  }
+}
+
 function clearDistrictChatMessages() {
   if (districtChatLog) {
     districtChatLog.innerHTML = '';
@@ -15214,6 +15243,16 @@ if (districtChatForm && districtChatInput) {
   });
 }
 
+if (districtCyberToggle && districtCyberToggle.length) {
+  districtCyberToggle.forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.preventDefault();
+      const mode = btn.dataset.cyberMode || 'both';
+      applyCyberViewMode(mode);
+    });
+  });
+}
+
 async function renderDistrictCyberActivity(profile) {
   if (!districtCyberSection || !districtCyberFeed || !districtCyberEmpty) {
     return;
@@ -15249,6 +15288,7 @@ async function renderDistrictCyberActivity(profile) {
   }
 
   connectDistrictChat(homeCode, profile);
+  applyCyberViewMode(districtCyberViewMode);
 
   try {
     const payload = await apiRequest(`districts/${encodeURIComponent(homeCode)}/cyber-activity/`);

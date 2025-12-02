@@ -2605,6 +2605,45 @@ body.friend-profile-open .character-drawer {
   color: rgba(190, 235, 210, 0.75);
 }
 
+.district-cyber-feed.hidden,
+.district-cyber-empty.hidden {
+  display: none;
+}
+
+.district-cyber-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.15rem 0 0.5rem;
+  padding: 0.3rem;
+  border-radius: 12px;
+  background: rgba(12, 38, 24, 0.4);
+  border: 1px solid rgba(110, 255, 185, 0.2);
+}
+
+.cyber-toggle-btn {
+  border: 1px solid rgba(110, 255, 185, 0.2);
+  background: rgba(20, 55, 35, 0.3);
+  color: rgba(200, 255, 220, 0.9);
+  border-radius: 10px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.cyber-toggle-btn[aria-pressed='true'] {
+  background: rgba(110, 255, 185, 0.18);
+  border-color: rgba(110, 255, 185, 0.45);
+  color: rgba(220, 255, 235, 0.95);
+  box-shadow: inset 0 0 0 1px rgba(110, 255, 185, 0.25);
+}
+
+.cyber-toggle-btn:focus-visible {
+  outline: 2px solid rgba(110, 255, 185, 0.45);
+  outline-offset: 1px;
+}
+
 .district-chat {
   margin-top: 0.8rem;
   padding: 0.75rem 0.85rem;
