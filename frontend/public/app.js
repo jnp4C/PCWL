@@ -3600,18 +3600,17 @@ function showActionContextMenu(lng, lat, point, options = {}) {
     }
     const baseRect = element.getBoundingClientRect();
     const nestedRect = menu.cyberMenu.getBoundingClientRect();
-    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
-    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+    const containerRect = mapContainer.getBoundingClientRect();
     const gutter = 12;
     const nestedWidth = nestedRect.width || menu.cyberMenu.offsetWidth || 200;
     const nestedHeight = nestedRect.height || menu.cyberMenu.offsetHeight || 0;
-    let left = baseRect.right + gutter;
-    let top = baseRect.top;
-    if (left + nestedWidth + gutter > viewportWidth) {
-      left = baseRect.left - nestedWidth - gutter;
+    let left = baseRect.right - containerRect.left + gutter;
+    let top = baseRect.top - containerRect.top;
+    if (left + nestedWidth + gutter > containerRect.width) {
+      left = baseRect.left - containerRect.left - nestedWidth - gutter;
     }
-    if (top + nestedHeight + gutter > viewportHeight) {
-      top = viewportHeight - nestedHeight - gutter;
+    if (top + nestedHeight + gutter > containerRect.height) {
+      top = containerRect.height - nestedHeight - gutter;
     }
     left = Math.max(gutter, left);
     top = Math.max(gutter, top);
