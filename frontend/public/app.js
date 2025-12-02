@@ -15658,12 +15658,14 @@ function enhanceCharacterIdentityCard(profile) {
     return null;
   }
   if (!characterIdentityCard.dataset.bioEnhanced) {
+    const inner = document.createElement('div');
+    inner.className = 'flip-card-inner';
     const front = document.createElement('div');
     front.className = 'flip-card-face flip-card-front public-identity-front';
     while (characterIdentityCard.firstChild) {
       front.appendChild(characterIdentityCard.firstChild);
     }
-    characterIdentityCard.appendChild(front);
+    inner.appendChild(front);
 
     const back = document.createElement('div');
     back.className = 'flip-card-face flip-card-back public-identity-back';
@@ -15706,7 +15708,8 @@ function enhanceCharacterIdentityCard(profile) {
     back.appendChild(label);
     back.appendChild(input);
     back.appendChild(actions);
-    characterIdentityCard.appendChild(back);
+    inner.appendChild(back);
+    characterIdentityCard.appendChild(inner);
     characterIdentityCard.classList.add('flip-card');
     characterIdentityCard.dataset.bioEnhanced = 'true';
     characterIdentityCard.tabIndex = 0;
