@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start Nginx (frontend) + Gunicorn (API) for PCWL.
+# Start Nginx (frontend) + Daphne (ASGI API) for PCWL.
 
 set -euo pipefail
 
@@ -22,7 +22,6 @@ rsync -a frontend/public/ "$FRONTEND_ROOT"/
 
 envsubst '$PORT $BACKEND_PORT' < deploy/nginx.conf.template > /etc/nginx/conf.d/default.conf
 
-gunicorn pcwl_backend.wsgi:application \
 daphne pcwl_backend.asgi:application \
   --chdir backend \
   --bind "0.0.0.0" \
