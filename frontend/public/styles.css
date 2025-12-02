@@ -756,6 +756,9 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
 }
 
 .context-menu-nested {
+  position: absolute;
+  top: 0;
+  left: 0;
   z-index: 3501;
   transform: translateX(10px);
   opacity: 0;
@@ -2600,6 +2603,119 @@ body.friend-profile-open .character-drawer {
   margin: 0.25rem 0 0;
   font-size: 0.9rem;
   color: rgba(190, 235, 210, 0.75);
+}
+
+.district-chat {
+  margin-top: 0.8rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  background: rgba(10, 30, 20, 0.65);
+  border: 1px solid rgba(90, 255, 160, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.district-chat.hidden {
+  display: none;
+}
+
+.district-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.district-chat-header h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  color: rgba(210, 255, 220, 0.95);
+}
+
+.district-chat-status {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(180, 230, 200, 0.8);
+}
+
+.district-chat-status.live {
+  color: rgba(110, 255, 185, 0.95);
+}
+
+.district-chat-log {
+  list-style: none;
+  margin: 0;
+  padding: 0.35rem 0.5rem;
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(48, 119, 90, 0.45);
+  border-radius: 10px;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+
+.district-chat-entry {
+  padding: 0.35rem 0.4rem;
+  border-radius: 8px;
+  background: rgba(20, 65, 45, 0.35);
+  color: #9ef0c0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.5rem;
+}
+
+.district-chat-meta {
+  font-size: 0.82rem;
+  color: rgba(200, 255, 220, 0.82);
+  font-weight: 600;
+}
+
+.district-chat-meta time {
+  font-size: 0.78rem;
+  color: rgba(160, 215, 185, 0.85);
+  margin-left: 0.25rem;
+}
+
+.district-chat-text {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.9rem;
+  color: rgba(180, 240, 210, 0.9);
+  word-break: break-word;
+}
+
+.district-chat-empty {
+  margin: 0.4rem 0 0;
+  font-size: 0.88rem;
+  color: rgba(180, 235, 205, 0.75);
+}
+
+.district-chat-form {
+  margin-top: 0.5rem;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.district-chat-form input[type='text'] {
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid rgba(90, 255, 160, 0.3);
+  background: rgba(5, 18, 12, 0.75);
+  color: rgba(210, 255, 220, 0.95);
+  font-size: 0.95rem;
+}
+
+.district-chat-form input[type='text']:focus-visible {
+  outline: 2px solid rgba(110, 255, 185, 0.45);
+  outline-offset: 1px;
 }
 
 .district-leaderboard-group {

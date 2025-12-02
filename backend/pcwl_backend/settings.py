@@ -77,6 +77,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "channels",
     "rest_framework",
     "rest_framework.authtoken",
     "game",
@@ -217,3 +218,12 @@ FRONTEND_CREATE_ACCOUNT_PATH = _normalize_path(
     os.environ.get("PCWL_FRONTEND_CREATE_ACCOUNT_PATH", "/create-account.html")
 )
 FRONTEND_STATIC_URL = _normalize_prefix(os.environ.get("PCWL_FRONTEND_STATIC_URL", "/"))
+
+# ASGI / Channels
+REDIS_URL = os.environ.get("REDIS_URL")
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer" if REDIS_URL else "channels.layers.InMemoryChannelLayer",
+        "CONFIG": {"hosts": [REDIS_URL]} if REDIS_URL else {},
+    }
+}

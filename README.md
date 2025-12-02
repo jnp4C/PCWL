@@ -1,7 +1,7 @@
 PCWL — frontend + API split
 =================================
 
-The Django backend now exposes only `/api/` + `/admin/`. All frontend HTML/JS/CSS lives in `frontend/public` and is served by Nginx with no-cache headers, while Nginx proxies API/admin requests to Gunicorn.
+The Django backend now exposes only `/api/` + `/admin/`. All frontend HTML/JS/CSS lives in `frontend/public` and is served by Nginx with no-cache headers, while Nginx proxies API/admin/WebSocket traffic to the ASGI server (Daphne).
 
 Quick start (Docker)
 - `docker build -t pcwl .`
@@ -31,7 +31,12 @@ Useful scripts
 - `tools/setup.sh` — create .venv and install Python requirements.
 - `tools/migrate.sh` — apply database migrations.
 - `tools/run.sh` — run Django dev server for API-only work.
-- `scripts/start.sh` — production-style entrypoint (migrate, collectstatic, sync frontend, start Gunicorn + Nginx).
+- `scripts/start.sh` — production-style entrypoint (migrate, collectstatic, sync frontend, start Daphne + Nginx).
+
+Real-time district chat (Channels)
+- WebSocket endpoint: `/ws/districts/<code>/cyber/` (ASGI via Daphne/Channels).
+- Channel layer uses Redis when `REDIS_URL` is set; otherwise falls back to in-memory (single-worker only).
+- District chat is gated to authenticated users whose home district matches the room code.
 
 Troubleshooting
 - Python 3.13 is unsupported by Django 3.2.x — use Python 3.11 (the scripts will warn you).

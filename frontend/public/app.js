@@ -286,6 +286,15 @@ const districtCyberIncoming = document.getElementById('district-cyber-incoming')
 const districtCyberIncomingText = document.getElementById('district-cyber-incoming-text');
 let districtCyberIncomingData = null;
 let districtCyberIncomingBound = false;
+const districtChatContainer = document.getElementById('district-chat');
+const districtChatLog = document.getElementById('district-chat-log');
+const districtChatEmpty = document.getElementById('district-chat-empty');
+const districtChatForm = document.getElementById('district-chat-form');
+const districtChatInput = document.getElementById('district-chat-input');
+const districtChatStatus = document.getElementById('district-chat-status');
+let districtChatSocket = null;
+let districtChatRoomCode = null;
+let districtChatReconnectTimer = null;
 const districtLeaderboardContainer = document.getElementById('district-leaderboard');
 const districtLeaderboardEmpty = document.getElementById('district-leaderboard-empty');
 const districtLeaderboardAggressive = document.getElementById('district-leaderboard-aggressive');
@@ -423,7 +432,7 @@ const MOBILE_CONTEXT_MENU_LONG_PRESS_MS = 650;
 const MOBILE_CONTEXT_MENU_MOVE_THRESHOLD = 18;
 const DEFAULT_MARKER_COLOR = '#6366f1';
 const DISTRICT_FILL_COLOR_LOW = '#f87171';
-const DISTRICT_FILL_COLOR_MID = '#facc15';
+const DISTRICT_FILL_COLOR_MID = '#c4b5fd'; // softer base (light purple) near 200 pts
 const DISTRICT_FILL_COLOR_HIGH = '#22c55e';
 const DISTRICT_FILL_COLOR_WINNER = '#00ff66';
 function hslToHex(h, s, l) {
@@ -3235,13 +3244,16 @@ function ensureActionContextMenu() {
   const showCyberMenu = (items = [], title = 'Cyberattack') => {
     renderCyberMenu(items, title);
     cyberMenu.classList.remove('hidden');
-    requestAnimationFrame(() => {
-      cyberMenu.classList.add('context-menu-nested--visible');
-    });
-    actionContextMenu.cyberMenuVisible = true;
     if (typeof actionContextMenu.positionCyberMenu === 'function') {
       actionContextMenu.positionCyberMenu();
     }
+    requestAnimationFrame(() => {
+      cyberMenu.classList.add('context-menu-nested--visible');
+      if (typeof actionContextMenu.positionCyberMenu === 'function') {
+        actionContextMenu.positionCyberMenu();
+      }
+    });
+    actionContextMenu.cyberMenuVisible = true;
   };
 
   checkButton.addEventListener('click', async (event) => {
@@ -3415,12 +3427,28 @@ async function triggerCyberAction(actionKey, targetCode, { mode = 'cyber' } = {}
     return;
   }
   const duration = CYBER_COOLDOWNS_MS[actionKey] || 0;
+  let rollbackCooldown = null;
   const hideMenus = () => {
     if (actionContextMenu && typeof actionContextMenu.hideCyberMenu === 'function') {
       actionContextMenu.hideCyberMenu();
     }
     hideActionContextMenu();
   };
+
+  // Optimistically mark cooldown to avoid double-click spam; rollback on error.
+  if (duration) {
+    const meta = {
+      sourceIp: profile.district_ip_address || null,
+      targetCode: normalizedCode,
+      targetName: (actionContextMenu && actionContextMenu.targetDistrictName) || null,
+    };
+    setProfileCooldown(profile, actionKey, duration, { mode, meta });
+    renderDistrictCyberActivity(profile);
+    rollbackCooldown = () => {
+      clearProfileCooldown(profile, actionKey);
+      renderDistrictCyberActivity(profile);
+    };
+  }
 
   const endpoint =
     actionKey === COOLDOWN_KEYS.DDOS
@@ -3449,6 +3477,10 @@ async function triggerCyberAction(actionKey, targetCode, { mode = 'cyber' } = {}
       console.warn('Cyber action failed', error);
       const detail = error && error.message ? error.message : 'Unable to perform cyber action right now.';
       updateStatus(detail);
+      if (rollbackCooldown) {
+        rollbackCooldown();
+        rollbackCooldown = null;
+      }
       hideMenus();
       return;
     }
@@ -14990,12 +15022,196 @@ function updateDistrictDrawerContent(profile = null) {
     (resolvedProfile.homeDistrictId ? safeId(resolvedProfile.homeDistrictId) : null) ||
     (resolvedProfile.homeDistrictCode ? safeId(resolvedProfile.homeDistrictCode) : null);
   if (homeCode) {
-    refreshDistrictPartyActivity(homeCode, { silent: true, force: true });
-    renderDistrictCyberActivity(resolvedProfile);
+  refreshDistrictPartyActivity(homeCode, { silent: true, force: true });
+  renderDistrictCyberActivity(resolvedProfile);
   } else {
     updateDistrictPartySection([]);
     renderDistrictCyberActivity(null);
   }
+}
+
+function setDistrictChatStatus(label, { live = false } = {}) {
+  if (districtChatStatus) {
+    districtChatStatus.textContent = label;
+    districtChatStatus.classList.toggle('live', Boolean(live));
+  }
+}
+
+function clearDistrictChatMessages() {
+  if (districtChatLog) {
+    districtChatLog.innerHTML = '';
+  }
+  if (districtChatEmpty) {
+    districtChatEmpty.classList.remove('hidden');
+  }
+}
+
+function teardownDistrictChat({ hide = true, clear = true } = {}) {
+  if (districtChatReconnectTimer) {
+    window.clearTimeout(districtChatReconnectTimer);
+    districtChatReconnectTimer = null;
+  }
+  if (districtChatSocket) {
+    districtChatSocket.onclose = null;
+    districtChatSocket.onerror = null;
+    districtChatSocket.onmessage = null;
+    try {
+      districtChatSocket.close();
+    } catch (err) {
+      console.warn('Failed to close district chat socket', err);
+    }
+  }
+  districtChatSocket = null;
+  districtChatRoomCode = null;
+  if (clear) {
+    clearDistrictChatMessages();
+    setDistrictChatStatus('Offline', { live: false });
+  }
+  if (hide && districtChatContainer) {
+    districtChatContainer.classList.add('hidden');
+  }
+}
+
+function appendDistrictChatMessage(message) {
+  if (!districtChatLog || !message) {
+    return;
+  }
+  const entry = document.createElement('li');
+  entry.className = 'district-chat-entry';
+  const meta = document.createElement('div');
+  meta.className = 'district-chat-meta';
+  const name = message.display_name || message.username || 'Unknown';
+  meta.textContent = name;
+  if (message.sent_at) {
+    const timestamp = parseServerTimestamp(message.sent_at);
+    if (Number.isFinite(timestamp)) {
+      const dateObj = new Date(timestamp);
+      const timeEl = document.createElement('time');
+      timeEl.dateTime = dateObj.toISOString();
+      timeEl.textContent = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      meta.appendChild(timeEl);
+    }
+  }
+  const text = document.createElement('p');
+  text.className = 'district-chat-text';
+  text.textContent = message.message || '';
+  entry.appendChild(meta);
+  entry.appendChild(text);
+  districtChatLog.appendChild(entry);
+  if (districtChatLog.children.length > 100) {
+    districtChatLog.removeChild(districtChatLog.firstChild);
+  }
+  if (districtChatEmpty) {
+    districtChatEmpty.classList.add('hidden');
+  }
+  districtChatLog.scrollTop = districtChatLog.scrollHeight;
+}
+
+function handleDistrictChatPayload(data) {
+  if (!data) {
+    return;
+  }
+  if (data.type === 'chat.history' && Array.isArray(data.messages)) {
+    clearDistrictChatMessages();
+    data.messages.forEach((msg) => appendDistrictChatMessage(msg));
+    return;
+  }
+  if (data.type === 'chat.message') {
+    appendDistrictChatMessage(data);
+    return;
+  }
+  if (data.type === 'chat.status' && typeof data.status === 'string') {
+    const statusLabel = data.status.toLowerCase() === 'connected' ? 'Live' : data.status;
+    setDistrictChatStatus(statusLabel, { live: data.status.toLowerCase() === 'connected' });
+  }
+}
+
+function connectDistrictChat(homeCode, profile) {
+  if (!districtChatContainer || !window.WebSocket) {
+    return;
+  }
+  const code = typeof homeCode === 'string' ? homeCode.trim().toLowerCase() : '';
+  if (!code || !profile) {
+    teardownDistrictChat();
+    return;
+  }
+  if (
+    districtChatRoomCode === code &&
+    districtChatSocket &&
+    (districtChatSocket.readyState === WebSocket.OPEN || districtChatSocket.readyState === WebSocket.CONNECTING)
+  ) {
+    districtChatContainer.classList.remove('hidden');
+    return;
+  }
+
+  teardownDistrictChat({ hide: false });
+  districtChatRoomCode = code;
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const url = `${protocol}://${window.location.host}/ws/districts/${encodeURIComponent(code)}/cyber/`;
+  setDistrictChatStatus('Connecting…', { live: false });
+  districtChatContainer.classList.remove('hidden');
+
+  try {
+    districtChatSocket = new WebSocket(url);
+  } catch (err) {
+    console.warn('Failed to open district chat socket', err);
+    setDistrictChatStatus('Offline', { live: false });
+    return;
+  }
+
+  districtChatSocket.addEventListener('open', () => {
+    setDistrictChatStatus('Live', { live: true });
+  });
+
+  districtChatSocket.addEventListener('message', (event) => {
+    try {
+      const payload = JSON.parse(event.data);
+      handleDistrictChatPayload(payload);
+    } catch (err) {
+      console.warn('Invalid district chat payload', err);
+    }
+  });
+
+  districtChatSocket.addEventListener('close', (event) => {
+    const fatalCodes = [4401, 4403, 4404];
+    const restricted = fatalCodes.includes(event.code);
+    setDistrictChatStatus(restricted ? 'Restricted' : 'Offline', { live: false });
+    if (!restricted && districtChatRoomCode === code) {
+      districtChatReconnectTimer = window.setTimeout(() => connectDistrictChat(code, profile), 4000);
+    }
+  });
+
+  districtChatSocket.addEventListener('error', (event) => {
+    console.warn('District chat socket error', event);
+    setDistrictChatStatus('Offline', { live: false });
+  });
+}
+
+function sendDistrictChatMessage(text) {
+  if (!districtChatSocket || districtChatSocket.readyState !== WebSocket.OPEN) {
+    setDistrictChatStatus('Offline', { live: false });
+    return false;
+  }
+  try {
+    districtChatSocket.send(JSON.stringify({ message: text }));
+    return true;
+  } catch (err) {
+    console.warn('Failed to send district chat message', err);
+    setDistrictChatStatus('Offline', { live: false });
+    return false;
+  }
+}
+
+if (districtChatForm && districtChatInput) {
+  districtChatForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const text = districtChatInput.value.trim();
+    if (!text) {
+      return;
+    }
+    sendDistrictChatMessage(text);
+    districtChatInput.value = '';
+  });
 }
 
 async function renderDistrictCyberActivity(profile) {
@@ -15018,6 +15234,7 @@ async function renderDistrictCyberActivity(profile) {
 
   if (!profile || !profile.homeDistrictName || !profile.homeDistrictId) {
     districtCyberSection.classList.add('hidden');
+    teardownDistrictChat();
     return;
   }
 
@@ -15027,8 +15244,11 @@ async function renderDistrictCyberActivity(profile) {
     (profile.home_district_code ? safeId(profile.home_district_code) : null);
   if (!homeCode) {
     districtCyberSection.classList.add('hidden');
+    teardownDistrictChat();
     return;
   }
+
+  connectDistrictChat(homeCode, profile);
 
   try {
     const payload = await apiRequest(`districts/${encodeURIComponent(homeCode)}/cyber-activity/`);
@@ -15184,6 +15404,7 @@ async function renderDistrictCyberActivity(profile) {
   } catch (error) {
     console.warn('Failed to load cyber activity', error);
     districtCyberSection.classList.add('hidden');
+    teardownDistrictChat();
   }
 }
 

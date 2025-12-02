@@ -685,6 +685,27 @@
           </div>
           <ul id="district-cyber-feed" class="district-cyber-feed"></ul>
           <p id="district-cyber-empty" class="district-cyber-empty">No cyber activity recorded yet.</p>
+          <div id="district-chat" class="district-chat hidden">
+            <div class="district-chat-header">
+              <h4>District Chat</h4>
+              <span id="district-chat-status" class="district-chat-status">Offline</span>
+            </div>
+            <ul id="district-chat-log" class="district-chat-log" aria-live="polite"></ul>
+            <p id="district-chat-empty" class="district-chat-empty">No chat messages yet.</p>
+            <form id="district-chat-form" class="district-chat-form">
+              <label for="district-chat-input" class="sr-only">Send a message</label>
+              <input
+                type="text"
+                id="district-chat-input"
+                name="message"
+                maxlength="240"
+                autocomplete="off"
+                placeholder="Coordinate defenses…"
+                required
+              />
+              <button type="submit" class="primary small">Send</button>
+            </form>
+          </div>
         </div>
         <div id="district-party-section" class="district-party-section">
           <div class="district-party-header">

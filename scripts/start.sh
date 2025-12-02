@@ -23,21 +23,24 @@ rsync -a frontend/public/ "$FRONTEND_ROOT"/
 envsubst '$PORT $BACKEND_PORT' < deploy/nginx.conf.template > /etc/nginx/conf.d/default.conf
 
 gunicorn pcwl_backend.wsgi:application \
+daphne pcwl_backend.asgi:application \
   --chdir backend \
-  --bind "0.0.0.0:${BACKEND_PORT}" \
-  --workers "${WEB_CONCURRENCY:-3}" &
-GUNICORN_PID=$!
+  --bind "0.0.0.0" \
+  --port "${BACKEND_PORT}" \
+  --access-log "-" \
+  --proxy-headers &
+DAPHNE_PID=$!
 
 nginx -g "daemon off;" &
 NGINX_PID=$!
 
 terminate() {
-  kill -TERM "$GUNICORN_PID" "$NGINX_PID" 2>/dev/null || true
+  kill -TERM "$DAPHNE_PID" "$NGINX_PID" 2>/dev/null || true
 }
 
 trap terminate TERM INT
 
-wait -n "$GUNICORN_PID" "$NGINX_PID"
+wait -n "$DAPHNE_PID" "$NGINX_PID"
 EXIT_CODE=$?
 terminate
 exit "$EXIT_CODE"

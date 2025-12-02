@@ -399,6 +399,39 @@ class PlayerDistrictContribution(models.Model):
         return f"{self.player.username} -> {self.district.code} (+{self.defend_points_total} / -{self.attack_points_total})"
 
 
+class DistrictChatMessage(models.Model):
+    """Chat messages scoped to a district's cyber activity window."""
+
+    district = models.ForeignKey(
+        District,
+        on_delete=models.CASCADE,
+        related_name="chat_messages",
+    )
+    sender = models.ForeignKey(
+        Player,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sent_chat_messages",
+    )
+    username = models.CharField(max_length=50)
+    display_name = models.CharField(max_length=100, blank=True)
+    text = models.CharField(max_length=500)
+    sent_at = models.DateTimeField(default=timezone.now, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-sent_at", "-id"]
+        indexes = [
+            models.Index(fields=["district", "-sent_at"], name="district_chat_time_idx"),
+            models.Index(fields=["district", "id"], name="district_chat_id_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.username} -> {self.district.code}: {self.text[:32]}..."
+
+
 class Party(models.Model):
     """Temporary squad of players coordinating attacks/defences."""
 
