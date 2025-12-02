@@ -3341,6 +3341,8 @@ function ensureActionContextMenu() {
     if (cyberButton.disabled) {
       if (actionContextMenu && actionContextMenu.cyberActionDisabledReason) {
         updateStatus(actionContextMenu.cyberActionDisabledReason);
+      } else {
+        updateStatus('Cyber actions are unavailable here.');
       }
       return;
     }

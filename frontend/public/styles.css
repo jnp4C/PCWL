@@ -765,6 +765,10 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   transition: transform 0.18s ease, opacity 0.18s ease;
 }
 
+.context-menu-nested.hidden {
+  display: none;
+}
+
 .context-menu-nested--visible {
   transform: translateX(0);
   opacity: 1;
