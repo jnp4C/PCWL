@@ -3351,6 +3351,27 @@ function ensureActionContextMenu() {
     }
     let targetId = menu.targetDistrictId ? safeId(menu.targetDistrictId) : null;
     let targetName = menu.targetDistrictName || null;
+    if ((!targetId || !targetName) && actionContextMenuLngLat) {
+      resolveDistrictAtLngLat(actionContextMenuLngLat[0], actionContextMenuLngLat[1])
+        .then((feature) => {
+          const derivedId = feature ? getDistrictId(feature) : null;
+          const derivedName = feature ? getDistrictName(feature) : null;
+          targetId = targetId || (derivedId ? safeId(derivedId) : null);
+          targetName = targetName || (derivedName || (targetId ? `District ${targetId}` : null));
+          if (targetId && targetName) {
+            menu.targetDistrictId = targetId;
+            menu.targetDistrictName = targetName;
+            // Re-run handler after resolving the target to open the submenu.
+            cyberButton.click();
+          } else {
+            updateStatus('Select a district first.');
+          }
+        })
+        .catch(() => {
+          updateStatus('Select a district first.');
+        });
+      return;
+    }
     const homeId =
       profile && profile.homeDistrictId
         ? safeId(profile.homeDistrictId)
