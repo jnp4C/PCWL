@@ -1340,11 +1340,28 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
                 attacker_home_name = getattr(entry.attacker, "home_district_name", "") or ""
             if not attacker_home_name and attacker_home_code:
                 attacker_home_name = f"District {attacker_home_code}"
+            ended_by_username = ""
+            ended_by_display = ""
+            ended_by_ip = ""
+            ended_by_is_self = False
+            ended_by_is_friend = False
+            if entry.ended_by_player:
+                ended_by_username = entry.ended_by_player.username or ""
+                ended_by_display = (entry.ended_by_player.display_name or "").strip() or ended_by_username
+                ended_by_ip = entry.ended_by_player.district_ip_address or ""
+                ended_by_is_self = entry.ended_by_player_id == player.id
+                # Friend check deferred to client; flag best-effort using reverse links if available.
+                ended_by_is_friend = False
             return {
                 "type": kind,
                 "attacker_ip": entry.attacker_ip or "",
                 "attacker_home_code": attacker_home_code,
                 "attacker_home_name": attacker_home_name,
+                "ended_by_username": ended_by_username,
+                "ended_by_display": ended_by_display,
+                "ended_by_ip": ended_by_ip,
+                "ended_by_is_self": ended_by_is_self,
+                "ended_by_is_friend": ended_by_is_friend,
                 "target_code": target_code,
                 "target_name": target_name,
                 "started_at": entry.started_at,

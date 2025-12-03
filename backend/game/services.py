@@ -1058,7 +1058,7 @@ def apply_checkin(
         name = _normalise_district_name(district_name)
         if not code:
             raise ValueError("District code is required.")
-        _get_or_create_district_record(code, name)
+        district_obj = _get_or_create_district_record(code, name)
 
         now_ms = _now_ms()
 
@@ -1157,9 +1157,16 @@ def apply_checkin(
         streak_multiplier = _compute_party_streak_multiplier(participants_for_streak, today)
 
         effective_multiplier = charge_multiplier * local_bonus * streak_multiplier
+        disruption_multiplier = Decimal(1)
+        if district_obj:
+            try:
+                ddos_debuff = _ddos_debuff_percent(district_obj, now=now)
+                disruption_multiplier = Decimal(max(0, 1 - ddos_debuff)).quantize(Decimal("0.0001"))
+            except Exception:
+                disruption_multiplier = Decimal(1)
         base_points_decimal = Decimal(POINTS_PER_CHECKIN)
-        total_player_multiplier = effective_multiplier * party_multiplier_player
-        total_district_multiplier = effective_multiplier * party_multiplier_district
+        total_player_multiplier = effective_multiplier * party_multiplier_player * disruption_multiplier
+        total_district_multiplier = effective_multiplier * party_multiplier_district * disruption_multiplier
 
         player_points_decimal = base_points_decimal * total_player_multiplier
         district_points_decimal = base_points_decimal * total_district_multiplier
@@ -1647,9 +1654,10 @@ def apply_firewall(player: Player, target_code: str) -> Dict[str, Any]:
         if count:
             # Pick a pseudo-random active entry without loading all rows
             idx = int(_now_ms() % count)
-            removed_entry = qs.order_by("id")[idx]
-            removed_entry.ended_at = now
-            removed_entry.save(update_fields=["ended_at", "updated_at"])
+        removed_entry = qs.order_by("id")[idx]
+        removed_entry.ended_at = now
+        removed_entry.ended_by_player = locked
+        removed_entry.save(update_fields=["ended_at", "updated_at"])
 
         _update_cooldown(locked, COOLDOWN_KEYS["firewall"], COOLDOWN_DURATIONS_MS["firewall"], now_ms=int(now.timestamp() * 1000))
         locked.save(update_fields=["cooldowns", "cooldown_details", "updated_at"])

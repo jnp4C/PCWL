@@ -15194,6 +15194,8 @@ function appendDistrictChatMessage(message) {
   }
   const username = typeof message.username === 'string' ? message.username : '';
   const districtIp = typeof message.district_ip === 'string' ? message.district_ip : '';
+  const wasNearBottom =
+    districtChatLog.scrollHeight - districtChatLog.clientHeight - districtChatLog.scrollTop < 120;
   const entry = document.createElement('li');
   entry.className = 'district-chat-entry';
   const meta = document.createElement('div');
@@ -15226,7 +15228,10 @@ function appendDistrictChatMessage(message) {
   if (districtChatEmpty) {
     districtChatEmpty.classList.add('hidden');
   }
-  districtChatLog.scrollTop = districtChatLog.scrollHeight;
+
+  if (wasNearBottom) {
+    districtChatLog.scrollTop = districtChatLog.scrollHeight;
+  }
 }
 
 function handleDistrictChatPayload(data) {
@@ -15350,6 +15355,8 @@ async function renderDistrictCyberActivity(profile) {
   if (!districtCyberSection || !districtCyberFeed || !districtCyberEmpty) {
     return;
   }
+  const wasNearBottom =
+    districtCyberFeed.scrollHeight - districtCyberFeed.clientHeight - districtCyberFeed.scrollTop < 120;
   const formatDistrictLabel = (name, code) => {
     const trimmed = typeof name === 'string' ? name.trim() : '';
     if (trimmed) {
@@ -15493,10 +15500,26 @@ async function renderDistrictCyberActivity(profile) {
       const effectLabel = formatDdosPercent(effectValue);
       const target = formatDistrictLabel(item.target_name, item.target_code);
       const ip = item.attacker_ip || 'district IP';
+      const sourceIp = item.attacker_ip || 'district IP';
       const source = formatDistrictLabel(item.attacker_home_name, item.attacker_home_code);
+      const endedByUsername = typeof item.ended_by_username === 'string' ? item.ended_by_username : '';
+      const endedByDisplay = typeof item.ended_by_display === 'string' ? item.ended_by_display : '';
+      const endedByIp = typeof item.ended_by_ip === 'string' ? item.ended_by_ip : '';
+      const isFriend = isFriendUsername(endedByUsername);
+      const isSelf = currentUser && endedByUsername && endedByUsername.toLowerCase() === currentUser.toLowerCase();
+      let actorLabel = endedByIp || 'district IP';
+      if (isSelf) {
+        actorLabel = 'You';
+      } else if (isFriend && endedByDisplay) {
+        actorLabel = endedByDisplay;
+      } else if (isFriend) {
+        actorLabel = endedByUsername;
+      } else if (endedByDisplay) {
+        actorLabel = endedByDisplay;
+      }
       entries.push({
         title: 'Firewall deployed',
-        body: `${target} deployed a firewall, blocking DDoS traffic from ${source} (${ip}) and cutting disruption to ${effectLabel}.`,
+        body: `${actorLabel} knocked off ${sourceIp} (${source}), lowering DDoS disruption on ${target} to ${effectLabel}.`,
       });
     });
 
@@ -15580,6 +15603,9 @@ async function renderDistrictCyberActivity(profile) {
     });
 
     districtCyberSection.classList.remove('hidden');
+    if (wasNearBottom && typeof districtCyberFeed.scrollIntoView === 'function') {
+      districtCyberFeed.lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
   } catch (error) {
     console.warn('Failed to load cyber activity', error);
     districtCyberSection.classList.add('hidden');

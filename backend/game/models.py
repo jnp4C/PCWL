@@ -320,6 +320,13 @@ class DistrictDdosEntry(models.Model):
     started_at = models.DateTimeField(default=timezone.now)
     expires_at = models.DateTimeField()
     ended_at = models.DateTimeField(null=True, blank=True)
+    ended_by_player = models.ForeignKey(
+        Player,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ended_ddos_entries",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
