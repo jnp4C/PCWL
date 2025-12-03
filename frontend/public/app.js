@@ -15431,7 +15431,7 @@ async function renderDistrictCyberActivity(profile) {
       const growth = Math.log1p(clamped * 9) / Math.log(10);
       return base + (peak - base) * growth;
     };
-    const appendMilestones = (item, targetLabel, ip, list) => {
+    const appendMilestones = (item, targetLabel, ip, list, totalEffectPercent = null) => {
       const startedAt = parseServerTimestamp(item.started_at);
       if (!startedAt || !Number.isFinite(startedAt)) {
         return;
@@ -15441,11 +15441,13 @@ async function renderDistrictCyberActivity(profile) {
       const intervals = Math.min(3, Math.floor(elapsed / (30 * 60 * 1000)));
       for (let i = 1; i <= intervals; i += 1) {
         const progress = Math.min(1, (i * 30 * 60 * 1000) / total);
-        const eff = ddosGrowthEffect(progress);
+        const eff = Number.isFinite(totalEffectPercent)
+          ? Math.max(0, Math.min(100, totalEffectPercent))
+          : ddosGrowthEffect(progress);
         const label = formatDdosPercentPrecise(eff);
         list.push({
           title: 'DDoS ramped',
-          body: `${ip} increased this attack's disruption on ${targetLabel} to ${label} after ${i * 30} minutes.`,
+          body: `${ip} increased enemy DDoS disruption on ${targetLabel} to ${label} after ${i * 30} minutes.`,
         });
       }
     };
@@ -15459,7 +15461,7 @@ async function renderDistrictCyberActivity(profile) {
         title: 'DDoS in progress',
         body: `${ip} performed a DDoS on ${target}, increasing enemy district DDoS disruption to ${effectLabel}.`,
       });
-      appendMilestones(item, target, ip, entries);
+      appendMilestones(item, target, ip, entries, effectValue);
 
       // Update active DDoS meta if this user is the attacker, so the chip shows current disruption
       if (
@@ -15508,7 +15510,7 @@ async function renderDistrictCyberActivity(profile) {
         title: 'Incoming DDoS',
         body: `${ip} from ${sourceCode} performed a DDoS on ${target}, raising your home DDoS disruption to ${effectLabel}.`,
       });
-      appendMilestones(item, target, ip, entries);
+      appendMilestones(item, target, ip, entries, effectValue);
     });
 
     const incomingDistricts = Object.keys(incomingByDistrict || {}).filter(Boolean);
