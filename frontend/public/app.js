@@ -1853,10 +1853,9 @@ function renderCyberCooldownChip(profile, now = Date.now()) {
       const targetName = (slot.meta && slot.meta.targetName) || (slot.meta && slot.meta.targetCode) || '';
       const effect = Number(slot.meta && slot.meta.debuff) || null;
       messages.push(`${formatCooldownTime(slot.remaining)} • ${slot.label}`);
-      messages.push(`Outgoing from ${ip}`);
-      if (targetName) {
-        messages.push(`${slot.label} on ${targetName}`);
-      }
+      const route = targetName ? `${ip} → ${targetName}` : `${ip} → target`;
+      messages.push(route);
+      messages.push(targetName ? `${slot.label} on ${targetName}` : slot.label);
       if (Number.isFinite(effect)) {
         messages.push(`Disruption at ${Math.min(100, Math.max(0, effect)).toFixed(1)}%`);
       }
@@ -15341,6 +15340,23 @@ async function renderDistrictCyberActivity(profile) {
   if (!districtCyberSection || !districtCyberFeed || !districtCyberEmpty) {
     return;
   }
+  const formatDistrictLabel = (name, code) => {
+    const trimmed = typeof name === 'string' ? name.trim() : '';
+    if (trimmed) {
+      return trimmed;
+    }
+    if (code) {
+      return `District ${code}`;
+    }
+    return 'a district';
+  };
+  const formatDdosPercent = (value) => {
+    const pct = Number(value);
+    if (!Number.isFinite(pct)) {
+      return '0.0%';
+    }
+    return `${Math.min(100, Math.max(0, pct)).toFixed(1)}%`;
+  };
   districtCyberFeed.innerHTML = '';
   districtCyberEmpty.classList.add('hidden');
   if (districtCyberIp) {
@@ -15400,7 +15416,7 @@ async function renderDistrictCyberActivity(profile) {
       for (let i = 1; i <= intervals; i += 1) {
         const progress = Math.min(1, (i * 30 * 60 * 1000) / total);
         const eff = ddosGrowthEffect(progress);
-        const label = `${eff.toFixed(1)}%`;
+        const label = formatDdosPercent(eff);
         list.push({
           title: 'DDoS ramped',
           body: `${ip} increased disruption on ${targetLabel} to ${label} after ${i * 30} minutes.`,
@@ -15409,13 +15425,13 @@ async function renderDistrictCyberActivity(profile) {
     };
 
     active.forEach((item) => {
-      const effect = Number.isFinite(item.entry_effect_percent) ? Number(item.entry_effect_percent) : Number(item.effect_percent);
-      const effectLabel = Number.isFinite(effect) ? `${Math.min(100, Math.max(0, effect)).toFixed(1)}%` : '—';
-      const target = item.target_name || item.target_code || 'target district';
+      const effectValue = Number.isFinite(item.effect_percent) ? Number(item.effect_percent) : Number(item.entry_effect_percent);
+      const effectLabel = formatDdosPercent(effectValue);
+      const target = formatDistrictLabel(item.target_name, item.target_code);
       const ip = item.attacker_ip || 'district IP';
       entries.push({
         title: 'DDoS in progress',
-        body: `${ip} performed a DDoS on ${target}, increasing disruption to ${effectLabel}.`,
+        body: `${ip} performed a DDoS on ${target}, increasing enemy district DDoS disruption to ${effectLabel}.`,
       });
       appendMilestones(item, target, ip, entries);
 
@@ -15434,8 +15450,8 @@ async function renderDistrictCyberActivity(profile) {
           targetCode: item.target_code || null,
           targetName: target,
         };
-        if (Number.isFinite(effect)) {
-          meta.debuff = effect;
+        if (Number.isFinite(effectValue)) {
+          meta.debuff = effectValue;
         }
         activeCooldowns.set(COOLDOWN_KEYS.DDOS, {
           ...info,
@@ -15454,19 +15470,14 @@ async function renderDistrictCyberActivity(profile) {
     });
 
     incoming.forEach((item) => {
-      const effect = Number.isFinite(item.entry_effect_percent) ? Number(item.entry_effect_percent) : Number(item.effect_percent);
-      const effectLabel = Number.isFinite(effect) ? `${Math.min(100, Math.max(0, effect)).toFixed(1)}%` : '—';
-      const target =
-        profile.homeDistrictName ||
-        profile.home_district_name ||
-        item.target_name ||
-        item.target_code ||
-        'home district';
+      const effectValue = Number.isFinite(item.effect_percent) ? Number(item.effect_percent) : Number(item.entry_effect_percent);
+      const effectLabel = formatDdosPercent(effectValue);
+      const target = profile.homeDistrictName || profile.home_district_name || formatDistrictLabel(item.target_name, item.target_code);
       const ip = item.attacker_ip || 'district IP';
-      const sourceCode = item.attacker_home_code || 'unknown district';
+      const sourceCode = formatDistrictLabel(item.attacker_home_name, item.attacker_home_code) || 'unknown district';
       entries.push({
         title: 'Incoming DDoS',
-        body: `${ip} from ${sourceCode} performed a DDoS on ${target}, raising disruption to ${effectLabel}.`,
+        body: `${ip} from ${sourceCode} performed a DDoS on ${target}, raising your home DDoS disruption to ${effectLabel}.`,
       });
       appendMilestones(item, target, ip, entries);
     });
