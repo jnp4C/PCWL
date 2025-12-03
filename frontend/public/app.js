@@ -18112,6 +18112,21 @@ function showMap(triggerGeolocation) {
   }
 }
 
+function updatePlayerLocationMarker(lng, lat, { source = 'profile' } = {}) {
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+    return;
+  }
+  lastKnownLocation = [lng, lat];
+  try {
+    updateCurrentDistrictFromCoordinates(lng, lat);
+  } catch (err) {
+    console.warn('Failed to update district from stored location', err);
+  }
+  if (map && typeof map.setCenter === 'function' && source === 'profile') {
+    map.setCenter([lng, lat]);
+  }
+}
+
 if (findMeButton) {
   findMeButton.addEventListener('click', () => {
     ensureMap(() => {
