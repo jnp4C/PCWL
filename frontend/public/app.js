@@ -1264,16 +1264,16 @@ function resolveCooldownColors(actionKey, mode = null) {
   }
   if (actionKey === COOLDOWN_KEYS.DDOS || actionKey === COOLDOWN_KEYS.WORM) {
     return {
-      fill: 'linear-gradient(135deg, rgba(237, 95, 163, 0.92), rgba(255, 142, 93, 0.8))',
-      track: 'rgba(255, 130, 160, 0.2)',
-      text: 'rgba(255, 240, 245, 0.94)',
+      fill: 'linear-gradient(135deg, rgba(110, 255, 185, 0.92), rgba(70, 200, 140, 0.8))',
+      track: 'rgba(70, 200, 140, 0.22)',
+      text: 'rgba(225, 255, 240, 0.95)',
     };
   }
   if (actionKey === COOLDOWN_KEYS.FIREWALL || actionKey === COOLDOWN_KEYS.DEWORM) {
     return {
-      fill: 'linear-gradient(135deg, rgba(92, 198, 255, 0.92), rgba(125, 255, 205, 0.8))',
-      track: 'rgba(110, 210, 255, 0.2)',
-      text: 'rgba(230, 245, 255, 0.94)',
+      fill: 'linear-gradient(135deg, rgba(110, 255, 185, 0.92), rgba(70, 200, 140, 0.8))',
+      track: 'rgba(70, 200, 140, 0.22)',
+      text: 'rgba(225, 255, 240, 0.95)',
     };
   }
   return {
@@ -3222,23 +3222,29 @@ function ensureActionContextMenu() {
     heading.textContent = title;
     heading.setAttribute('role', 'presentation');
     cyberMenu.appendChild(heading);
-    items.forEach(({ key, label, note, handler }) => {
+    items.forEach((item) => {
+      const { key, label, note, handler, disabled, disabledNote } = item || {};
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'context-menu-item';
-      btn.textContent = label;
-      if (note) {
-        btn.title = note;
+      const isDisabled = Boolean(disabled);
+      btn.textContent = isDisabled ? `${label} (Cooldown)` : label;
+      btn.disabled = isDisabled;
+      const tooltip = isDisabled ? disabledNote || note : note;
+      if (tooltip) {
+        btn.title = tooltip;
       }
-      btn.addEventListener('click', () => {
-        if (typeof handler === 'function') {
-          handler();
-        } else {
-          updateStatus(`${label} queued. Mechanics coming soon.`);
-          hideCyberMenu();
-          hideActionContextMenu();
-        }
-      });
+      if (!isDisabled) {
+        btn.addEventListener('click', () => {
+          if (typeof handler === 'function') {
+            handler();
+          } else {
+            updateStatus(`${label} queued. Mechanics coming soon.`);
+            hideCyberMenu();
+            hideActionContextMenu();
+          }
+        });
+      }
       cyberMenu.appendChild(btn);
     });
   };
@@ -3338,15 +3344,11 @@ function ensureActionContextMenu() {
 
   cyberButton.addEventListener('click', (event) => {
     event.preventDefault();
-    if (cyberButton.disabled) {
-      if (actionContextMenu && actionContextMenu.cyberActionDisabledReason) {
-        updateStatus(actionContextMenu.cyberActionDisabledReason);
-      } else {
-        updateStatus('Cyber actions are unavailable here.');
-      }
+    const profile = currentUser ? ensurePlayerProfile(currentUser) : null;
+    if (!profile) {
+      updateStatus('Sign in to use cyber actions.');
       return;
     }
-    const profile = currentUser ? ensurePlayerProfile(currentUser) : null;
     let targetId = menu.targetDistrictId ? safeId(menu.targetDistrictId) : null;
     let targetName = menu.targetDistrictName || null;
     const homeId =
@@ -3365,18 +3367,27 @@ function ensureActionContextMenu() {
       return;
     }
     const targetCode = targetId;
+    const now = Date.now();
+    const ddosOnCooldown = isActionOnCooldown(profile, COOLDOWN_KEYS.DDOS, now);
+    const wormOnCooldown = isActionOnCooldown(profile, COOLDOWN_KEYS.WORM, now);
+    const firewallOnCooldown = isActionOnCooldown(profile, COOLDOWN_KEYS.FIREWALL, now);
+    const dewormOnCooldown = isActionOnCooldown(profile, COOLDOWN_KEYS.DEWORM, now);
     const options = isHome
       ? [
           {
             key: COOLDOWN_KEYS.DEWORM,
             label: 'deWorm',
             note: 'Purge hostile code from home systems.',
+            disabled: dewormOnCooldown,
+            disabledNote: 'deWorm cooldown active. Wait until it completes.',
             handler: () => triggerCyberAction(COOLDOWN_KEYS.DEWORM, targetCode, { mode: 'defense' }),
           },
           {
             key: COOLDOWN_KEYS.FIREWALL,
             label: 'Firewall',
             note: 'Reinforce defenses against incursions.',
+            disabled: firewallOnCooldown,
+            disabledNote: 'Firewall cooldown active. Wait until it completes.',
             handler: () => triggerCyberAction(COOLDOWN_KEYS.FIREWALL, targetCode, { mode: 'defense' }),
           },
         ]
@@ -3385,12 +3396,16 @@ function ensureActionContextMenu() {
             key: COOLDOWN_KEYS.DDOS,
             label: 'DDoS',
             note: 'Overwhelm the district\'s comms.',
+            disabled: ddosOnCooldown,
+            disabledNote: 'DDoS cooldown active. Wait until it completes.',
             handler: () => triggerCyberAction(COOLDOWN_KEYS.DDOS, targetCode, { mode: 'attack' }),
           },
           {
             key: COOLDOWN_KEYS.WORM,
             label: 'Worm Core Infrastructure',
             note: 'Slip a worm into critical links.',
+            disabled: wormOnCooldown,
+            disabledNote: 'Worm cooldown active. Wait until it completes.',
             handler: () => triggerCyberAction(COOLDOWN_KEYS.WORM, targetCode, { mode: 'attack' }),
           },
         ];
@@ -3741,31 +3756,38 @@ function showActionContextMenu(lng, lat, point, options = {}) {
     if (menu.cyberButton) {
       if (menu.targetDistrictId) {
         menu.cyberButton.style.display = 'block';
-        const ddosOnCooldown = profile ? isActionOnCooldown(profile, COOLDOWN_KEYS.DDOS, nowLocal) : true;
-        const firewallOnCooldown = profile ? isActionOnCooldown(profile, COOLDOWN_KEYS.FIREWALL, nowLocal) : true;
-        // For attackers: disable only if DDOS is on cooldown; for defenders: disable if firewall is on cooldown.
-        const disabled = willDefend ? firewallOnCooldown : ddosOnCooldown;
+        const ddosOnCooldown = profile ? isActionOnCooldown(profile, COOLDOWN_KEYS.DDOS, nowLocal) : false;
+        const wormOnCooldown = profile ? isActionOnCooldown(profile, COOLDOWN_KEYS.WORM, nowLocal) : false;
+        const firewallOnCooldown = profile ? isActionOnCooldown(profile, COOLDOWN_KEYS.FIREWALL, nowLocal) : false;
+        const dewormOnCooldown = profile ? isActionOnCooldown(profile, COOLDOWN_KEYS.DEWORM, nowLocal) : false;
+        const anyCooldown = willDefend
+          ? firewallOnCooldown || dewormOnCooldown
+          : ddosOnCooldown || wormOnCooldown;
+        const allCooldown = willDefend
+          ? firewallOnCooldown && dewormOnCooldown
+          : ddosOnCooldown && wormOnCooldown;
         menu.cyberActionDisabledReason = '';
-        if (disabled) {
-          menu.cyberActionDisabledReason = willDefend
-            ? 'Cyberdefense cooldown active. Wait until it completes.'
-            : 'Cyberattack cooldown active. Wait until it completes.';
+        menu.cyberButton.disabled = false; // keep clickable so the nested menu can show available options
+        const baseLabel = willDefend ? 'Cyberdefense' : 'Cyberattack';
+        if (!profile) {
+          menu.cyberButton.textContent = 'Log in for cyber';
+          menu.cyberButton.title = 'Log in to use cyber actions.';
+        } else if (allCooldown) {
+          menu.cyberButton.textContent = `${baseLabel} (Cooldown)`;
+          menu.cyberButton.title = willDefend
+            ? 'All cyber defenses are on cooldown.'
+            : 'All cyber attacks are on cooldown.';
+        } else if (anyCooldown) {
+          menu.cyberButton.textContent = `${baseLabel} (Partial Cooldown)`;
+          menu.cyberButton.title = willDefend
+            ? 'Some defenses are cooling down; others are available.'
+            : 'Some attacks are cooling down; others are available.';
+        } else {
+          menu.cyberButton.textContent = baseLabel;
+          menu.cyberButton.title = willDefend
+            ? 'Deploy cyber defenses for your home district.'
+            : 'Launch a remote cyber strike on this district.';
         }
-        menu.cyberButton.disabled = disabled;
-        menu.cyberButton.textContent = willDefend
-          ? firewallOnCooldown
-            ? 'Cyberdefense (Cooldown)'
-            : 'Cyberdefense'
-          : ddosOnCooldown
-          ? 'Cyberattack (Cooldown)'
-          : 'Cyberattack';
-        menu.cyberButton.title = willDefend
-          ? firewallOnCooldown
-            ? 'Cyberdefense cooldown active. Wait until it completes.'
-            : 'Deploy cyber defenses for your home district.'
-          : ddosOnCooldown
-          ? 'Cyberattack cooldown active. Wait until it completes.'
-          : 'Launch a remote cyber strike on this district.';
       } else {
         menu.cyberButton.style.display = 'none';
         menu.cyberButton.disabled = true;
@@ -9432,6 +9454,40 @@ function focusFriendLocation({ username, lng, lat, color }) {
   });
 }
 
+function getFriendLastActiveTimestamp(friend) {
+  let latest = 0;
+  const lastKnown = friend && friend.last_known_location;
+  if (lastKnown && typeof lastKnown === 'object') {
+    const locTs = normaliseTimestampMs(lastKnown.timestamp || lastKnown.updatedAt);
+    if (Number.isFinite(locTs)) {
+      latest = Math.max(latest, locTs);
+    }
+  }
+  const history = getFriendRecentCheckins(friend);
+  if (Array.isArray(history) && history.length) {
+    history.forEach((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return;
+      }
+      const rawTs =
+        entry.timestamp ||
+        entry.occurred_at ||
+        entry.occurredAt ||
+        entry.updated_at ||
+        entry.updatedAt;
+      const ts = normaliseTimestampMs(rawTs) || parseServerTimestamp(rawTs) || 0;
+      if (Number.isFinite(ts)) {
+        latest = Math.max(latest, ts);
+      }
+    });
+  }
+  const updatedAtTs = parseServerTimestamp(friend && friend.updated_at);
+  if (Number.isFinite(updatedAtTs)) {
+    latest = Math.max(latest, updatedAtTs);
+  }
+  return latest;
+}
+
 function sortFriends(list) {
   if (!Array.isArray(list)) {
     return [];
@@ -9439,6 +9495,11 @@ function sortFriends(list) {
   return list
     .slice()
     .sort((a, b) => {
+      const aRecent = getFriendLastActiveTimestamp(a);
+      const bRecent = getFriendLastActiveTimestamp(b);
+      if (aRecent !== bRecent) {
+        return bRecent - aRecent;
+      }
       const aFav = Boolean(a && a.is_favorite);
       const bFav = Boolean(b && b.is_favorite);
       if (aFav !== bFav) {
@@ -15680,6 +15741,13 @@ function enhanceCharacterIdentityCard(profile) {
     ['click', 'mousedown', 'keypress', 'keydown', 'keyup'].forEach((evt) => {
       input.addEventListener(evt, (e) => e.stopPropagation(), { capture: true });
     });
+    const setCardFace = (showBack = false) => {
+      const backVisible = Boolean(showBack);
+      characterIdentityCard.classList.toggle('is-flipped', backVisible);
+      characterIdentityCard.setAttribute('aria-pressed', backVisible ? 'true' : 'false');
+      front.setAttribute('aria-hidden', backVisible ? 'true' : 'false');
+      back.setAttribute('aria-hidden', backVisible ? 'false' : 'true');
+    };
     const actions = document.createElement('div');
     actions.className = 'public-bio-actions';
     const save = document.createElement('button');
@@ -15697,11 +15765,12 @@ function enhanceCharacterIdentityCard(profile) {
       save.textContent = 'Save';
       if (saved && typeof saved.profile_bio === 'string') {
         const nextBio = saved.profile_bio.slice(0, 50);
+        input.value = nextBio;
         const preview = document.getElementById(CHARACTER_BIO_PREVIEW_ID);
         if (preview) {
           preview.textContent = nextBio || 'Tap to view message';
         }
-        characterIdentityCard.classList.remove('is-flipped');
+        setCardFace(false);
         updateStatus('Profile message saved.');
       }
     });
@@ -15714,6 +15783,8 @@ function enhanceCharacterIdentityCard(profile) {
     characterIdentityCard.classList.add('flip-card');
     characterIdentityCard.dataset.bioEnhanced = 'true';
     characterIdentityCard.tabIndex = 0;
+    characterIdentityCard.setAttribute('role', 'button');
+    characterIdentityCard.setAttribute('aria-pressed', 'false');
     const toggleCard = (event) => {
       const target = event.target instanceof HTMLElement ? event.target : null;
       if (target && (target.closest('textarea') || target.closest('input') || target.closest('button'))) {
@@ -15724,10 +15795,11 @@ function enhanceCharacterIdentityCard(profile) {
         return;
       }
       event.preventDefault();
-      characterIdentityCard.classList.toggle('is-flipped');
+      setCardFace(!characterIdentityCard.classList.contains('is-flipped'));
     };
     characterIdentityCard.addEventListener('click', toggleCard);
     characterIdentityCard.addEventListener('keypress', toggleCard);
+    setCardFace(characterIdentityCard.classList.contains('is-flipped'));
   }
 
   const preview =
