@@ -165,6 +165,17 @@ function buildApiUrl(path) {
   return `${API_BASE_URL}/${cleanPath}`;
 }
 
+function resetLeaderboardAccordions() {
+  const playerTable = document.querySelector('.leaderboard-table--players');
+  const districtTable = document.querySelector('.leaderboard-table--districts');
+  const partyTable = document.querySelector('.leaderboard-table--parties');
+  [playerTable, districtTable, partyTable].forEach((table) => {
+    if (table) {
+      applyAccordionBehavior(table);
+    }
+  });
+}
+
 async function fetchJson(path) {
   const response = await fetch(buildApiUrl(path), { credentials: 'same-origin' });
   if (!response.ok) {
@@ -255,6 +266,7 @@ function closeFriendProfileDrawer({ restoreFocus = true } = {}) {
   if (friendProfileBody) {
     friendProfileBody.innerHTML = '';
   }
+  resetLeaderboardAccordions();
 }
 
 function closePartyProfileDrawer({ restoreFocus = true } = {}) {
@@ -274,6 +286,7 @@ function closePartyProfileDrawer({ restoreFocus = true } = {}) {
   if (partyProfileBody) {
     partyProfileBody.innerHTML = '';
   }
+  resetLeaderboardAccordions();
 }
 
 function loadPlayerData() {
