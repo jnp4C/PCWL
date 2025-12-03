@@ -895,28 +895,30 @@ function renderFriendProfileDrawer(profile, meta = '') {
   identityCard.appendChild(metaBlock);
   summary.appendChild(identityCard);
 
-  const streakCard = document.createElement('div');
-  streakCard.className = 'character-card character-streak friend-profile-streak';
-  const streakLabelRow = document.createElement('div');
-  streakLabelRow.className = 'streak-label-row';
-  const streakChip = document.createElement('span');
-  streakChip.className = 'streak-chip';
-  streakChip.textContent = 'Streak';
-  const streakDays = document.createElement('span');
-  streakDays.className = 'streak-days';
-  streakDays.textContent = `${profile.streakDays} ${profile.streakDays === 1 ? 'day' : 'days'} alive`;
-  streakLabelRow.appendChild(streakChip);
-  streakLabelRow.appendChild(streakDays);
-  const streakValue = document.createElement('div');
-  streakValue.className = 'streak-value';
-  streakValue.textContent = `x${Number(profile.streakMultiplier || 1).toFixed(2)}`;
-  const streakHint = document.createElement('p');
-  streakHint.className = 'streak-hint';
-  streakHint.textContent = 'Attack + defend each day to keep it alive.';
-  streakCard.appendChild(streakLabelRow);
-  streakCard.appendChild(streakValue);
-  streakCard.appendChild(streakHint);
-  summary.appendChild(streakCard);
+  const infoCard = document.createElement('div');
+  infoCard.className = 'character-card friend-profile-streak';
+  const infoTitle = document.createElement('h3');
+  infoTitle.textContent = 'Profile';
+  infoCard.appendChild(infoTitle);
+  const infoList = document.createElement('ul');
+  infoList.className = 'friend-profile-stats';
+  const addRow = (label, value) => {
+    const li = document.createElement('li');
+    const labelEl = document.createElement('span');
+    labelEl.className = 'friend-profile-stat-label';
+    labelEl.textContent = label;
+    const valueEl = document.createElement('span');
+    valueEl.className = 'friend-profile-stat-value';
+    valueEl.textContent = value || '—';
+    li.appendChild(labelEl);
+    li.appendChild(valueEl);
+    infoList.appendChild(li);
+  };
+  addRow('Score', Number.isFinite(profile.score) ? profile.score.toLocaleString() : '—');
+  addRow('Home district', profile.homeDistrictName || profile.homeDistrict || 'Not set');
+  addRow('Party', profile.activePartyName || profile.activeParty || 'None');
+  infoCard.appendChild(infoList);
+  summary.appendChild(infoCard);
 
   friendProfileBody.appendChild(summary);
 }
