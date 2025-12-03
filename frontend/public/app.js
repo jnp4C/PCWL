@@ -15427,6 +15427,7 @@ async function renderDistrictCyberActivity(profile) {
     const entries = [];
     const active = Array.isArray(payload?.active) ? payload.active : [];
     const blocked = Array.isArray(payload?.blocked) ? payload.blocked : [];
+    const blockedOutgoing = Array.isArray(payload?.blocked_outgoing) ? payload.blocked_outgoing : [];
     const incoming = Array.isArray(payload?.incoming) ? payload.incoming : [];
     const incomingByDistrict = payload?.incoming_by_district || {};
     const homeEffectPercent = Number(payload?.home_effect_percent);
@@ -15520,6 +15521,17 @@ async function renderDistrictCyberActivity(profile) {
       entries.push({
         title: 'Firewall deployed',
         body: `${actorLabel} knocked off ${sourceIp} (${source}), lowering DDoS disruption on ${target} to ${effectLabel}.`,
+      });
+    });
+
+    blockedOutgoing.forEach((item) => {
+      const effectValue = Number.isFinite(item.effect_percent) ? Number(item.effect_percent) : Number(item.entry_effect_percent);
+      const effectLabel = formatDdosPercent(effectValue);
+      const target = formatDistrictLabel(item.target_name, item.target_code);
+      const defenderName = item.ended_by_display || item.ended_by_username || item.ended_by_ip || 'Defender';
+      entries.push({
+        title: 'DDoS disrupted',
+        body: `${defenderName} deployed a firewall that knocked off your DDoS on ${target}, lowering disruption to ${effectLabel}.`,
       });
     });
 

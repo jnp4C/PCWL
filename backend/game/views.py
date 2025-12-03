@@ -1309,6 +1309,12 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
             .filter(district__code__iexact=code_normalized, ended_at__isnull=False)
             .order_by("-ended_at")[:20]
         )
+        # Attacks launched by this district that were knocked off elsewhere
+        outgoing_blocked = (
+            DistrictDdosEntry.objects.select_related("district", "attacker_home_district", "ended_by_player")
+            .filter(attacker_home_district__code__iexact=code_normalized, ended_at__isnull=False)
+            .order_by("-ended_at")[:20]
+        )
         # Incoming attacks against this district from other districts
         incoming_qs = (
             DistrictDdosEntry.objects.select_related("attacker_home_district", "district", "attacker")
@@ -1403,6 +1409,7 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
         payload = {
             "active": [serialize_entry(entry, kind="ddos") for entry in active_attacks],
             "blocked": [serialize_entry(entry, kind="firewall") for entry in recent_blocked],
+            "blocked_outgoing": [serialize_entry(entry, kind="firewall_outgoing") for entry in outgoing_blocked],
             "incoming": [serialize_entry(entry, kind="incoming") for entry in incoming_recent],
             "incoming_by_district": incoming_by_district,
             "home_effect_percent": home_effect_percent,
