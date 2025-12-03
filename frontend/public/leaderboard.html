@@ -63,6 +63,35 @@
         <strong>2,000</strong> control points. Defend your home to add to its total, or launch attacks to drain rival
         districts.
       </p>
+      <div class="leaderboard-search-grid" aria-label="Search leaderboards">
+        <form id="player-search-form" class="leaderboard-search-form" role="search">
+          <label for="player-search-input">Find a player</label>
+          <div class="leaderboard-search-input-row">
+            <input
+              id="player-search-input"
+              type="search"
+              name="player"
+              autocomplete="off"
+              placeholder="Handle or display name"
+            />
+            <button type="submit" class="primary small">Find player</button>
+          </div>
+        </form>
+        <form id="party-search-form" class="leaderboard-search-form" role="search">
+          <label for="party-search-input">Find a party</label>
+          <div class="leaderboard-search-input-row">
+            <input
+              id="party-search-input"
+              type="search"
+              name="party"
+              autocomplete="off"
+              placeholder="Party code or name"
+            />
+            <button type="submit" class="primary small">Find party</button>
+          </div>
+        </form>
+      </div>
+      <p id="leaderboard-search-status" class="leaderboard-search-status" aria-live="polite"></p>
       <div class="leaderboard-sections">
         <section class="leaderboard-section" aria-labelledby="player-leaderboard-heading">
           <div class="leaderboard-heading-row">

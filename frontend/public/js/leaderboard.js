@@ -124,6 +124,11 @@ const partyProfileContent = document.getElementById('party-profile-content');
 const partyProfileBody = document.getElementById('party-profile-body');
 const partyProfileClose = document.getElementById('party-profile-close');
 const partyProfileTitle = document.getElementById('party-profile-title');
+const playerSearchForm = document.getElementById('player-search-form');
+const playerSearchInput = document.getElementById('player-search-input');
+const partySearchForm = document.getElementById('party-search-form');
+const partySearchInput = document.getElementById('party-search-input');
+const leaderboardSearchStatus = document.getElementById('leaderboard-search-status');
 
 function isCompactLeaderboardView() {
   return (
@@ -180,6 +185,19 @@ function formatTimeAgo(timestamp) {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+function setLeaderboardSearchStatus(message = '') {
+  if (leaderboardSearchStatus) {
+    leaderboardSearchStatus.textContent = message || '';
+  }
+}
+
+function focusLeaderboardRow(row) {
+  if (!row || !(row instanceof HTMLElement)) return;
+  row.classList.add('leaderboard-row-focus');
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  window.setTimeout(() => row.classList.remove('leaderboard-row-focus'), 2000);
 }
 
 function sanitizePublicProfile(raw) {
@@ -525,6 +543,11 @@ function renderPlayerLeaderboard(players) {
 
   visible.forEach((player, index) => {
     const row = document.createElement('tr');
+    const usernameKey = player.username ? player.username.toLowerCase() : '';
+    if (usernameKey) {
+      row.dataset.username = usernameKey;
+      row.id = `leaderboard-player-${usernameKey}`;
+    }
 
     const rankValue =
       Number.isFinite(player.rank) && player.rank > 0 ? player.rank : index + 1;
@@ -773,6 +796,11 @@ function renderPartyLeaderboard(parties) {
 
   visible.forEach((party, index) => {
     const row = document.createElement('tr');
+    const partyKey = party.partyCode ? party.partyCode.toLowerCase() : '';
+    if (partyKey) {
+      row.dataset.partyCode = partyKey;
+      row.id = `leaderboard-party-${partyKey}`;
+    }
     const rankValue =
       Number.isFinite(party.rank) && party.rank > 0 ? party.rank : index + 1;
     appendCell(row, { text: String(rankValue), label: '#' });
@@ -1138,6 +1166,14 @@ if (partySortToggle) {
   });
 }
 
+if (playerSearchForm) {
+  playerSearchForm.addEventListener('submit', handlePlayerSearch);
+}
+
+if (partySearchForm) {
+  partySearchForm.addEventListener('submit', handlePartySearch);
+}
+
 if (friendProfileOverlay) {
   friendProfileOverlay.addEventListener('click', () => closeFriendProfileDrawer({ restoreFocus: true }));
 }
@@ -1183,6 +1219,101 @@ document.addEventListener('keydown', (event) => {
     openLeaderboardPartyProfile(target.dataset.partyCode, target);
   }
 });
+
+async function handlePlayerSearch(event) {
+  if (event && typeof event.preventDefault === 'function') {
+    event.preventDefault();
+  }
+  const term = playerSearchInput && typeof playerSearchInput.value === 'string' ? playerSearchInput.value.trim() : '';
+  const cleaned = term.replace(/^@/, '').trim();
+  if (!cleaned) {
+    setLeaderboardSearchStatus('Enter a player handle or display name.');
+    return;
+  }
+  if (!leaderboardState.lastPlayers.length) {
+    await refreshLeaderboardsFromApi().catch(() => null);
+  }
+  leaderboardState.players.showAll = true;
+  refreshToggleLabels();
+  renderPlayerLeaderboard(leaderboardState.lastPlayers);
+  const key = cleaned.toLowerCase();
+  const match =
+    (leaderboardState.lastPlayers || []).find(
+      (entry) =>
+        entry &&
+        ((entry.username && entry.username.toLowerCase() === key) ||
+          (entry.display_name && entry.display_name.toLowerCase().includes(key)) ||
+          (entry.displayName && entry.displayName.toLowerCase().includes(key))),
+    ) || null;
+  if (!match || !match.username) {
+    setLeaderboardSearchStatus(`No player found for "${term}".`);
+    return;
+  }
+  const targetKey = match.username.toLowerCase();
+  const row = document.querySelector(`#player-leaderboard-body tr[data-username="${targetKey}"]`);
+  if (!row) {
+    setLeaderboardSearchStatus(`No player found for "${term}".`);
+    return;
+  }
+  focusLeaderboardRow(row);
+  const trigger = row.querySelector('[data-username]');
+  if (trigger instanceof HTMLElement) {
+    trigger.click();
+  }
+  setLeaderboardSearchStatus(`Opening ${match.display_name || `@${match.username}`}…`);
+}
+
+async function handlePartySearch(event) {
+  if (event && typeof event.preventDefault === 'function') {
+    event.preventDefault();
+  }
+  const term = partySearchInput && typeof partySearchInput.value === 'string' ? partySearchInput.value.trim() : '';
+  if (!term) {
+    setLeaderboardSearchStatus('Enter a party code or name.');
+    return;
+  }
+  if (!leaderboardState.lastParties.length) {
+    await refreshLeaderboardsFromApi().catch(() => null);
+  }
+  leaderboardState.parties.showAll = true;
+  refreshToggleLabels();
+  renderPartyLeaderboard(leaderboardState.lastParties);
+  const key = term.toLowerCase();
+  const match =
+    (leaderboardState.lastParties || []).find((entry) => {
+      const code =
+        (entry.party_code && String(entry.party_code).toLowerCase()) ||
+        (entry.partyCode && String(entry.partyCode).toLowerCase()) ||
+        '';
+      const name =
+        (entry.party_name && String(entry.party_name).toLowerCase()) ||
+        (entry.partyName && String(entry.partyName).toLowerCase()) ||
+        '';
+      return (code && code === key) || (name && name.includes(key));
+    }) || null;
+  const resolvedCode =
+    (match &&
+      ((match.party_code && String(match.party_code)) ||
+        (match.partyCode && String(match.partyCode)) ||
+        '')) ||
+    '';
+  if (!match || !resolvedCode) {
+    setLeaderboardSearchStatus(`No party found for "${term}".`);
+    return;
+  }
+  const targetKey = resolvedCode.toLowerCase();
+  const row = document.querySelector(`#party-leaderboard-body tr[data-party-code="${targetKey}"]`);
+  if (!row) {
+    setLeaderboardSearchStatus(`No party found for "${term}".`);
+    return;
+  }
+  focusLeaderboardRow(row);
+  const trigger = row.querySelector('[data-party-code]');
+  if (trigger instanceof HTMLElement) {
+    trigger.click();
+  }
+  setLeaderboardSearchStatus(`Opening party ${resolvedCode}…`);
+}
 
 refreshToggleLabels();
 
