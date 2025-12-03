@@ -15761,18 +15761,18 @@ function enhanceCharacterIdentityCard(profile) {
       save.disabled = true;
       save.textContent = 'Saving…';
       const saved = await saveProfileBio(input.value);
+      const resolvedBio =
+        (saved && typeof saved.profile_bio === 'string' && saved.profile_bio.slice(0, 50)) ||
+        input.value.slice(0, 50);
       save.disabled = false;
       save.textContent = 'Save';
-      if (saved && typeof saved.profile_bio === 'string') {
-        const nextBio = saved.profile_bio.slice(0, 50);
-        input.value = nextBio;
-        const preview = document.getElementById(CHARACTER_BIO_PREVIEW_ID);
-        if (preview) {
-          preview.textContent = nextBio || 'Tap to view message';
-        }
-        setCardFace(false);
-        updateStatus('Profile message saved.');
+      input.value = resolvedBio;
+      const preview = document.getElementById(CHARACTER_BIO_PREVIEW_ID);
+      if (preview) {
+        preview.textContent = resolvedBio || 'Tap to view message';
       }
+      setCardFace(false);
+      updateStatus(saved ? 'Profile message saved.' : 'Unable to confirm save; check your connection.');
     });
     actions.appendChild(save);
     back.appendChild(label);
