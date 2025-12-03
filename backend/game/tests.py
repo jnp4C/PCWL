@@ -14,6 +14,7 @@ from .models import (
     Party,
     PartyInvitation,
     PartyMembership,
+    DistrictPartyStat,
     Player,
     PlayerPartyBond,
 )
@@ -55,6 +56,7 @@ class FrontendConfigTests(TestCase):
         self.assertIn("leaderboard", body)
         self.assertIn("players", body["leaderboard"])
         self.assertIn("districts", body["leaderboard"])
+        self.assertIn("parties", body["leaderboard"])
 
 
 class PlayerApiTests(TestCase):
@@ -629,6 +631,38 @@ class PartyApiTests(TestCase):
         self.assertEqual(bond.shared_checkins, 1)
         self.assertEqual(bond.shared_contribution_points, 50)
 
+    def test_party_prestige_ignores_ranged_attacks(self):
+        party = create_party(self.host)
+        invite = invite_player_to_party(self.host, self.friend)
+        respond_to_party_invitation(invite, self.friend, accept=True)
+
+        now_ms = int(timezone.now().timestamp() * 1000)
+        loc = {"districtId": "1500", "districtName": "Prague 5", "timestamp": now_ms}
+        self.host.last_known_location = loc
+        self.friend.last_known_location = loc
+        self.host.save(update_fields=["last_known_location"])
+        self.friend.save(update_fields=["last_known_location"])
+
+        apply_checkin(
+            self.host,
+            district_code="1500",
+            district_name="Prague 5",
+            mode=CheckIn.Mode.RANGED,
+            precision="precise",
+        )
+        self.assertFalse(DistrictPartyStat.objects.exists())
+
+        result = apply_checkin(
+            self.host,
+            district_code="1500",
+            district_name="Prague 5",
+            mode=CheckIn.Mode.LOCAL,
+            precision="precise",
+        )
+        checkin = result.checkin
+        stat = DistrictPartyStat.objects.get(district__code=_normalise_district_code("1500"), party=party)
+        self.assertEqual(stat.prestige_points, abs(checkin.district_points_delta))
+
 
 class CheckInApiTests(TestCase):
     def setUp(self):
@@ -944,10 +978,12 @@ class LeaderboardApiTests(TestCase):
         body = response.json()
         players = body.get("players", [])
         districts = body.get("districts", [])
+        parties = body.get("parties", [])
         self.assertTrue(any(entry["username"] == "alpha" for entry in players))
         self.assertTrue(any(entry["username"] == "beta" for entry in players))
         self.assertTrue(any(entry["id"] == "1100" for entry in districts))
         self.assertTrue(any(entry["id"] == "1200" for entry in districts))
+        self.assertIsInstance(parties, list)
         for entry in districts:
             self.assertIn("status", entry)
             self.assertIn("recent_status", entry)
@@ -961,6 +997,55 @@ class LeaderboardApiTests(TestCase):
         self.assertEqual(prague_two["attacked"], 10)
         self.assertEqual(prague_two["checkins"], 2)
         self.assertEqual(prague_two.get("rank"), 2)
+
+    def test_party_leaderboard_uses_lifetime_members_and_prestige(self):
+        leader = Player.objects.create(username="party-leader")
+        party_a = Party.objects.create(
+            leader=leader,
+            expires_at=timezone.now() + timedelta(hours=1),
+            name="Alpha Crew",
+        )
+        party_b = Party.objects.create(
+            leader=leader,
+            expires_at=timezone.now() + timedelta(hours=1),
+            name="Beta Crew",
+        )
+
+        PartyMembership.objects.create(party=party_a, player=leader, is_leader=True)
+        PartyMembership.objects.create(party=party_b, player=leader, is_leader=True)
+
+        members_a = [
+            Player.objects.create(username=f"alpha-{i}") for i in range(1, 10)
+        ]
+        members_b = [
+            Player.objects.create(username=f"beta-{i}") for i in range(1, 11)
+        ]
+        for member in members_a:
+            PartyMembership.objects.create(party=party_a, player=member, is_leader=False)
+        for member in members_b:
+            PartyMembership.objects.create(party=party_b, player=member, is_leader=False)
+
+        DistrictPartyStat.objects.create(
+            district=District.objects.create(code="500001", name="Test 1"),
+            party=party_a,
+            prestige_points=300,
+        )
+        DistrictPartyStat.objects.create(
+            district=District.objects.create(code="500002", name="Test 2"),
+            party=party_b,
+            prestige_points=500,
+        )
+
+        response = self.client.get(reverse("leaderboard-api"))
+        self.assertEqual(response.status_code, 200)
+        parties = response.json().get("parties", [])
+        self.assertTrue(parties)
+        entry = next((p for p in parties if p.get("leader") == leader.username), None)
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry["member_count"], 20)
+        self.assertEqual(entry["prestige_points"], 800)
+        self.assertEqual(entry["rank"], 1)
+        self.assertGreaterEqual(len(entry.get("members", [])), 20)
 
     def test_player_leaderboard_uses_live_scores_with_ranks(self):
         Player.objects.create(

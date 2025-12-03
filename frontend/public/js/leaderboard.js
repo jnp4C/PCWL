@@ -32,6 +32,9 @@ function buildLeaderboardApiUrl(config) {
 }
 
 let LEADERBOARD_API_URL = buildLeaderboardApiUrl(pageConfig);
+let API_BASE_URL =
+  (pageConfig && normalizeApiBase(pageConfig.apiBaseUrl || (pageConfig.api && pageConfig.api.base_url))) ||
+  '/api';
 let bootstrapLeaderboard =
   (pageConfig && pageConfig.leaderboard) ||
   (typeof window !== 'undefined' && window.__PCWL_LEADERBOARD_PAYLOAD__) ||
@@ -67,8 +70,13 @@ const leaderboardState = {
     order: 'desc',
     showAll: false,
   },
+  parties: {
+    order: 'desc',
+    showAll: false,
+  },
   lastPlayers: [],
   lastDistricts: [],
+  lastParties: [],
 };
 
 function applyLeaderboardBootstrap(payload) {
@@ -78,11 +86,15 @@ function applyLeaderboardBootstrap(payload) {
   bootstrapLeaderboard = payload;
   renderPlayerLeaderboard(payload.players || []);
   renderDistrictLeaderboard(payload.districts || []);
+  renderPartyLeaderboard(payload.parties || []);
 }
 
 function applyPageConfig(config) {
   if (config && typeof config === 'object') {
     LEADERBOARD_API_URL = buildLeaderboardApiUrl(config);
+    if (config.apiBaseUrl || (config.api && config.api.base_url)) {
+      API_BASE_URL = normalizeApiBase(config.apiBaseUrl || (config.api && config.api.base_url));
+    }
     if (config.leaderboard) {
       applyLeaderboardBootstrap(config.leaderboard);
     }
@@ -98,6 +110,20 @@ const playerSortToggle = document.getElementById('player-sort-toggle');
 const playerShowToggle = document.getElementById('player-show-toggle');
 const districtSortToggle = document.getElementById('district-sort-toggle');
 const districtShowToggle = document.getElementById('district-show-toggle');
+const partySortToggle = document.getElementById('party-sort-toggle');
+const partyShowToggle = document.getElementById('party-show-toggle');
+const friendProfileDrawer = document.getElementById('friend-profile-drawer');
+const friendProfileOverlay = document.getElementById('friend-profile-overlay');
+const friendProfileContent = document.getElementById('friend-profile-content');
+const friendProfileBody = document.getElementById('friend-profile-body');
+const friendProfileClose = document.getElementById('friend-profile-close');
+const friendProfileTitle = document.getElementById('friend-profile-title');
+const partyProfileDrawer = document.getElementById('party-profile-drawer');
+const partyProfileOverlay = document.getElementById('party-profile-overlay');
+const partyProfileContent = document.getElementById('party-profile-content');
+const partyProfileBody = document.getElementById('party-profile-body');
+const partyProfileClose = document.getElementById('party-profile-close');
+const partyProfileTitle = document.getElementById('party-profile-title');
 
 function isCompactLeaderboardView() {
   return (
@@ -112,6 +138,9 @@ function refreshToggleLabels() {
   if (districtShowToggle) {
     districtShowToggle.textContent = leaderboardState.districts.showAll ? 'Show top 10' : 'Show all';
   }
+  if (partyShowToggle) {
+    partyShowToggle.textContent = leaderboardState.parties.showAll ? 'Show top 10' : 'Show all';
+  }
   if (playerSortToggle) {
     playerSortToggle.textContent =
       leaderboardState.players.order === 'asc' ? 'Show highest' : 'Show lowest';
@@ -119,6 +148,113 @@ function refreshToggleLabels() {
   if (districtSortToggle) {
     districtSortToggle.textContent =
       leaderboardState.districts.order === 'asc' ? 'Show highest' : 'Show lowest';
+  }
+  if (partySortToggle) {
+    partySortToggle.textContent =
+      leaderboardState.parties.order === 'asc' ? 'Show highest' : 'Show lowest';
+  }
+}
+
+function buildApiUrl(path) {
+  const cleanPath = typeof path === 'string' ? path.replace(/^\/+/, '') : '';
+  return `${API_BASE_URL}/${cleanPath}`;
+}
+
+async function fetchJson(path) {
+  const response = await fetch(buildApiUrl(path), { credentials: 'same-origin' });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Request failed (${response.status}): ${text || 'unknown error'}`);
+  }
+  return response.json();
+}
+
+function formatTimeAgo(timestamp) {
+  if (!timestamp) return '';
+  const now = Date.now();
+  const diff = Math.max(0, now - (typeof timestamp === 'number' ? timestamp : new Date(timestamp).getTime()));
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function sanitizePublicProfile(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const username = typeof raw.username === 'string' && raw.username.trim() ? raw.username.trim() : '';
+  if (!username) {
+    return null;
+  }
+  return {
+    username,
+    displayName: typeof raw.display_name === 'string' ? raw.display_name : '',
+    profileBio: typeof raw.profile_bio === 'string' ? raw.profile_bio.slice(0, 50) : '',
+    mapMarkerColor: typeof raw.map_marker_color === 'string' ? raw.map_marker_color : '',
+    streakDays: Math.max(0, Number(raw.streak_days) || 0),
+    streakMultiplier: Math.max(1, Number(raw.streak_multiplier) || 1),
+  };
+}
+
+function sanitizePartyProfile(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const party = raw.party || {};
+  const code = typeof party.code === 'string' ? party.code : '';
+  if (!code) return null;
+  return {
+    party: {
+      code,
+      name: typeof party.name === 'string' ? party.name : '',
+      leader: typeof party.leader === 'string' ? party.leader : '',
+      member_count: Number(party.member_count) || 0,
+      lifetime_member_count: Number(party.lifetime_member_count) || Number(party.member_count) || 0,
+      prestige_total: Number(party.prestige_total) || 0,
+    },
+    active_members: Array.isArray(raw.active_members) ? raw.active_members : [],
+  };
+}
+
+function closeFriendProfileDrawer({ restoreFocus = true } = {}) {
+  if (!friendProfileDrawer || !document.body.classList.contains('friend-profile-open')) {
+    return;
+  }
+  document.body.classList.remove('friend-profile-open');
+  friendProfileDrawer.setAttribute('aria-hidden', 'true');
+  if (friendProfileOverlay) {
+    friendProfileOverlay.classList.add('hidden');
+    friendProfileOverlay.setAttribute('aria-hidden', 'true');
+  }
+  if (restoreFocus && closeFriendProfileDrawer.lastTrigger && typeof closeFriendProfileDrawer.lastTrigger.focus === 'function') {
+    closeFriendProfileDrawer.lastTrigger.focus({ preventScroll: true });
+  }
+  closeFriendProfileDrawer.lastTrigger = null;
+  if (friendProfileBody) {
+    friendProfileBody.innerHTML = '';
+  }
+}
+
+function closePartyProfileDrawer({ restoreFocus = true } = {}) {
+  if (!partyProfileDrawer || !document.body.classList.contains('party-profile-open')) {
+    return;
+  }
+  document.body.classList.remove('party-profile-open');
+  partyProfileDrawer.setAttribute('aria-hidden', 'true');
+  if (partyProfileOverlay) {
+    partyProfileOverlay.classList.add('hidden');
+    partyProfileOverlay.setAttribute('aria-hidden', 'true');
+  }
+  if (restoreFocus && closePartyProfileDrawer.lastTrigger && typeof closePartyProfileDrawer.lastTrigger.focus === 'function') {
+    closePartyProfileDrawer.lastTrigger.focus({ preventScroll: true });
+  }
+  closePartyProfileDrawer.lastTrigger = null;
+  if (partyProfileBody) {
+    partyProfileBody.innerHTML = '';
   }
 }
 
@@ -396,23 +532,26 @@ function renderPlayerLeaderboard(players) {
 
     const nameWrapper = document.createElement('span');
     nameWrapper.className = 'leaderboard-player-name';
-
+    const nameButton = document.createElement('button');
+    nameButton.type = 'button';
+    nameButton.className = 'leaderboard-link';
+    nameButton.dataset.username = player.username;
     const displayLabel = document.createElement('span');
     displayLabel.className = 'leaderboard-player-label';
     const safeDisplay = typeof player.displayName === 'string' ? player.displayName.trim() : '';
     displayLabel.textContent = safeDisplay || player.username;
-    nameWrapper.appendChild(displayLabel);
-
+    nameButton.appendChild(displayLabel);
     const shouldShowHandle =
       safeDisplay && safeDisplay.toLowerCase() !== player.username.toLowerCase();
     if (shouldShowHandle) {
       const usernameLabel = document.createElement('span');
       usernameLabel.className = 'leaderboard-player-handle';
       usernameLabel.textContent = `@${player.username}`;
-      nameWrapper.appendChild(usernameLabel);
+      nameButton.appendChild(usernameLabel);
     }
-
-    appendCell(row, { html: nameWrapper.outerHTML, label: 'Player' });
+    nameWrapper.appendChild(nameButton);
+    const nameCell = appendCell(row, { label: 'Player' });
+    nameCell.appendChild(nameWrapper);
 
     appendCell(row, {
       className: 'numeric',
@@ -563,6 +702,298 @@ function renderDistrictLeaderboard(districts) {
   applyAccordionBehavior(table);
 }
 
+function renderPartyLeaderboard(parties) {
+  leaderboardState.lastParties = Array.isArray(parties) ? parties.slice() : [];
+  const tbody = document.getElementById('party-leaderboard-body');
+  const table = tbody ? tbody.closest('table') : null;
+  const empty = document.getElementById('party-leaderboard-empty');
+  if (!tbody || !table || !empty) {
+    return;
+  }
+
+  const ranked = (parties || [])
+    .map((entry) => {
+      const members = Array.isArray(entry.members) ? entry.members : [];
+      const partyCode = (typeof entry.party_code === 'string' && entry.party_code.trim()) ||
+        (typeof entry.partyCode === 'string' && entry.partyCode.trim()) ||
+        '';
+      const memberCount = Number(entry.member_count ?? entry.memberCount) || members.length;
+      return {
+        partyCode,
+        partyName:
+          (typeof entry.party_name === 'string' && entry.party_name.trim()) ||
+          (typeof entry.partyName === 'string' && entry.partyName.trim()) ||
+          (entry.party_code || entry.partyCode ? `Party ${entry.party_code || entry.partyCode}` : 'Party'),
+        leader:
+          (typeof entry.leader_display_name === 'string' && entry.leader_display_name.trim()) ||
+          entry.leader ||
+          '',
+        leaderHandle: entry.leader || '',
+        prestige: Number(entry.prestige_points ?? entry.prestigePoints) || 0,
+        memberCount,
+        members,
+        rank: Number(entry.rank),
+      };
+    })
+    .sort((a, b) => {
+      const primary = b.prestige - a.prestige;
+      if (primary !== 0) {
+        return leaderboardState.parties.order === 'asc' ? -primary : primary;
+      }
+      const memberDiff = b.memberCount - a.memberCount;
+      if (memberDiff !== 0) {
+        return leaderboardState.parties.order === 'asc' ? -memberDiff : memberDiff;
+      }
+      const nameCompare = a.partyName.localeCompare(b.partyName, undefined, { sensitivity: 'base' });
+      return leaderboardState.parties.order === 'asc' ? -nameCompare : nameCompare;
+    });
+
+  const isCompact = isCompactLeaderboardView();
+  const limit =
+    leaderboardState.parties.showAll || !isCompact ? LEADERBOARD_MAX_LIMIT : LEADERBOARD_COMPACT_LIMIT;
+  const visible = ranked.slice(0, limit);
+
+  tbody.innerHTML = '';
+
+  const appendCell = (row, { text = '', className = '', label = '', extra = false }) => {
+    const cell = document.createElement('td');
+    if (className) {
+      cell.className = className;
+    }
+    if (extra) {
+      cell.classList.add('leaderboard-extra');
+    }
+    if (label) {
+      cell.dataset.label = label;
+    }
+    cell.textContent = text;
+    row.appendChild(cell);
+    return cell;
+  };
+
+  visible.forEach((party, index) => {
+    const row = document.createElement('tr');
+    const rankValue =
+      Number.isFinite(party.rank) && party.rank > 0 ? party.rank : index + 1;
+    appendCell(row, { text: String(rankValue), label: '#' });
+
+    const partyCell = appendCell(row, { label: 'Party' });
+    const partyButton = document.createElement('button');
+    partyButton.type = 'button';
+    partyButton.className = 'leaderboard-link';
+    if (party.partyCode) {
+      partyButton.dataset.partyCode = party.partyCode;
+    }
+    partyButton.textContent = party.partyName;
+    partyCell.appendChild(partyButton);
+
+    const leaderLabel = party.leaderHandle && party.leader && party.leader !== party.leaderHandle
+      ? `${party.leader} (@${party.leaderHandle})`
+      : (party.leader || (party.leaderHandle ? `@${party.leaderHandle}` : ''));
+    appendCell(row, { text: leaderLabel || '—', label: 'Leader' });
+
+    const memberNames = party.members
+      .map((member) => {
+        const display = typeof member.display_name === 'string' ? member.display_name.trim() : '';
+        const username = typeof member.username === 'string' ? member.username.trim() : '';
+        return display || username;
+      })
+      .filter(Boolean);
+    const maxNames = 4;
+    let memberText = integerFormatter.format(party.memberCount);
+    if (memberNames.length) {
+      const preview = memberNames.slice(0, maxNames).join(', ');
+      const remaining = memberNames.length - maxNames;
+      memberText += ` (${preview}${remaining > 0 ? `, +${remaining} more` : ''})`;
+    }
+    appendCell(row, { text: memberText, label: 'Members', extra: true });
+
+    appendCell(row, {
+      className: 'numeric',
+      text: integerFormatter.format(party.prestige),
+      label: 'Prestige',
+      extra: true,
+    });
+
+    tbody.appendChild(row);
+  });
+
+  setEmptyState(visible.length > 0, table, empty);
+  applyAccordionBehavior(table);
+}
+
+function renderFriendProfileDrawer(profile, meta = '') {
+  if (!friendProfileBody) return;
+  friendProfileBody.innerHTML = '';
+  const summary = document.createElement('div');
+  summary.className = 'character-summary friend-profile-summary public-profile-grid';
+
+  const identityCard = document.createElement('div');
+  identityCard.className = 'character-card character-identity friend-profile-identity-card';
+  const avatar = document.createElement('div');
+  avatar.className = 'character-avatar';
+  avatar.textContent = (profile.username || 'P').charAt(0).toUpperCase();
+  if (profile.mapMarkerColor) {
+    identityCard.style.setProperty('--player-marker-color', profile.mapMarkerColor);
+  }
+  const metaBlock = document.createElement('div');
+  metaBlock.className = 'character-meta';
+  const nameEl = document.createElement('h3');
+  nameEl.className = 'public-identity-name';
+  nameEl.textContent = profile.displayName || `@${profile.username}`;
+  const tagline = document.createElement('p');
+  tagline.className = 'character-tagline';
+  tagline.textContent = profile.username ? `@${profile.username}` : '';
+  const bio = document.createElement('p');
+  bio.className = 'character-tagline public-bio-preview';
+  bio.textContent = profile.profileBio || meta || 'Tap to view message';
+  metaBlock.appendChild(nameEl);
+  if (tagline.textContent) metaBlock.appendChild(tagline);
+  metaBlock.appendChild(bio);
+  identityCard.appendChild(avatar);
+  identityCard.appendChild(metaBlock);
+  summary.appendChild(identityCard);
+
+  const streakCard = document.createElement('div');
+  streakCard.className = 'character-card character-streak friend-profile-streak';
+  const streakLabelRow = document.createElement('div');
+  streakLabelRow.className = 'streak-label-row';
+  const streakChip = document.createElement('span');
+  streakChip.className = 'streak-chip';
+  streakChip.textContent = 'Streak';
+  const streakDays = document.createElement('span');
+  streakDays.className = 'streak-days';
+  streakDays.textContent = `${profile.streakDays} ${profile.streakDays === 1 ? 'day' : 'days'} alive`;
+  streakLabelRow.appendChild(streakChip);
+  streakLabelRow.appendChild(streakDays);
+  const streakValue = document.createElement('div');
+  streakValue.className = 'streak-value';
+  streakValue.textContent = `x${Number(profile.streakMultiplier || 1).toFixed(2)}`;
+  const streakHint = document.createElement('p');
+  streakHint.className = 'streak-hint';
+  streakHint.textContent = 'Attack + defend each day to keep it alive.';
+  streakCard.appendChild(streakLabelRow);
+  streakCard.appendChild(streakValue);
+  streakCard.appendChild(streakHint);
+  summary.appendChild(streakCard);
+
+  friendProfileBody.appendChild(summary);
+}
+
+function renderPartyProfileDrawer(profile) {
+  if (!partyProfileBody) return;
+  partyProfileBody.innerHTML = '';
+  if (!profile || !profile.party) {
+    partyProfileBody.innerHTML = '<p class="friend-profile-empty">Unable to load this party.</p>';
+    return;
+  }
+  const party = profile.party;
+  const summary = document.createElement('div');
+  summary.className = 'character-summary friend-profile-summary';
+
+  const identityCard = document.createElement('div');
+  identityCard.className = 'character-card friend-profile-party';
+  const labelRow = document.createElement('div');
+  labelRow.className = 'streak-label-row';
+  const chip = document.createElement('span');
+  chip.className = 'streak-chip';
+  chip.textContent = party.name || (party.code ? `Party ${party.code}` : 'Party');
+  const leader = document.createElement('span');
+  leader.className = 'streak-days';
+  leader.textContent = party.leader ? `Leader @${party.leader}` : 'Leader unknown';
+  labelRow.appendChild(chip);
+  labelRow.appendChild(leader);
+  const prestige = document.createElement('div');
+  prestige.className = 'streak-value';
+  prestige.textContent = `+${Number(party.prestige_total || 0).toLocaleString()} pts`;
+  const hint = document.createElement('p');
+  hint.className = 'streak-hint';
+  hint.textContent = `Members joined: ${Number(party.lifetime_member_count || party.member_count || 0).toLocaleString()}`;
+  identityCard.appendChild(labelRow);
+  identityCard.appendChild(prestige);
+  identityCard.appendChild(hint);
+  summary.appendChild(identityCard);
+
+  if (Array.isArray(profile.active_members) && profile.active_members.length) {
+    const membersCard = document.createElement('div');
+    membersCard.className = 'character-card party-profile-card';
+    const title = document.createElement('h3');
+    title.textContent = 'Members';
+    membersCard.appendChild(title);
+    const list = document.createElement('ul');
+    list.className = 'party-top-contributors-list';
+    profile.active_members.forEach((member) => {
+      if (!member || !member.username) return;
+      const li = document.createElement('li');
+      li.textContent = member.display_name || member.username;
+      list.appendChild(li);
+    });
+    membersCard.appendChild(list);
+    summary.appendChild(membersCard);
+  }
+
+  partyProfileBody.appendChild(summary);
+}
+
+async function openLeaderboardProfile(username, displayName = '', trigger = null) {
+  const cleanUsername = typeof username === 'string' ? username.replace(/^@/, '').trim() : '';
+  if (!cleanUsername || !friendProfileDrawer || !friendProfileOverlay) {
+    return;
+  }
+  closeFriendProfileDrawer.lastTrigger = trigger instanceof HTMLElement ? trigger : null;
+  friendProfileBody.innerHTML = '<p class="friend-profile-empty">Loading profile…</p>';
+  document.body.classList.add('friend-profile-open');
+  friendProfileDrawer.setAttribute('aria-hidden', 'false');
+  friendProfileOverlay.classList.remove('hidden');
+  friendProfileOverlay.setAttribute('aria-hidden', 'false');
+  if (friendProfileTitle) {
+    friendProfileTitle.textContent = displayName || `@${cleanUsername}`;
+  }
+  if (friendProfileContent && typeof friendProfileContent.focus === 'function') {
+    window.setTimeout(() => friendProfileContent.focus(), 0);
+  }
+  try {
+    const data = await fetchJson(`players/${encodeURIComponent(cleanUsername)}/public-profile/`);
+    const profile = sanitizePublicProfile(data);
+    if (!profile) {
+      throw new Error('Invalid profile payload');
+    }
+    renderFriendProfileDrawer(profile, displayName);
+  } catch (error) {
+    friendProfileBody.innerHTML =
+      '<p class="friend-profile-empty">Unable to load this profile right now.</p>';
+    console.warn('Failed to open profile from leaderboard', error);
+  }
+}
+
+async function openLeaderboardPartyProfile(partyCode, trigger = null) {
+  const cleanCode = typeof partyCode === 'string' ? partyCode.trim() : '';
+  if (!cleanCode || !partyProfileDrawer || !partyProfileOverlay) {
+    return;
+  }
+  closePartyProfileDrawer.lastTrigger = trigger instanceof HTMLElement ? trigger : null;
+  partyProfileBody.innerHTML = '<p class="friend-profile-empty">Loading party…</p>';
+  document.body.classList.add('party-profile-open');
+  partyProfileDrawer.setAttribute('aria-hidden', 'false');
+  partyProfileOverlay.classList.remove('hidden');
+  partyProfileOverlay.setAttribute('aria-hidden', 'false');
+  if (partyProfileTitle) {
+    partyProfileTitle.textContent = 'Party Profile';
+  }
+  if (partyProfileContent && typeof partyProfileContent.focus === 'function') {
+    window.setTimeout(() => partyProfileContent.focus(), 0);
+  }
+  try {
+    const data = await fetchJson(`party/${encodeURIComponent(cleanCode)}/profile/`);
+    const profile = sanitizePartyProfile(data) || data;
+    renderPartyProfileDrawer(profile);
+  } catch (error) {
+    partyProfileBody.innerHTML =
+      '<p class="friend-profile-empty">Unable to load this party right now.</p>';
+    console.warn('Failed to open party from leaderboard', error);
+  }
+}
+
 async function fetchLeaderboardData() {
   const response = await fetch(LEADERBOARD_API_URL, { credentials: 'same-origin' });
   if (!response.ok) {
@@ -583,6 +1014,7 @@ function renderFallbackLeaderboards() {
     checkins: Number(entry.checkins) || (Number(entry.defended) || 0) + (Number(entry.attacked) || 0),
   }));
   renderDistrictLeaderboard(fallbackDistricts);
+  renderPartyLeaderboard([]);
 }
 
 function scheduleLeaderboardRefresh() {
@@ -600,10 +1032,12 @@ async function refreshLeaderboardsFromApi() {
     const data = await fetchLeaderboardData();
     renderPlayerLeaderboard(data.players || []);
     renderDistrictLeaderboard(data.districts || []);
+    renderPartyLeaderboard(data.parties || []);
   } catch (error) {
     console.warn('Unable to load leaderboard from API', error);
     const playerEmpty = document.getElementById('player-leaderboard-empty');
     const districtEmpty = document.getElementById('district-leaderboard-empty');
+    const partyEmpty = document.getElementById('party-leaderboard-empty');
     if (playerEmpty) {
       playerEmpty.textContent = 'Unable to load leaderboard data from the server right now.';
       playerEmpty.classList.remove('hidden');
@@ -612,8 +1046,13 @@ async function refreshLeaderboardsFromApi() {
       districtEmpty.textContent = 'Unable to load leaderboard data from the server right now.';
       districtEmpty.classList.remove('hidden');
     }
+    if (partyEmpty) {
+      partyEmpty.textContent = 'Unable to load leaderboard data from the server right now.';
+      partyEmpty.classList.remove('hidden');
+    }
     renderPlayerLeaderboard([]);
     renderDistrictLeaderboard([]);
+    renderPartyLeaderboard([]);
   }
 }
 
@@ -667,6 +1106,14 @@ if (districtShowToggle) {
   });
 }
 
+if (partyShowToggle) {
+  partyShowToggle.addEventListener('click', () => {
+    leaderboardState.parties.showAll = !leaderboardState.parties.showAll;
+    refreshToggleLabels();
+    renderPartyLeaderboard(leaderboardState.lastParties);
+  });
+}
+
 if (playerSortToggle) {
   playerSortToggle.addEventListener('click', () => {
     leaderboardState.players.order = leaderboardState.players.order === 'asc' ? 'desc' : 'asc';
@@ -682,6 +1129,60 @@ if (districtSortToggle) {
     renderDistrictLeaderboard(leaderboardState.lastDistricts);
   });
 }
+
+if (partySortToggle) {
+  partySortToggle.addEventListener('click', () => {
+    leaderboardState.parties.order = leaderboardState.parties.order === 'asc' ? 'desc' : 'asc';
+    refreshToggleLabels();
+    renderPartyLeaderboard(leaderboardState.lastParties);
+  });
+}
+
+if (friendProfileOverlay) {
+  friendProfileOverlay.addEventListener('click', () => closeFriendProfileDrawer({ restoreFocus: true }));
+}
+if (friendProfileClose) {
+  friendProfileClose.addEventListener('click', () => closeFriendProfileDrawer({ restoreFocus: true }));
+}
+if (partyProfileOverlay) {
+  partyProfileOverlay.addEventListener('click', () => closePartyProfileDrawer({ restoreFocus: true }));
+}
+if (partyProfileClose) {
+  partyProfileClose.addEventListener('click', () => closePartyProfileDrawer({ restoreFocus: true }));
+}
+
+document.addEventListener('click', (event) => {
+  const target = event.target instanceof HTMLElement ? event.target : null;
+  if (!target) return;
+  const userButton = target.closest('[data-username]');
+  if (userButton && userButton.dataset.username) {
+    event.preventDefault();
+    openLeaderboardProfile(userButton.dataset.username, userButton.textContent || '', userButton);
+    return;
+  }
+  const partyButton = target.closest('[data-party-code]');
+  if (partyButton && partyButton.dataset.partyCode) {
+    event.preventDefault();
+    openLeaderboardPartyProfile(partyButton.dataset.partyCode, partyButton);
+  }
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    closeFriendProfileDrawer({ restoreFocus: false });
+    closePartyProfileDrawer({ restoreFocus: false });
+  }
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  const target = event.target instanceof HTMLElement ? event.target : null;
+  if (!target) return;
+  if (target.dataset && target.dataset.username) {
+    event.preventDefault();
+    openLeaderboardProfile(target.dataset.username, target.textContent || '', target);
+  } else if (target.dataset && target.dataset.partyCode) {
+    event.preventDefault();
+    openLeaderboardPartyProfile(target.dataset.partyCode, target);
+  }
+});
 
 refreshToggleLabels();
 

@@ -1712,10 +1712,13 @@ body.dark .friend-profile-marker {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 0.75rem;
   width: 100%;
+  grid-auto-rows: minmax(160px, auto);
+  align-items: stretch;
 }
 
 .character-party-section .friend-profile-party-grid {
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-auto-rows: minmax(170px, auto);
 }
 
 .leading-party-banner {
@@ -1724,6 +1727,7 @@ body.dark .friend-profile-marker {
 
 .friend-profile-party {
   height: 100%;
+  min-height: 160px;
 }
 
 .public-profile-grid {
@@ -4395,6 +4399,17 @@ button.secondary:hover,
 
 .leaderboard-actions button {
   padding: 0.45rem 0.9rem;
+}
+
+.leaderboard-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .page-leaderboard .app {

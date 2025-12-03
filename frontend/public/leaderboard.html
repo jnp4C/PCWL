@@ -58,9 +58,10 @@
         <div></div>
       </header>
       <p class="leaderboard-intro">
-        Points earned in Prague Explorer now fuel two leaderboards: one for individual players and one for districts.
-        Every district starts with <strong>2,000</strong> control points. Defend your home to add to its total, or launch
-        attacks to drain rival districts.
+        Points earned in Prague Explorer now fuel three leaderboards: one for individual players, one for districts, and
+        a prestige board for parties that have recruited 20+ teammates across their lifetime. Every district starts with
+        <strong>2,000</strong> control points. Defend your home to add to its total, or launch attacks to drain rival
+        districts.
       </p>
       <div class="leaderboard-sections">
         <section class="leaderboard-section" aria-labelledby="player-leaderboard-heading">
@@ -138,9 +139,74 @@
             No districts have been contested yet. Capture or defend a district to change the standings.
           </p>
         </section>
+        <section class="leaderboard-section" aria-labelledby="party-leaderboard-heading">
+          <div class="leaderboard-heading-row">
+            <h2 id="party-leaderboard-heading">Party Leaderboard</h2>
+            <div class="leaderboard-actions" aria-label="Party leaderboard controls">
+              <button id="party-sort-toggle" class="secondary small" type="button">Show lowest</button>
+              <button id="party-show-toggle" class="secondary small" type="button">Show all</button>
+            </div>
+          </div>
+          <p class="leaderboard-section-note" id="party-leaderboard-note">
+            Parties appear here once they have welcomed 20+ unique members across every session. Rankings use total
+            prestige earned across all districts.
+          </p>
+          <div
+            class="leaderboard-table-wrapper"
+            tabindex="0"
+            role="region"
+            aria-labelledby="party-leaderboard-heading"
+            aria-describedby="party-leaderboard-note"
+          >
+            <table class="leaderboard-table leaderboard-table--parties" aria-describedby="party-leaderboard-heading">
+              <thead>
+                <tr>
+                  <th scope="col">#</th>
+                  <th scope="col">Party</th>
+                  <th scope="col">Leader</th>
+                  <th scope="col" class="numeric">Members joined</th>
+                  <th scope="col" class="numeric">Prestige</th>
+                </tr>
+              </thead>
+              <tbody id="party-leaderboard-body"></tbody>
+            </table>
+          </div>
+          <p class="leaderboard-empty hidden" id="party-leaderboard-empty">
+            No parties have reached 20 lifetime members yet. Grow your crew to earn a spot here.
+          </p>
+        </section>
       </div>
     </section>
   </main>
+  <div id="friend-profile-overlay" class="sheet-overlay friend-profile-overlay hidden" tabindex="-1" aria-hidden="true"></div>
+  <section id="friend-profile-drawer" class="sheet-drawer friend-profile-drawer" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="friend-profile-title">
+    <div id="friend-profile-content" class="sheet-content" tabindex="-1">
+      <header class="sheet-header">
+        <h2 id="friend-profile-title">Player Profile</h2>
+        <button type="button" id="friend-profile-close" class="icon-button sheet-close" aria-label="Close friend profile drawer">
+          &times;
+        </button>
+      </header>
+      <div class="sheet-body">
+        <div id="friend-profile-body" class="friend-profile-body"></div>
+      </div>
+    </div>
+  </section>
+
+  <div id="party-profile-overlay" class="sheet-overlay party-profile-overlay hidden" tabindex="-1" aria-hidden="true"></div>
+  <section id="party-profile-drawer" class="sheet-drawer party-profile-drawer" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="party-profile-title">
+    <div id="party-profile-content" class="sheet-content" tabindex="-1">
+      <header class="sheet-header">
+        <h2 id="party-profile-title">Party Profile</h2>
+        <button type="button" id="party-profile-close" class="icon-button sheet-close" aria-label="Close party profile drawer">
+          &times;
+        </button>
+      </header>
+      <div class="sheet-body">
+        <div id="party-profile-body" class="party-profile-body"></div>
+      </div>
+    </div>
+  </section>
   <script src="/js/theme-toggle.js" defer></script>
   <script type="module" src="/js/leaderboard.js"></script>
 </body>

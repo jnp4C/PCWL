@@ -84,6 +84,7 @@ logger = logging.getLogger(__name__)
 DISTRICT_BASE_SCORE = 2000
 DISTRICT_SECURE_THRESHOLD = 200
 DISTRICT_RECENT_THRESHOLD = 100
+PARTY_LEADERBOARD_MIN_MEMBERS = 20
 
 
 def _classify_district_state(defended, attacked, threshold=DISTRICT_SECURE_THRESHOLD):
@@ -2766,6 +2767,142 @@ def _build_district_party_leaders(district_codes: Set[str]) -> Dict[str, Dict[st
     return enriched
 
 
+def _build_party_leaderboard(limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Return parties that have reached the lifetime membership threshold, ranked by global prestige."""
+    member_rows = (
+        PartyMembership.objects.filter(party__leader_id__isnull=False)
+        .values("party__leader_id")
+        .annotate(member_count=Count("player_id", distinct=True))
+    )
+    leader_member_counts: Dict[int, int] = {}
+    for row in member_rows:
+        leader_id = row.get("party__leader_id")
+        if leader_id is None:
+            continue
+        count = int(row.get("member_count") or 0)
+        if count >= PARTY_LEADERBOARD_MIN_MEMBERS:
+            leader_member_counts[leader_id] = count
+
+    if not leader_member_counts:
+        return []
+
+    leader_ids: List[int] = list(leader_member_counts.keys())
+
+    prestige_rows = (
+        DistrictPartyStat.objects.filter(party__leader_id__in=leader_ids)
+        .values("party__leader_id")
+        .annotate(
+            prestige=Coalesce(Sum("prestige_points"), 0),
+            last_active=Max("last_activity_at"),
+        )
+    )
+    prestige_map: Dict[int, Dict[str, Any]] = {
+        row["party__leader_id"]: {
+            "prestige": int(row.get("prestige") or 0),
+            "last_active": row.get("last_active"),
+        }
+        for row in prestige_rows
+        if row.get("party__leader_id") is not None
+    }
+
+    prestige_expr = _party_prestige_sum_expression()
+    checkin_rows = (
+        CheckIn.objects.filter(party__leader_id__in=leader_ids)
+        .values("party__leader_id")
+        .annotate(
+            prestige=Coalesce(Sum(prestige_expr), 0),
+            last_active=Max("occurred_at"),
+        )
+    )
+    for row in checkin_rows:
+        leader_id = row.get("party__leader_id")
+        if leader_id is None:
+            continue
+        existing = prestige_map.get(leader_id, {"prestige": 0, "last_active": None})
+        checkin_prestige = int(row.get("prestige") or 0)
+        combined_prestige = existing.get("prestige", 0) or 0
+        if combined_prestige <= 0:
+            combined_prestige = checkin_prestige
+        last_active = existing.get("last_active")
+        checkin_last = row.get("last_active")
+        if checkin_last and (last_active is None or checkin_last > last_active):
+            last_active = checkin_last
+        prestige_map[leader_id] = {
+            "prestige": combined_prestige,
+            "last_active": last_active,
+        }
+
+    leaders = {
+        player.id: player
+        for player in Player.objects.filter(id__in=leader_ids).only("id", "username", "display_name")
+    }
+
+    latest_parties: Dict[int, Party] = {}
+    party_qs = (
+        Party.objects.select_related("leader")
+        .filter(leader_id__in=leader_ids)
+        .order_by("leader_id", "-last_active_at", "-updated_at", "-created_at")
+    )
+    for party in party_qs:
+        if party.leader_id not in latest_parties:
+            latest_parties[party.leader_id] = party
+
+    member_detail_rows = (
+        PartyMembership.objects.select_related("player")
+        .filter(party__leader_id__in=leader_ids)
+        .values(
+            "party__leader_id",
+            "player_id",
+            "player__username",
+            "player__display_name",
+        )
+        .distinct()
+    )
+    member_map: Dict[int, List[Dict[str, str]]] = {}
+    for row in member_detail_rows:
+        leader_id = row.get("party__leader_id")
+        if leader_id is None:
+            continue
+        username = (row.get("player__username") or "").strip()
+        display = (row.get("player__display_name") or "").strip()
+        member_map.setdefault(leader_id, []).append(
+            {"username": username, "display_name": display}
+        )
+    for members in member_map.values():
+        members.sort(key=lambda m: (m.get("display_name") or m.get("username") or "").lower())
+
+    parties: List[Dict[str, Any]] = []
+    for leader_id, member_count in leader_member_counts.items():
+        leader = leaders.get(leader_id)
+        party = latest_parties.get(leader_id)
+        prestige_entry = prestige_map.get(leader_id, {"prestige": 0, "last_active": None})
+        parties.append(
+            {
+                "party_code": party.code if party else "",
+                "party_name": party.name if party else "",
+                "leader": leader.username if leader else "",
+                "leader_display_name": leader.display_name if leader else "",
+                "prestige_points": prestige_entry.get("prestige", 0) or 0,
+                "member_count": member_count,
+                "members": member_map.get(leader_id, []),
+                "last_active_at": prestige_entry.get("last_active") or (party.last_active_at if party else None),
+            }
+        )
+
+    parties.sort(
+        key=lambda entry: (
+            -int(entry.get("prestige_points") or 0),
+            -int(entry.get("member_count") or 0),
+            entry.get("leader") or "",
+        )
+    )
+
+    if limit is not None and limit > 0:
+        parties = parties[:limit]
+
+    for index, entry in enumerate(parties, start=1):
+        entry["rank"] = index
+    return parties
 
 
 def _build_district_leaderboard(limit: Optional[int] = None):
@@ -2980,6 +3117,7 @@ def _build_leaderboard_payload():
     return {
         "players": _build_player_leaderboard(),
         "districts": _build_district_leaderboard(),
+        "parties": _build_party_leaderboard(),
     }
 
 

@@ -1254,7 +1254,7 @@ def apply_checkin(
             is_party_contribution=is_party_contribution,
             metadata=payload_meta,
         )
-        if party:
+        if party and action == CheckIn.Action.ATTACK and mode == CheckIn.Mode.LOCAL:
             prestige_delta = abs(district_points_delta) or abs(points_awarded)
             if prestige_delta:
                 _update_district_party_prestige(
