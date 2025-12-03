@@ -6,7 +6,7 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.utils import timezone
 
 from .models import District, DistrictChatMessage, Player
-from .services import _normalise_district_code
+from .services import _normalise_district_code, _ensure_player_district_ip
 
 
 class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
@@ -115,6 +115,12 @@ class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
         assert self.player is not None
         assert self.district is not None
         display_name = (self.player.display_name or "").strip() or self.player.username
+        # Ensure the synthetic district IP is available for chat display.
+        try:
+            _ensure_player_district_ip(self.player)
+        except Exception:
+            # Non-fatal; fallback will rely on username.
+            pass
         return DistrictChatMessage.objects.create(
             district=self.district,
             sender=self.player,
@@ -136,10 +142,18 @@ class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
         return serialized
 
     def _serialize_message(self, message: DistrictChatMessage) -> Dict[str, Any]:
+        district_ip = ""
+        sender = getattr(message, "sender", None)
+        if sender:
+            try:
+                district_ip = _ensure_player_district_ip(sender)
+            except Exception:
+                district_ip = sender.district_ip_address or ""
         return {
             "id": message.id,
             "username": message.username,
             "display_name": message.display_name or message.username,
+            "district_ip": district_ip or "",
             "message": message.text,
             "sent_at": message.sent_at.isoformat(),
         }

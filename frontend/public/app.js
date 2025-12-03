@@ -279,6 +279,7 @@ const districtCheckinsCountValue = document.getElementById('district-checkins-co
 const districtLastContestedValue = document.getElementById('district-last-contested');
 const districtControlStatusValue = document.getElementById('district-control-status');
 const districtCyberSection = document.getElementById('district-cyber-section');
+const districtCyberHeading = document.getElementById('district-cyber-heading');
 const districtCyberFeed = document.getElementById('district-cyber-feed');
 const districtCyberEmpty = document.getElementById('district-cyber-empty');
 const districtCyberIp = document.getElementById('district-cyber-ip');
@@ -1836,6 +1837,9 @@ function renderCyberCooldownChip(profile, now = Date.now()) {
     slotEl.style.setProperty('--cooldown-fill-color', colors.fill);
     slotEl.style.setProperty('--cooldown-text-color', colors.text);
     slotEl.dataset.cooldownAction = slot.key;
+    slotEl.addEventListener('click', () => {
+      openDistrictDrawerAndScrollToCyber();
+    });
 
     const track = document.createElement('div');
     track.className = 'cooldown-track';
@@ -15188,12 +15192,18 @@ function appendDistrictChatMessage(message) {
   if (!districtChatLog || !message) {
     return;
   }
+  const username = typeof message.username === 'string' ? message.username : '';
+  const districtIp = typeof message.district_ip === 'string' ? message.district_ip : '';
   const entry = document.createElement('li');
   entry.className = 'district-chat-entry';
   const meta = document.createElement('div');
   meta.className = 'district-chat-meta';
-  const name = message.display_name || message.username || 'Unknown';
+  const isFriend = isFriendUsername(username);
+  const name = isFriend ? message.display_name || username : districtIp || username || 'Unknown';
   meta.textContent = name;
+  if (!isFriend && username) {
+    meta.title = `User @${username}`;
+  }
   if (message.sent_at) {
     const timestamp = parseServerTimestamp(message.sent_at);
     if (Number.isFinite(timestamp)) {
@@ -15357,6 +15367,17 @@ async function renderDistrictCyberActivity(profile) {
     }
     return `${Math.min(100, Math.max(0, pct)).toFixed(1)}%`;
   };
+  const formatDdosPercentPrecise = (value, decimals = 3) => {
+    const pct = Number(value);
+    const places = Number.isInteger(decimals) && decimals > 0 ? decimals : 3;
+    if (!Number.isFinite(pct)) {
+      return `${(0).toFixed(places)}%`;
+    }
+    return `${Math.min(100, Math.max(0, pct)).toFixed(places)}%`;
+  };
+  if (districtCyberHeading) {
+    districtCyberHeading.textContent = 'Cyber Activity';
+  }
   districtCyberFeed.innerHTML = '';
   districtCyberEmpty.classList.add('hidden');
   if (districtCyberIp) {
@@ -15389,6 +15410,10 @@ async function renderDistrictCyberActivity(profile) {
 
   connectDistrictChat(homeCode, profile);
   applyCyberViewMode(districtCyberViewMode);
+  const homeLabel = formatDistrictLabel(profile.homeDistrictName || profile.home_district_name, homeCode);
+  if (districtCyberHeading) {
+    districtCyberHeading.textContent = `Cyber Activity in ${homeLabel}`;
+  }
 
   try {
     const payload = await apiRequest(`districts/${encodeURIComponent(homeCode)}/cyber-activity/`);
@@ -15397,6 +15422,7 @@ async function renderDistrictCyberActivity(profile) {
     const blocked = Array.isArray(payload?.blocked) ? payload.blocked : [];
     const incoming = Array.isArray(payload?.incoming) ? payload.incoming : [];
     const incomingByDistrict = payload?.incoming_by_district || {};
+    const homeEffectPercent = Number(payload?.home_effect_percent);
     const now = Date.now();
     const ddosGrowthEffect = (progressRatio) => {
       const clamped = Math.max(0, Math.min(1, progressRatio));
@@ -15416,10 +15442,10 @@ async function renderDistrictCyberActivity(profile) {
       for (let i = 1; i <= intervals; i += 1) {
         const progress = Math.min(1, (i * 30 * 60 * 1000) / total);
         const eff = ddosGrowthEffect(progress);
-        const label = formatDdosPercent(eff);
+        const label = formatDdosPercentPrecise(eff);
         list.push({
           title: 'DDoS ramped',
-          body: `${ip} increased disruption on ${targetLabel} to ${label} after ${i * 30} minutes.`,
+          body: `${ip} increased this attack's disruption on ${targetLabel} to ${label} after ${i * 30} minutes.`,
         });
       }
     };
@@ -15461,11 +15487,14 @@ async function renderDistrictCyberActivity(profile) {
     });
 
     blocked.forEach((item) => {
-      const target = item.target_name || item.target_code || 'home district';
+      const effectValue = Number.isFinite(item.effect_percent) ? Number(item.effect_percent) : Number(item.entry_effect_percent);
+      const effectLabel = formatDdosPercent(effectValue);
+      const target = formatDistrictLabel(item.target_name, item.target_code);
       const ip = item.attacker_ip || 'district IP';
+      const source = formatDistrictLabel(item.attacker_home_name, item.attacker_home_code);
       entries.push({
         title: 'Firewall deployed',
-        body: `${ip} knocked off incoming DDoS traffic to protect ${target}.`,
+        body: `${target} deployed a firewall, blocking DDoS traffic from ${source} (${ip}) and cutting disruption to ${effectLabel}.`,
       });
     });
 
@@ -15515,10 +15544,23 @@ async function renderDistrictCyberActivity(profile) {
       }
     }
 
+    if (districtRecentActivityValue && entries.length) {
+      const preview = entries[0];
+      districtRecentActivityValue.textContent = `${preview.title}: ${preview.body}`;
+    }
+
     if (!entries.length) {
       districtCyberSection.classList.remove('hidden');
       districtCyberEmpty.classList.remove('hidden');
       return;
+    }
+
+    if (Number.isFinite(homeEffectPercent) && homeEffectPercent > 0) {
+      const homeLabel = profile.homeDistrictName || profile.home_district_name || homeCode;
+      entries.unshift({
+        title: 'Current disruption',
+        body: `${homeLabel} is under ${formatDdosPercent(homeEffectPercent)} total DDoS disruption from all attackers.`,
+      });
     }
 
     entries.forEach((entry) => {
@@ -15608,6 +15650,15 @@ function openDistrictDrawer(trigger = null) {
       districtContent.focus();
     }
   }, 0);
+}
+
+function openDistrictDrawerAndScrollToCyber(trigger = null) {
+  openDistrictDrawer(trigger);
+  window.setTimeout(() => {
+    if (districtCyberSection && typeof districtCyberSection.scrollIntoView === 'function') {
+      districtCyberSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, 50);
 }
 
 function closeDistrictDrawer({ restoreFocus = true } = {}) {

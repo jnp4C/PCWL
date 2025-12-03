@@ -1628,30 +1628,31 @@ def start_ddos_attack(player: Player, target_code: str) -> Dict[str, Any]:
 
 def apply_firewall(player: Player, target_code: str) -> Dict[str, Any]:
     now = timezone.now()
-    locked = Player.objects.select_for_update().get(pk=player.pk)
-    if not locked.home_district_code:
-        raise DdosError("Set a home district to deploy a firewall.")
-    home_code = _normalise_district_code(locked.home_district_code)
-    target_code_normalized = _normalise_district_code(target_code)
-    if not target_code_normalized or home_code != target_code_normalized:
-        raise DdosError("Firewall can only be deployed on your home district.")
-    if _is_on_cooldown(locked, COOLDOWN_KEYS["firewall"], now_ms=int(now.timestamp() * 1000)):
-        raise CooldownActive("Firewall cooldown is active.")
+    with transaction.atomic():
+        locked = Player.objects.select_for_update().get(pk=player.pk)
+        if not locked.home_district_code:
+            raise DdosError("Set a home district to deploy a firewall.")
+        home_code = _normalise_district_code(locked.home_district_code)
+        target_code_normalized = _normalise_district_code(target_code)
+        if not target_code_normalized or home_code != target_code_normalized:
+            raise DdosError("Firewall can only be deployed on your home district.")
+        if _is_on_cooldown(locked, COOLDOWN_KEYS["firewall"], now_ms=int(now.timestamp() * 1000)):
+            raise CooldownActive("Firewall cooldown is active.")
 
-    target_district = _resolve_target_district(target_code)
+        target_district = _resolve_target_district(target_code)
 
-    qs = _active_ddos_qs(target_district, now=now)
-    count = qs.count()
-    removed_entry = None
-    if count:
-        # Pick a pseudo-random active entry without loading all rows
-        idx = int(_now_ms() % count)
-        removed_entry = qs.order_by("id")[idx]
-        removed_entry.ended_at = now
-        removed_entry.save(update_fields=["ended_at", "updated_at"])
+        qs = _active_ddos_qs(target_district, now=now)
+        count = qs.count()
+        removed_entry = None
+        if count:
+            # Pick a pseudo-random active entry without loading all rows
+            idx = int(_now_ms() % count)
+            removed_entry = qs.order_by("id")[idx]
+            removed_entry.ended_at = now
+            removed_entry.save(update_fields=["ended_at", "updated_at"])
 
-    _update_cooldown(locked, COOLDOWN_KEYS["firewall"], COOLDOWN_DURATIONS_MS["firewall"], now_ms=int(now.timestamp() * 1000))
-    locked.save(update_fields=["cooldowns", "cooldown_details", "updated_at"])
+        _update_cooldown(locked, COOLDOWN_KEYS["firewall"], COOLDOWN_DURATIONS_MS["firewall"], now_ms=int(now.timestamp() * 1000))
+        locked.save(update_fields=["cooldowns", "cooldown_details", "updated_at"])
 
     debuff = _ddos_debuff_percent(target_district, now=now)
     return {

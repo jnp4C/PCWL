@@ -1296,36 +1296,56 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
             return Response({"detail": "Cyber activity is restricted to home district members."}, status=status.HTTP_403_FORBIDDEN)
 
         now = timezone.now()
+        district_obj = District.objects.filter(code__iexact=code_normalized).first()
         # Active DDoS launched by this district's players
         active_attacks = (
-            DistrictDdosEntry.objects.select_related("district", "attacker")
-            .filter(attacker_home_district__code=code_normalized, ended_at__isnull=True, expires_at__gt=now)
+            DistrictDdosEntry.objects.select_related("district", "attacker", "attacker_home_district")
+            .filter(attacker_home_district__code__iexact=code_normalized, ended_at__isnull=True, expires_at__gt=now)
             .order_by("-started_at")[:20]
         )
         # Recently ended attacks on this district (firewall effect)
         recent_blocked = (
             DistrictDdosEntry.objects.select_related("district", "attacker_home_district")
-            .filter(district__code=code_normalized, ended_at__isnull=False)
+            .filter(district__code__iexact=code_normalized, ended_at__isnull=False)
             .order_by("-ended_at")[:20]
         )
         # Incoming attacks against this district from other districts
         incoming_qs = (
             DistrictDdosEntry.objects.select_related("attacker_home_district", "district", "attacker")
-            .filter(district__code=code_normalized, ended_at__isnull=True, expires_at__gt=now)
-            .exclude(attacker_home_district__code=code_normalized)
+            .filter(district__code__iexact=code_normalized, ended_at__isnull=True, expires_at__gt=now)
+            .exclude(attacker_home_district__code__iexact=code_normalized)
         )
         # Limit recent incoming entries for the feed but aggregate over all active to populate the popover
         incoming_recent = incoming_qs.order_by("-started_at")[:40]
 
         def serialize_entry(entry, *, kind: str):
-            target_name = entry.district.name if entry.district else entry.district_id or ""
+            target_code = ""
+            target_name = ""
+            if entry.district:
+                target_code = entry.district.code or ""
+                target_name = entry.district.name or ""
+            elif entry.district_id:
+                target_code = entry.district_id
+            if not target_name and target_code:
+                target_name = f"District {target_code}"
             effect_total = _ddos_debuff_percent(entry.district, now=now) if entry.district else 0
             entry_effect = _ddos_entry_effect(entry, now=now)
+            attacker_home_code = ""
+            attacker_home_name = ""
+            if entry.attacker_home_district:
+                attacker_home_code = entry.attacker_home_district.code or ""
+                attacker_home_name = entry.attacker_home_district.name or ""
+            elif entry.attacker:
+                attacker_home_code = _clean_district_code(getattr(entry.attacker, "home_district_code", None)) or ""
+                attacker_home_name = getattr(entry.attacker, "home_district_name", "") or ""
+            if not attacker_home_name and attacker_home_code:
+                attacker_home_name = f"District {attacker_home_code}"
             return {
                 "type": kind,
                 "attacker_ip": entry.attacker_ip or "",
-                "attacker_home_code": entry.attacker_home_district.code if entry.attacker_home_district else "",
-                "target_code": entry.district.code if entry.district else "",
+                "attacker_home_code": attacker_home_code,
+                "attacker_home_name": attacker_home_name,
+                "target_code": target_code,
                 "target_name": target_name,
                 "started_at": entry.started_at,
                 "ended_at": entry.ended_at,
@@ -1340,10 +1360,11 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
             name = ""
             if row.attacker_home_district:
                 code = row.attacker_home_district.code
-                name = row.attacker_home_district.name or ""
+                name = row.attacker_home_district.name or f"District {code}"
             elif row.attacker:
                 code = _normalise_district_code(getattr(row.attacker, "home_district_code", None))
-                name = getattr(row.attacker, "home_district_name", "") or ""
+                attacker_name = getattr(row.attacker, "home_district_name", "") or ""
+                name = attacker_name or (f"District {code}" if code else "")
             code = code or ""
             if not code:
                 continue
@@ -1355,11 +1376,19 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
             if code in incoming_by_district:
                 incoming_by_district[code]["effect_percent"] = effect_percent
 
+        home_effect_percent = 0.0
+        if district_obj:
+            try:
+                home_effect_percent = round(_ddos_debuff_percent(district_obj, now=now) * 100, 3)
+            except Exception:
+                home_effect_percent = 0.0
+
         payload = {
             "active": [serialize_entry(entry, kind="ddos") for entry in active_attacks],
             "blocked": [serialize_entry(entry, kind="firewall") for entry in recent_blocked],
             "incoming": [serialize_entry(entry, kind="incoming") for entry in incoming_recent],
             "incoming_by_district": incoming_by_district,
+            "home_effect_percent": home_effect_percent,
         }
         return Response(payload, status=status.HTTP_200_OK)
 
