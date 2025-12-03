@@ -2745,15 +2745,15 @@ body.friend-profile-open .character-drawer {
 .district-chat-form {
   margin-top: 0.5rem;
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.45rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem;
   align-items: center;
 }
 
 .district-chat-form input[type='text'] {
   width: 100%;
-  padding: 0.55rem 0.65rem;
-  border-radius: 10px;
+  padding: 0.5rem 0.6rem;
+  border-radius: 9px;
   border: 1px solid rgba(90, 255, 160, 0.3);
   background: rgba(5, 18, 12, 0.75);
   color: rgba(210, 255, 220, 0.95);
