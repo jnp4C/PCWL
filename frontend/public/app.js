@@ -1856,15 +1856,17 @@ function renderCyberCooldownChip(profile, now = Date.now()) {
       const ip = (slot.meta && slot.meta.sourceIp) || profile.district_ip_address || 'district IP';
       const targetName = (slot.meta && slot.meta.targetName) || (slot.meta && slot.meta.targetCode) || '';
       const effect = Number(slot.meta && slot.meta.debuff) || null;
+      const canceledBy = slot.meta && slot.meta.canceledBy;
       messages.push(`${formatCooldownTime(slot.remaining)} • ${slot.label}`);
-      const route = targetName ? `${ip} → ${targetName}` : `${ip} → target`;
-      messages.push(route);
-      messages.push(targetName ? `${slot.label} on ${targetName}` : slot.label);
-      if (Number.isFinite(effect)) {
-        messages.push(`Disruption at ${Math.min(100, Math.max(0, effect)).toFixed(1)}%`);
-      }
-      if (slot.meta && slot.meta.canceledBy) {
-        messages.push(`DDoS canceled by ${slot.meta.canceledBy}`);
+      if (canceledBy) {
+        messages.push(`DDoS knocked off by ${canceledBy}`);
+      } else {
+        const route = targetName ? `${ip} → ${targetName}` : `${ip} → target`;
+        messages.push(route);
+        messages.push(targetName ? `${slot.label} on ${targetName}` : slot.label);
+        if (Number.isFinite(effect)) {
+          messages.push(`Disruption at ${Math.min(100, Math.max(0, effect)).toFixed(1)}%`);
+        }
       }
       const idx = Math.floor(now / 2000) % messages.length;
       time.textContent = messages[idx];
@@ -15529,6 +15531,23 @@ async function renderDistrictCyberActivity(profile) {
       const effectLabel = formatDdosPercent(effectValue);
       const target = formatDistrictLabel(item.target_name, item.target_code);
       const defenderName = item.ended_by_display || item.ended_by_username || item.ended_by_ip || 'Defender';
+      if (
+        profile &&
+        profile.district_ip_address &&
+        item.attacker_ip &&
+        item.attacker_ip === profile.district_ip_address &&
+        activeCooldowns.has(COOLDOWN_KEYS.DDOS)
+      ) {
+        const info = activeCooldowns.get(COOLDOWN_KEYS.DDOS);
+        const meta = {
+          ...(info && info.meta ? info.meta : {}),
+          canceledBy: item.ended_by_ip || defenderName,
+        };
+        activeCooldowns.set(COOLDOWN_KEYS.DDOS, {
+          ...info,
+          meta,
+        });
+      }
       entries.push({
         title: 'DDoS disrupted',
         body: `${defenderName} deployed a firewall that knocked off your DDoS on ${target}, lowering disruption to ${effectLabel}.`,
