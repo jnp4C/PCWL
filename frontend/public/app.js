@@ -1265,16 +1265,16 @@ function resolveCooldownColors(actionKey, mode = null) {
   }
   if (actionKey === COOLDOWN_KEYS.DDOS || actionKey === COOLDOWN_KEYS.WORM) {
     return {
-      fill: 'linear-gradient(135deg, rgba(110, 255, 185, 0.92), rgba(70, 200, 140, 0.8))',
-      track: 'rgba(70, 200, 140, 0.22)',
-      text: 'rgba(225, 255, 240, 0.95)',
+      fill: 'linear-gradient(135deg, rgba(30, 130, 90, 0.95), rgba(20, 95, 70, 0.9))',
+      track: 'rgba(15, 60, 45, 0.42)',
+      text: 'rgba(210, 245, 230, 0.96)',
     };
   }
   if (actionKey === COOLDOWN_KEYS.FIREWALL || actionKey === COOLDOWN_KEYS.DEWORM) {
     return {
-      fill: 'linear-gradient(135deg, rgba(110, 255, 185, 0.92), rgba(70, 200, 140, 0.8))',
-      track: 'rgba(70, 200, 140, 0.22)',
-      text: 'rgba(225, 255, 240, 0.95)',
+      fill: 'linear-gradient(135deg, rgba(28, 110, 78, 0.95), rgba(18, 85, 60, 0.9))',
+      track: 'rgba(12, 50, 38, 0.44)',
+      text: 'rgba(205, 240, 225, 0.96)',
     };
   }
   return {
