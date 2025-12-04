@@ -15529,8 +15529,9 @@ async function renderDistrictCyberActivity(profile) {
     blockedOutgoing.forEach((item) => {
       const effectValue = Number.isFinite(item.effect_percent) ? Number(item.effect_percent) : Number(item.entry_effect_percent);
       const effectLabel = formatDdosPercent(effectValue);
-      const target = formatDistrictLabel(item.target_name, item.target_code);
-      const defenderName = item.ended_by_display || item.ended_by_username || item.ended_by_ip || 'Defender';
+      const targetName = typeof item.target_name === 'string' ? item.target_name : '';
+      const target = targetName || 'target district';
+      const defenderName = item.ended_by_ip || item.ended_by_display || item.ended_by_username || 'Defender';
       if (
         profile &&
         profile.district_ip_address &&
