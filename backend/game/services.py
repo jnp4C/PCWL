@@ -1654,10 +1654,10 @@ def apply_firewall(player: Player, target_code: str) -> Dict[str, Any]:
         if count:
             # Pick a pseudo-random active entry without loading all rows
             idx = int(_now_ms() % count)
-        removed_entry = qs.order_by("id")[idx]
-        removed_entry.ended_at = now
-        removed_entry.ended_by_player = locked
-        removed_entry.save(update_fields=["ended_at", "updated_at"])
+            removed_entry = qs.order_by("id")[idx]
+            removed_entry.ended_at = now
+            removed_entry.ended_by_player = locked
+            removed_entry.save(update_fields=["ended_at", "updated_at"])
 
         _update_cooldown(locked, COOLDOWN_KEYS["firewall"], COOLDOWN_DURATIONS_MS["firewall"], now_ms=int(now.timestamp() * 1000))
         locked.save(update_fields=["cooldowns", "cooldown_details", "updated_at"])
