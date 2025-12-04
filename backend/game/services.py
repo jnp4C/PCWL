@@ -16,6 +16,7 @@ from .models import (
     DistrictContributionStat,
     DistrictEngagement,
     DistrictDdosEntry,
+    DistrictWormEntry,
     FriendLink,
     Party,
     PartyInvitation,
@@ -37,7 +38,9 @@ COOLDOWN_KEYS = {
     "defend": "defend",
     "charge": "charge",
     "ddos": "ddos",
+    "worm": "worm",
     "firewall": "firewall",
+    "deworm": "deworm",
 }
 
 COOLDOWN_DURATIONS_MS = {
@@ -46,7 +49,9 @@ COOLDOWN_DURATIONS_MS = {
     "defend_remote": 10 * 60 * 1000,
     "charge": 2 * 60 * 1000,
     "ddos": 3 * 60 * 60 * 1000,  # 3h
+    "worm": 2 * 60 * 60 * 1000,  # 2h
     "firewall": int(1.5 * 60 * 60 * 1000),  # 1.5h
+    "deworm": int(1.5 * 60 * 60 * 1000),  # 1.5h
 }
 
 PARTY_ATTACK_BONUS_PER_PLAYER = Decimal("2")
@@ -102,6 +107,10 @@ class PartyInviteError(PartyError):
 
 class DdosError(Exception):
     """Raised for invalid cyberattack actions."""
+
+
+class WormError(Exception):
+    """Raised for invalid worm/deworm actions."""
 
 
 def _now_ms() -> int:
@@ -808,7 +817,17 @@ def _update_cooldown(player: Player, key: str, duration_ms: int, mode: Optional[
     player.cooldown_details = cooldown_details
 
 
-def _append_history_entry(player: Player, *, checkin: CheckIn, mode: str, precision: Optional[str], multiplier: Decimal, now_ms: int) -> None:
+def _append_history_entry(
+    player: Player,
+    *,
+    checkin: CheckIn,
+    mode: str,
+    precision: Optional[str],
+    multiplier: Decimal,
+    now_ms: int,
+    ddos_percent: Optional[float] = None,
+    worm_percent: Optional[float] = None,
+) -> None:
     history = player.checkin_history if isinstance(player.checkin_history, list) else []
     entry = {
         "timestamp": now_ms,
@@ -830,6 +849,10 @@ def _append_history_entry(player: Player, *, checkin: CheckIn, mode: str, precis
         entry["precision"] = precision
     if checkin.party_code:
         entry["partyCode"] = checkin.party_code
+    if ddos_percent is not None:
+        entry["ddosDisruptionPercent"] = float(ddos_percent)
+    if worm_percent is not None:
+        entry["wormDisruptionPercent"] = float(worm_percent)
     player.checkin_history = [entry] + history[: MAX_HISTORY_ENTRIES - 1]
 
 
@@ -1059,6 +1082,8 @@ def apply_checkin(
         if not code:
             raise ValueError("District code is required.")
         district_obj = _get_or_create_district_record(code, name)
+        if district_obj and district_obj.name:
+            name = district_obj.name
 
         now_ms = _now_ms()
 
@@ -1158,15 +1183,28 @@ def apply_checkin(
 
         effective_multiplier = charge_multiplier * local_bonus * streak_multiplier
         disruption_multiplier = Decimal(1)
+        worm_multiplier = Decimal(1)
+        ddos_debuff = 0.0
+        worm_boost = 0.0
         if district_obj:
             try:
                 ddos_debuff = _ddos_debuff_percent(district_obj, now=now)
                 disruption_multiplier = Decimal(max(0, 1 - ddos_debuff)).quantize(Decimal("0.0001"))
             except Exception:
                 disruption_multiplier = Decimal(1)
+            try:
+                target_code_normalized = _normalise_district_code(district_obj.code) or code
+                home_code_normalized = _normalise_district_code(locked.home_district_code)
+                is_enemy_target = not home_code_normalized or not target_code_normalized or home_code_normalized != target_code_normalized
+                if is_enemy_target and action == CheckIn.Action.ATTACK and mode == CheckIn.Mode.LOCAL:
+                    worm_boost = _worm_boost_percent(district_obj, now=now)
+                    worm_bonus = Decimal(str(worm_boost))
+                    worm_multiplier = (Decimal("1") + worm_bonus).quantize(Decimal("0.0001"))
+            except Exception:
+                worm_multiplier = Decimal(1)
         base_points_decimal = Decimal(POINTS_PER_CHECKIN)
-        total_player_multiplier = effective_multiplier * party_multiplier_player * disruption_multiplier
-        total_district_multiplier = effective_multiplier * party_multiplier_district * disruption_multiplier
+        total_player_multiplier = effective_multiplier * party_multiplier_player * disruption_multiplier * worm_multiplier
+        total_district_multiplier = effective_multiplier * party_multiplier_district * disruption_multiplier * worm_multiplier
 
         player_points_decimal = base_points_decimal * total_player_multiplier
         district_points_decimal = base_points_decimal * total_district_multiplier
@@ -1332,6 +1370,8 @@ def apply_checkin(
             precision=precision,
             multiplier=total_player_multiplier,
             now_ms=now_ms,
+            ddos_percent=ddos_debuff * 100 if ddos_debuff else None,
+            worm_percent=worm_boost * 100 if worm_boost else None,
         )
         _update_ratios(locked)
 
@@ -1496,6 +1536,8 @@ def apply_checkin(
                         precision=None,
                         multiplier=m_total_player_multiplier,
                         now_ms=m_now_ms,
+                        ddos_percent=ddos_debuff * 100 if ddos_debuff else None,
+                        worm_percent=worm_boost * 100 if worm_boost else None,
                     )
                     _update_ratios(m_locked)
 
@@ -1589,6 +1631,36 @@ def _ddos_entry_effect(entry: DistrictDdosEntry, *, now=None) -> float:
     return max(0.0, min(peak, round(contribution, 6)))
 
 
+def _active_worm_qs(district: District, *, now=None):
+    now = now or timezone.now()
+    return DistrictWormEntry.objects.filter(district=district, ended_at__isnull=True, expires_at__gt=now)
+
+
+def _worm_boost_percent(district: District, *, now=None) -> float:
+    qs = _active_worm_qs(district, now=now)
+    boost = 0.0
+    for entry in qs:
+        boost += _worm_entry_effect(entry, now=now)
+    return round(min(1.0, boost), 4)
+
+
+def _worm_entry_effect(entry: DistrictWormEntry, *, now=None) -> float:
+    """Return the current disruption contribution for a single Worm entry."""
+    if not entry:
+        return 0.0
+    now = now or timezone.now()
+    base = 0.001  # 0.1%
+    peak = 0.002  # 0.2% per attacker max over duration
+    start = entry.started_at or now
+    end = entry.expires_at or (start + timedelta(hours=2))
+    total_seconds = max(1, (end - start).total_seconds())
+    elapsed_seconds = max(0.0, min((now - start).total_seconds(), total_seconds))
+    ratio = elapsed_seconds / total_seconds
+    growth = math.log1p(ratio * 9) / math.log(10) if ratio > 0 else 0.0
+    contribution = base + (peak - base) * growth
+    return max(0.0, min(peak, round(contribution, 6)))
+
+
 def start_ddos_attack(player: Player, target_code: str) -> Dict[str, Any]:
     with transaction.atomic():
         now = timezone.now()
@@ -1667,4 +1739,98 @@ def apply_firewall(player: Player, target_code: str) -> Dict[str, Any]:
         "removed": removed_entry.pk if removed_entry else None,
         "active_attackers": _active_ddos_qs(target_district, now=now).count(),
         "debuff": debuff,
+    }
+
+
+def start_worm_attack(player: Player, target_code: str) -> Dict[str, Any]:
+    with transaction.atomic():
+        now = timezone.now()
+        locked = Player.objects.select_for_update().get(pk=player.pk)
+        if _is_on_cooldown(locked, COOLDOWN_KEYS["worm"], now_ms=int(now.timestamp() * 1000)):
+            raise CooldownActive("Worm cooldown is active.")
+
+        if not locked.home_district_code:
+            raise WormError("Set a home district before launching a Worm.")
+
+        attacker_home = _get_or_create_district_record(locked.home_district_code, locked.home_district_name)
+        target_district = _get_or_create_district_record(target_code, target_code)
+        if not target_district:
+            raise WormError("Invalid target district.")
+        if attacker_home and target_district and attacker_home.code == target_district.code:
+            raise WormError("Worm must target an enemy district.")
+
+        existing_active = DistrictWormEntry.objects.filter(
+            attacker=locked, ended_at__isnull=True, expires_at__gt=now
+        ).first()
+        if existing_active:
+            raise WormError("You already have an active Worm.")
+
+        attacker_ip = _clean_district_ip(_ensure_player_district_ip(locked))
+        expires_at = now + timedelta(hours=2)
+
+        entry = DistrictWormEntry.objects.create(
+            district=target_district,
+            attacker=locked,
+            attacker_home_district=attacker_home,
+            attacker_ip=attacker_ip,
+            started_at=now,
+            expires_at=expires_at,
+        )
+        _update_cooldown(
+            locked,
+            COOLDOWN_KEYS["worm"],
+            COOLDOWN_DURATIONS_MS["worm"],
+            now_ms=int(now.timestamp() * 1000),
+        )
+        locked.save(update_fields=["cooldowns", "cooldown_details", "updated_at", "district_ip_address"])
+
+    boost = _worm_boost_percent(target_district, now=now)
+    return {
+        "entry": entry,
+        "active_attackers": _active_worm_qs(target_district, now=now).count(),
+        "boost": boost,
+        "expires_at": expires_at,
+    }
+
+
+def apply_deworm(player: Player, target_code: str) -> Dict[str, Any]:
+    now = timezone.now()
+    with transaction.atomic():
+        locked = Player.objects.select_for_update().get(pk=player.pk)
+        if not locked.home_district_code:
+            raise WormError("Set a home district to deploy a deWorm.")
+        home_code = _normalise_district_code(locked.home_district_code)
+        target_code_normalized = _normalise_district_code(target_code)
+        if not target_code_normalized or home_code != target_code_normalized:
+            raise WormError("deWorm can only be deployed on your home district.")
+        if _is_on_cooldown(locked, COOLDOWN_KEYS["deworm"], now_ms=int(now.timestamp() * 1000)):
+            raise CooldownActive("deWorm cooldown is active.")
+
+        target_district = _get_or_create_district_record(target_code_normalized, target_code_normalized)
+        if not target_district:
+            raise WormError("Invalid target district.")
+
+        qs = _active_worm_qs(target_district, now=now)
+        count = qs.count()
+        removed_entry = None
+        if count:
+            idx = int(_now_ms() % count)
+            removed_entry = qs.order_by("id")[idx]
+            removed_entry.ended_at = now
+            removed_entry.ended_by_player = locked
+            removed_entry.save(update_fields=["ended_at", "updated_at", "ended_by_player"])
+
+        _update_cooldown(
+            locked,
+            COOLDOWN_KEYS["deworm"],
+            COOLDOWN_DURATIONS_MS["deworm"],
+            now_ms=int(now.timestamp() * 1000),
+        )
+        locked.save(update_fields=["cooldowns", "cooldown_details", "updated_at"])
+
+    boost = _worm_boost_percent(target_district, now=now)
+    return {
+        "removed": removed_entry.pk if removed_entry else None,
+        "active_attackers": _active_worm_qs(target_district, now=now).count(),
+        "boost": boost,
     }

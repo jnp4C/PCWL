@@ -1870,6 +1870,25 @@ function renderCyberCooldownChip(profile, now = Date.now()) {
       }
       const idx = Math.floor(now / 2000) % messages.length;
       time.textContent = messages[idx];
+    } else if (slot.active && slot.key === COOLDOWN_KEYS.WORM) {
+      const messages = [];
+      const ip = (slot.meta && slot.meta.sourceIp) || profile.district_ip_address || 'district IP';
+      const targetName = (slot.meta && slot.meta.targetName) || (slot.meta && slot.meta.targetCode) || '';
+      const effect = Number(slot.meta && slot.meta.boost) || null;
+      const canceledBy = slot.meta && slot.meta.canceledBy;
+      messages.push(`${formatCooldownTime(slot.remaining)} • ${slot.label}`);
+      if (canceledBy) {
+        messages.push(`Worm knocked off by ${canceledBy}`);
+      } else {
+        const route = targetName ? `${ip} → ${targetName}` : `${ip} → target`;
+        messages.push(route);
+        messages.push(targetName ? `${slot.label} on ${targetName}` : slot.label);
+        if (Number.isFinite(effect)) {
+          messages.push(`Worm disruption at ${Math.min(100, Math.max(0, effect)).toFixed(1)}%`);
+        }
+      }
+      const idx = Math.floor(now / 2000) % messages.length;
+      time.textContent = messages[idx];
     } else {
       const baseText = slot.active ? formatCooldownTime(slot.remaining) : 'Ready';
       time.textContent = slot.active ? `${baseText} • ${slot.label}` : baseText;
@@ -3498,8 +3517,12 @@ async function triggerCyberAction(actionKey, targetCode, { mode = 'cyber' } = {}
   const endpoint =
     actionKey === COOLDOWN_KEYS.DDOS
       ? 'ddos'
+      : actionKey === COOLDOWN_KEYS.WORM
+      ? 'worm'
       : actionKey === COOLDOWN_KEYS.FIREWALL
       ? 'firewall'
+      : actionKey === COOLDOWN_KEYS.DEWORM
+      ? 'deworm'
       : null;
 
   if (endpoint) {
@@ -3513,6 +3536,9 @@ async function triggerCyberAction(actionKey, targetCode, { mode = 'cyber' } = {}
         };
         if (response && typeof response.debuff === 'number') {
           meta.debuff = Number(response.debuff) * 100;
+        }
+        if (response && typeof response.boost === 'number') {
+          meta.boost = Number(response.boost) * 100;
         }
         setProfileCooldown(profile, actionKey, duration, { mode, meta });
         renderDistrictCyberActivity(profile);
@@ -4467,9 +4493,9 @@ const CYBER_COOLDOWN_KEYS = new Set([
 ]);
 const CYBER_COOLDOWNS_MS = {
   [COOLDOWN_KEYS.DDOS]: 3 * 60 * 60 * 1000, // 3h
-  [COOLDOWN_KEYS.WORM]: 3 * 60 * 60 * 1000, // mirror ddos for now
+  [COOLDOWN_KEYS.WORM]: 2 * 60 * 60 * 1000, // 2h
   [COOLDOWN_KEYS.FIREWALL]: 90 * 60 * 1000, // 1.5h
-  [COOLDOWN_KEYS.DEWORM]: 90 * 60 * 1000, // mirror firewall for now
+  [COOLDOWN_KEYS.DEWORM]: 90 * 60 * 1000, // 1.5h
 };
 
 function loadDistrictStrengthCache() {
@@ -8952,6 +8978,16 @@ function updateRecentCheckinsDrawerContent(profile = undefined) {
     const multiplier = Number(entry.multiplier) > 1 ? `x${Number(entry.multiplier)}` : null;
     const mode = entry.ranged ? 'Ranged' : entry.melee ? 'Local' : null;
     const when = entry.timestamp ? formatTimeAgo(entry.timestamp) : 'Unknown time';
+    const ddosPercent = Number.isFinite(Number(entry.ddosDisruptionPercent))
+      ? Number(entry.ddosDisruptionPercent)
+      : Number.isFinite(Number(entry.ddos_disruption_percent))
+      ? Number(entry.ddos_disruption_percent)
+      : null;
+    const wormPercent = Number.isFinite(Number(entry.wormDisruptionPercent))
+      ? Number(entry.wormDisruptionPercent)
+      : Number.isFinite(Number(entry.worm_disruption_percent))
+      ? Number(entry.worm_disruption_percent)
+      : null;
     let cooldownInfo = resolvedProfile ? getEntryCooldownInfo(resolvedProfile, entry, now) : null;
     if (cooldownInfo && renderedCooldownKeys.has(cooldownInfo.key)) {
       cooldownInfo = null;
@@ -8966,6 +9002,12 @@ function updateRecentCheckinsDrawerContent(profile = undefined) {
     }
     if (multiplier) {
       metaParts.push(multiplier);
+    }
+    if (Number.isFinite(ddosPercent) && ddosPercent > 0) {
+      metaParts.push(`DDoS ${Math.min(100, Math.max(0, ddosPercent)).toFixed(1)}%`);
+    }
+    if (Number.isFinite(wormPercent) && wormPercent > 0) {
+      metaParts.push(`Worm ${Math.min(100, Math.max(0, wormPercent)).toFixed(1)}%`);
     }
     metaParts.push(pointsText);
     metaParts.push(when);
@@ -15396,7 +15438,7 @@ async function renderDistrictCyberActivity(profile) {
     districtCyberIncoming.classList.add('hidden');
     districtCyberIncoming.setAttribute('aria-expanded', 'false');
     if (districtCyberIncomingText) {
-      districtCyberIncomingText.textContent = 'No incoming DDoS';
+      districtCyberIncomingText.textContent = 'No incoming cyber';
     }
     districtCyberIncomingData = null;
   }
@@ -15432,7 +15474,13 @@ async function renderDistrictCyberActivity(profile) {
     const blockedOutgoing = Array.isArray(payload?.blocked_outgoing) ? payload.blocked_outgoing : [];
     const incoming = Array.isArray(payload?.incoming) ? payload.incoming : [];
     const incomingByDistrict = payload?.incoming_by_district || {};
+    const wormActive = Array.isArray(payload?.worm_active) ? payload.worm_active : [];
+    const wormBlocked = Array.isArray(payload?.worm_blocked) ? payload.worm_blocked : [];
+    const wormBlockedOutgoing = Array.isArray(payload?.worm_blocked_outgoing) ? payload.worm_blocked_outgoing : [];
+    const wormIncoming = Array.isArray(payload?.worm_incoming) ? payload.worm_incoming : [];
+    const wormIncomingByDistrict = payload?.worm_incoming_by_district || {};
     const homeEffectPercent = Number(payload?.home_effect_percent);
+    const homeWormPercent = Number(payload?.home_worm_percent);
     const now = Date.now();
     const ddosGrowthEffect = (progressRatio) => {
       const clamped = Math.max(0, Math.min(1, progressRatio));
@@ -15441,23 +15489,31 @@ async function renderDistrictCyberActivity(profile) {
       const growth = Math.log1p(clamped * 9) / Math.log(10);
       return base + (peak - base) * growth;
     };
-    const appendMilestones = (item, targetLabel, ip, list, totalEffectPercent = null) => {
+    const wormGrowthEffect = (progressRatio) => {
+      const clamped = Math.max(0, Math.min(1, progressRatio));
+      const base = 0.1;
+      const peak = 0.2;
+      const growth = Math.log1p(clamped * 9) / Math.log(10);
+      return base + (peak - base) * growth;
+    };
+    const appendMilestones = (item, targetLabel, ip, list, { totalEffectPercent = null, label = 'DDoS ramped', durationMs = 3 * 60 * 60 * 1000, growthFn = ddosGrowthEffect } = {}) => {
       const startedAt = parseServerTimestamp(item.started_at);
       if (!startedAt || !Number.isFinite(startedAt)) {
         return;
       }
       const elapsed = Math.max(0, now - startedAt);
-      const total = 3 * 60 * 60 * 1000; // 3 hours
-      const intervals = Math.min(3, Math.floor(elapsed / (30 * 60 * 1000)));
+      const total = durationMs || 1;
+      const step = durationMs >= 3 * 60 * 60 * 1000 ? 30 * 60 * 1000 : 20 * 60 * 1000;
+      const intervals = Math.min(6, Math.floor(elapsed / step));
       for (let i = 1; i <= intervals; i += 1) {
-        const progress = Math.min(1, (i * 30 * 60 * 1000) / total);
+        const progress = Math.min(1, (i * step) / total);
         const eff = Number.isFinite(totalEffectPercent)
           ? Math.max(0, Math.min(100, totalEffectPercent))
-          : ddosGrowthEffect(progress);
+          : growthFn(progress);
         const label = formatDdosPercentPrecise(eff);
         list.push({
-          title: 'DDoS ramped',
-          body: `${ip} increased enemy DDoS disruption on ${targetLabel} to ${label} after ${i * 30} minutes.`,
+          title,
+          body: `${ip} increased enemy disruption on ${targetLabel} to ${label} after ${Math.round((i * step) / (60 * 1000))} minutes.`,
         });
       }
     };
@@ -15471,7 +15527,12 @@ async function renderDistrictCyberActivity(profile) {
         title: 'DDoS in progress',
         body: `${ip} performed a DDoS on ${target}, increasing enemy district DDoS disruption to ${effectLabel}.`,
       });
-      appendMilestones(item, target, ip, entries, effectValue);
+      appendMilestones(item, target, ip, entries, {
+        totalEffectPercent: effectValue,
+        label: 'DDoS ramped',
+        durationMs: 3 * 60 * 60 * 1000,
+        growthFn: ddosGrowthEffect,
+      });
 
       // Update active DDoS meta if this user is the attacker, so the chip shows current disruption
       if (
@@ -15565,18 +15626,164 @@ async function renderDistrictCyberActivity(profile) {
         title: 'Incoming DDoS',
         body: `${ip} from ${sourceCode} performed a DDoS on ${target}, raising your home DDoS disruption to ${effectLabel}.`,
       });
-      appendMilestones(item, target, ip, entries, effectValue);
+      appendMilestones(item, target, ip, entries, {
+        totalEffectPercent: effectValue,
+        label: 'DDoS ramped',
+        durationMs: 3 * 60 * 60 * 1000,
+        growthFn: ddosGrowthEffect,
+      });
+    });
+
+    wormActive.forEach((item) => {
+      const effectValue = Number.isFinite(item.effect_percent) ? Number(item.effect_percent) : Number(item.entry_effect_percent);
+      const effectLabel = formatDdosPercent(effectValue);
+      const target = formatDistrictLabel(item.target_name, item.target_code);
+      const ip = item.attacker_ip || 'district IP';
+      entries.push({
+        title: 'Worm in progress',
+        body: `${ip} is worming ${target} core infrastructure, raising disruption to ${effectLabel}.`,
+      });
+      appendMilestones(item, target, ip, entries, {
+        totalEffectPercent: effectValue,
+        label: 'Worm ramped',
+        durationMs: 2 * 60 * 60 * 1000,
+        growthFn: wormGrowthEffect,
+      });
+
+      if (
+        profile &&
+        profile.district_ip_address &&
+        item.attacker_ip &&
+        item.attacker_ip === profile.district_ip_address &&
+        activeCooldowns.has(COOLDOWN_KEYS.WORM)
+      ) {
+        const info = activeCooldowns.get(COOLDOWN_KEYS.WORM);
+        const meta = {
+          ...(info?.meta || {}),
+          sourceIp: profile.district_ip_address,
+          targetCode: item.target_code || null,
+          targetName: target,
+        };
+        if (Number.isFinite(effectValue)) {
+          meta.boost = effectValue;
+        }
+        activeCooldowns.set(COOLDOWN_KEYS.WORM, {
+          ...info,
+          meta,
+        });
+      }
+    });
+
+    wormBlocked.forEach((item) => {
+      const effectValue = Number.isFinite(item.effect_percent) ? Number(item.effect_percent) : Number(item.entry_effect_percent);
+      const effectLabel = formatDdosPercent(effectValue);
+      const target = formatDistrictLabel(item.target_name, item.target_code);
+      const ip = item.attacker_ip || 'district IP';
+      const source = formatDistrictLabel(item.attacker_home_name, item.attacker_home_code);
+      const endedByUsername = typeof item.ended_by_username === 'string' ? item.ended_by_username : '';
+      const endedByDisplay = typeof item.ended_by_display === 'string' ? item.ended_by_display : '';
+      const endedByIp = typeof item.ended_by_ip === 'string' ? item.ended_by_ip : '';
+      const isFriend = isFriendUsername(endedByUsername);
+      const isSelf = currentUser && endedByUsername && endedByUsername.toLowerCase() === currentUser.toLowerCase();
+      let actorLabel = endedByIp || 'district IP';
+      if (isSelf) {
+        actorLabel = 'You';
+      } else if (isFriend && endedByDisplay) {
+        actorLabel = endedByDisplay;
+      } else if (isFriend) {
+        actorLabel = endedByUsername;
+      } else if (endedByDisplay) {
+        actorLabel = endedByDisplay;
+      }
+      entries.push({
+        title: 'deWorm deployed',
+        body: `${actorLabel} knocked off ${ip} (${source}), lowering worm disruption on ${target} core to ${effectLabel}.`,
+      });
+    });
+
+    wormBlockedOutgoing.forEach((item) => {
+      const effectValue = Number.isFinite(item.effect_percent) ? Number(item.effect_percent) : Number(item.entry_effect_percent);
+      const effectLabel = formatDdosPercent(effectValue);
+      const targetName = typeof item.target_name === 'string' ? item.target_name : '';
+      const target = targetName || 'target district';
+      const defenderName = item.ended_by_ip || item.ended_by_display || item.ended_by_username || 'Defender';
+      if (
+        profile &&
+        profile.district_ip_address &&
+        item.attacker_ip &&
+        item.attacker_ip === profile.district_ip_address &&
+        activeCooldowns.has(COOLDOWN_KEYS.WORM)
+      ) {
+        const info = activeCooldowns.get(COOLDOWN_KEYS.WORM);
+        const meta = {
+          ...(info && info.meta ? info.meta : {}),
+          canceledBy: item.ended_by_ip || defenderName,
+        };
+        activeCooldowns.set(COOLDOWN_KEYS.WORM, {
+          ...info,
+          meta,
+        });
+      }
+      entries.push({
+        title: 'Worm disrupted',
+        body: `${defenderName} deployed a deWorm that removed your Worm on ${target}, lowering core disruption to ${effectLabel}.`,
+      });
+    });
+
+    wormIncoming.forEach((item) => {
+      const effectValue = Number.isFinite(item.effect_percent) ? Number(item.effect_percent) : Number(item.entry_effect_percent);
+      const effectLabel = formatDdosPercent(effectValue);
+      const target = profile.homeDistrictName || profile.home_district_name || formatDistrictLabel(item.target_name, item.target_code);
+      const ip = item.attacker_ip || 'district IP';
+      const sourceCode = formatDistrictLabel(item.attacker_home_name, item.attacker_home_code) || 'unknown district';
+      entries.push({
+        title: 'Incoming Worm',
+        body: `${ip} from ${sourceCode} wormed ${target} core infrastructure, raising disruption to ${effectLabel}.`,
+      });
+      appendMilestones(item, target, ip, entries, {
+        totalEffectPercent: effectValue,
+        label: 'Worm ramped',
+        durationMs: 2 * 60 * 60 * 1000,
+        growthFn: wormGrowthEffect,
+      });
     });
 
     const incomingDistricts = Object.keys(incomingByDistrict || {}).filter(Boolean);
+    const incomingWormDistricts = Object.keys(wormIncomingByDistrict || {}).filter(Boolean);
+    const combinedIncomingMap = {};
+    Object.entries(incomingByDistrict || {}).forEach(([code, payload]) => {
+      combinedIncomingMap[code] = {
+        ...(payload || {}),
+        type: 'ddos',
+        ddos_effect: payload?.effect_percent,
+        worm_effect: null,
+        effect_percent: payload?.effect_percent,
+      };
+    });
+    Object.entries(wormIncomingByDistrict || {}).forEach(([code, payload]) => {
+      const existing = combinedIncomingMap[code] || {};
+      const ddosEffect = existing.ddos_effect || null;
+      const wormEffect = payload?.effect_percent;
+      combinedIncomingMap[code] = {
+        ...existing,
+        ...payload,
+        type: existing.type ? 'both' : 'worm',
+        ddos_effect: ddosEffect,
+        worm_effect: wormEffect,
+        effect_percent: Number.isFinite(wormEffect)
+          ? Math.max(Number.isFinite(existing.effect_percent) ? existing.effect_percent : 0, wormEffect)
+          : existing.effect_percent,
+      };
+    });
     if (districtCyberIncoming) {
-      if (incomingDistricts.length) {
+      const incomingCount = new Set([...incomingDistricts, ...incomingWormDistricts]).size;
+      if (incomingCount) {
         const labelName = profile.homeDistrictName || profile.home_district_name || homeCode;
-        const text = `${labelName} is targeted by ${incomingDistricts.length} district${incomingDistricts.length === 1 ? '' : 's'}`;
+        const text = `${labelName} is targeted by ${incomingCount} district${incomingCount === 1 ? '' : 's'}`;
         districtCyberIncomingText.textContent = text;
         districtCyberIncoming.classList.remove('hidden');
         districtCyberIncoming.setAttribute('aria-expanded', 'false');
-        districtCyberIncomingData = incomingByDistrict;
+        districtCyberIncomingData = combinedIncomingMap;
         if (!districtCyberIncomingBound) {
           districtCyberIncomingBound = true;
           const triggerPopover = () => {
@@ -15619,6 +15826,13 @@ async function renderDistrictCyberActivity(profile) {
         body: `${homeLabel} is under ${formatDdosPercent(homeEffectPercent)} total DDoS disruption from all attackers.`,
       });
     }
+    if (Number.isFinite(homeWormPercent) && homeWormPercent > 0) {
+      const homeLabel = profile.homeDistrictName || profile.home_district_name || homeCode;
+      entries.unshift({
+        title: 'Worm disruption',
+        body: `${homeLabel} core infrastructure is wormed ${formatDdosPercent(homeWormPercent)}, boosting enemy local attacks.`,
+      });
+    }
 
     entries.forEach((entry) => {
       const li = document.createElement('li');
@@ -15656,7 +15870,7 @@ function showIncomingDdosPopover(incomingMap = {}) {
   popover.className = 'district-cyber-popover';
   const title = document.createElement('div');
   title.className = 'district-cyber-popover-title';
-  title.textContent = 'Incoming DDoS sources';
+  title.textContent = 'Incoming Cyber sources';
   const list = document.createElement('ul');
   list.className = 'district-cyber-popover-list';
   entries.forEach(([code, payload]) => {
@@ -15664,8 +15878,21 @@ function showIncomingDdosPopover(incomingMap = {}) {
     li.className = 'district-cyber-popover-item';
     const name = typeof payload?.name === 'string' ? payload.name : '';
     const percent = Number(payload?.effect_percent);
-    const pctLabel = Number.isFinite(percent) ? `${Math.min(100, Math.max(0, percent)).toFixed(1)}%` : '—';
-    li.textContent = `${name || code} • ${pctLabel}`;
+    const ddosEffect = Number(payload?.ddos_effect);
+    const wormEffect = Number(payload?.worm_effect);
+    const effectivePercent = Number.isFinite(percent)
+      ? percent
+      : Number.isFinite(ddosEffect)
+      ? ddosEffect
+      : Number.isFinite(wormEffect)
+      ? wormEffect
+      : NaN;
+    const pctLabel = Number.isFinite(effectivePercent)
+      ? `${Math.min(100, Math.max(0, effectivePercent)).toFixed(1)}%`
+      : '—';
+    const typeLabel = typeof payload?.type === 'string' ? payload.type : '';
+    const typeText = typeLabel === 'worm' ? 'Worm' : typeLabel === 'both' ? 'DDoS + Worm' : 'DDoS';
+    li.textContent = `${name || code} • ${pctLabel} • ${typeText}`;
     list.appendChild(li);
   });
   popover.appendChild(title);

@@ -28,6 +28,7 @@ from .models import (
     DistrictContributionStat,
     DistrictEngagement,
     DistrictDdosEntry,
+    DistrictWormEntry,
     DistrictPartyStat,
     FriendLink,
     FriendRequest,
@@ -54,6 +55,7 @@ from .services import (
     CooldownActive,
     apply_checkin,
     apply_firewall,
+    apply_deworm,
     create_party,
     DdosError,
     get_active_party,
@@ -71,11 +73,15 @@ from .services import (
     PARTY_CONTRIBUTION_PLAYER_MULTIPLIER,
     _ddos_debuff_percent,
     _ddos_entry_effect,
+    _worm_boost_percent,
+    _worm_entry_effect,
     _normalise_district_code,
     _determine_party_active_district,
     respond_to_party_invitation,
     start_charge,
     start_ddos_attack,
+    start_worm_attack,
+    WormError,
 )
 
 
@@ -1263,6 +1269,27 @@ class DdosAttackView(PlayerScopedAPIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
+@method_decorator(csrf_exempt, name="dispatch")
+class WormAttackView(PlayerScopedAPIView):
+    """Launch a Worm cyberattack against a target district."""
+
+    def post(self, request, code: str):
+        player = self.get_current_player(request)
+        try:
+            result = start_worm_attack(player, code)
+        except CooldownActive as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        except WormError as exc:
+            raise ValidationError({"detail": str(exc)})
+        payload = {
+            "district": code,
+            "active_attackers": result["active_attackers"],
+            "boost": result["boost"],
+            "expires_at": result["expires_at"],
+        }
+        return Response(payload, status=status.HTTP_200_OK)
+
+
 class FirewallView(PlayerScopedAPIView):
     """Deploy a firewall to remove one active DDoS attacker on the home district."""
 
@@ -1279,6 +1306,26 @@ class FirewallView(PlayerScopedAPIView):
             "removed_attack_id": result["removed"],
             "active_attackers": result["active_attackers"],
             "debuff": result["debuff"],
+        }
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class DewormView(PlayerScopedAPIView):
+    """Deploy a deWorm to remove one active Worm attacker on the home district."""
+
+    def post(self, request, code: str):
+        player = self.get_current_player(request)
+        try:
+            result = apply_deworm(player, code)
+        except CooldownActive as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        except WormError as exc:
+            raise ValidationError({"detail": str(exc)})
+        payload = {
+            "district": code,
+            "removed_attack_id": result["removed"],
+            "active_attackers": result["active_attackers"],
+            "boost": result["boost"],
         }
         return Response(payload, status=status.HTTP_200_OK)
 
@@ -1303,9 +1350,20 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
             .filter(attacker_home_district__code__iexact=code_normalized, ended_at__isnull=True, expires_at__gt=now)
             .order_by("-started_at")[:20]
         )
+        # Active Worms launched by this district's players
+        active_worms = (
+            DistrictWormEntry.objects.select_related("district", "attacker", "attacker_home_district")
+            .filter(attacker_home_district__code__iexact=code_normalized, ended_at__isnull=True, expires_at__gt=now)
+            .order_by("-started_at")[:20]
+        )
         # Recently ended attacks on this district (firewall effect)
         recent_blocked = (
             DistrictDdosEntry.objects.select_related("district", "attacker_home_district")
+            .filter(district__code__iexact=code_normalized, ended_at__isnull=False)
+            .order_by("-ended_at")[:20]
+        )
+        recent_dewormed = (
+            DistrictWormEntry.objects.select_related("district", "attacker_home_district")
             .filter(district__code__iexact=code_normalized, ended_at__isnull=False)
             .order_by("-ended_at")[:20]
         )
@@ -1315,14 +1373,25 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
             .filter(attacker_home_district__code__iexact=code_normalized, ended_at__isnull=False)
             .order_by("-ended_at")[:20]
         )
+        outgoing_dewormed = (
+            DistrictWormEntry.objects.select_related("district", "attacker_home_district", "ended_by_player")
+            .filter(attacker_home_district__code__iexact=code_normalized, ended_at__isnull=False)
+            .order_by("-ended_at")[:20]
+        )
         # Incoming attacks against this district from other districts
         incoming_qs = (
             DistrictDdosEntry.objects.select_related("attacker_home_district", "district", "attacker")
             .filter(district__code__iexact=code_normalized, ended_at__isnull=True, expires_at__gt=now)
             .exclude(attacker_home_district__code__iexact=code_normalized)
         )
+        incoming_worm_qs = (
+            DistrictWormEntry.objects.select_related("attacker_home_district", "district", "attacker")
+            .filter(district__code__iexact=code_normalized, ended_at__isnull=True, expires_at__gt=now)
+            .exclude(attacker_home_district__code__iexact=code_normalized)
+        )
         # Limit recent incoming entries for the feed but aggregate over all active to populate the popover
         incoming_recent = incoming_qs.order_by("-started_at")[:40]
+        incoming_worm_recent = incoming_worm_qs.order_by("-started_at")[:40]
 
         def serialize_entry(entry, *, kind: str):
             target_code = ""
@@ -1334,8 +1403,12 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
                 target_code = entry.district_id
             if not target_name and target_code:
                 target_name = f"District {target_code}"
-            effect_total = _ddos_debuff_percent(entry.district, now=now) if entry.district else 0
-            entry_effect = _ddos_entry_effect(entry, now=now)
+            if kind.startswith("worm"):
+                effect_total = _worm_boost_percent(entry.district, now=now) if entry.district else 0
+                entry_effect = _worm_entry_effect(entry, now=now)
+            else:
+                effect_total = _ddos_debuff_percent(entry.district, now=now) if entry.district else 0
+                entry_effect = _ddos_entry_effect(entry, now=now)
             attacker_home_code = ""
             attacker_home_name = ""
             if entry.attacker_home_district:
@@ -1376,35 +1449,44 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
                 "entry_effect_percent": round(entry_effect * 100, 2),
             }
 
-        incoming_by_district = {}
-        incoming_effects = {}
-        for row in incoming_qs:
-            code = None
-            name = ""
-            if row.attacker_home_district:
-                code = row.attacker_home_district.code
-                name = row.attacker_home_district.name or f"District {code}"
-            elif row.attacker:
-                code = _normalise_district_code(getattr(row.attacker, "home_district_code", None))
-                attacker_name = getattr(row.attacker, "home_district_name", "") or ""
-                name = attacker_name or (f"District {code}" if code else "")
-            code = code or ""
-            if not code:
-                continue
-            incoming_by_district.setdefault(code, {"code": code, "name": name})
-            incoming_effects[code] = incoming_effects.get(code, 0.0) + _ddos_entry_effect(row, now=now)
+        def build_incoming_map(qs, effect_fn):
+            result = {}
+            effects = {}
+            for row in qs:
+                code = None
+                name = ""
+                if row.attacker_home_district:
+                    code = row.attacker_home_district.code
+                    name = row.attacker_home_district.name or f"District {code}"
+                elif row.attacker:
+                    code = _normalise_district_code(getattr(row.attacker, "home_district_code", None))
+                    attacker_name = getattr(row.attacker, "home_district_name", "") or ""
+                    name = attacker_name or (f"District {code}" if code else "")
+                code = code or ""
+                if not code:
+                    continue
+                result.setdefault(code, {"code": code, "name": name})
+                effects[code] = effects.get(code, 0.0) + effect_fn(row)
+            for dist_code, effect in effects.items():
+                effect_percent = min(100.0, round(effect * 100, 2))
+                if dist_code in result:
+                    result[dist_code]["effect_percent"] = effect_percent
+            return result
 
-        for code, effect in incoming_effects.items():
-            effect_percent = min(100.0, round(effect * 100, 2))
-            if code in incoming_by_district:
-                incoming_by_district[code]["effect_percent"] = effect_percent
+        incoming_by_district = build_incoming_map(incoming_qs, lambda row: _ddos_entry_effect(row, now=now))
+        incoming_worm_by_district = build_incoming_map(incoming_worm_qs, lambda row: _worm_entry_effect(row, now=now))
 
         home_effect_percent = 0.0
+        home_worm_percent = 0.0
         if district_obj:
             try:
                 home_effect_percent = round(_ddos_debuff_percent(district_obj, now=now) * 100, 3)
             except Exception:
                 home_effect_percent = 0.0
+            try:
+                home_worm_percent = round(_worm_boost_percent(district_obj, now=now) * 100, 3)
+            except Exception:
+                home_worm_percent = 0.0
 
         payload = {
             "active": [serialize_entry(entry, kind="ddos") for entry in active_attacks],
@@ -1413,6 +1495,12 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
             "incoming": [serialize_entry(entry, kind="incoming") for entry in incoming_recent],
             "incoming_by_district": incoming_by_district,
             "home_effect_percent": home_effect_percent,
+            "worm_active": [serialize_entry(entry, kind="worm") for entry in active_worms],
+            "worm_blocked": [serialize_entry(entry, kind="deworm") for entry in recent_dewormed],
+            "worm_blocked_outgoing": [serialize_entry(entry, kind="deworm_outgoing") for entry in outgoing_dewormed],
+            "worm_incoming": [serialize_entry(entry, kind="worm_incoming") for entry in incoming_worm_recent],
+            "worm_incoming_by_district": incoming_worm_by_district,
+            "home_worm_percent": home_worm_percent,
         }
         return Response(payload, status=status.HTTP_200_OK)
 

@@ -344,6 +344,54 @@ class DistrictDdosEntry(models.Model):
         return f"DDoS {self.attacker_ip or self.attacker_id} -> {self.district.code}"
 
 
+class DistrictWormEntry(models.Model):
+    """Tracks active Worm disruption attempts against a district."""
+
+    district = models.ForeignKey(
+        District,
+        on_delete=models.CASCADE,
+        related_name="active_worm_entries",
+    )
+    attacker = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="worm_attacks",
+    )
+    attacker_home_district = models.ForeignKey(
+        District,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="outgoing_worm_entries",
+    )
+    attacker_ip = models.CharField(max_length=32, blank=True, default="")
+    started_at = models.DateTimeField(default=timezone.now)
+    expires_at = models.DateTimeField()
+    ended_at = models.DateTimeField(null=True, blank=True)
+    ended_by_player = models.ForeignKey(
+        Player,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ended_worm_entries",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["district", "expires_at"]),
+            models.Index(fields=["attacker", "expires_at"]),
+        ]
+
+    def is_active(self, now=None) -> bool:
+        now = now or timezone.now()
+        return self.ended_at is None and self.expires_at > now
+
+    def __str__(self):
+        return f"Worm {self.attacker_ip or self.attacker_id} -> {self.district.code}"
+
+
 class DistrictEngagement(models.Model):
     """Aggregated attack focus from one home district toward another."""
 
