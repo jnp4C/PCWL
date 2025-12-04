@@ -15496,7 +15496,18 @@ async function renderDistrictCyberActivity(profile) {
       const growth = Math.log1p(clamped * 9) / Math.log(10);
       return base + (peak - base) * growth;
     };
-    const appendMilestones = (item, targetLabel, ip, list, { totalEffectPercent = null, label = 'DDoS ramped', durationMs = 3 * 60 * 60 * 1000, growthFn = ddosGrowthEffect } = {}) => {
+    const appendMilestones = (
+      item,
+      targetLabel,
+      ip,
+      list,
+      {
+        totalEffectPercent = null,
+        title = 'DDoS ramped',
+        durationMs = 3 * 60 * 60 * 1000,
+        growthFn = ddosGrowthEffect,
+      } = {},
+    ) => {
       const startedAt = parseServerTimestamp(item.started_at);
       if (!startedAt || !Number.isFinite(startedAt)) {
         return;
@@ -15510,10 +15521,10 @@ async function renderDistrictCyberActivity(profile) {
         const eff = Number.isFinite(totalEffectPercent)
           ? Math.max(0, Math.min(100, totalEffectPercent))
           : growthFn(progress);
-        const label = formatDdosPercentPrecise(eff);
+        const effectLabel = formatDdosPercentPrecise(eff);
         list.push({
           title,
-          body: `${ip} increased enemy disruption on ${targetLabel} to ${label} after ${Math.round((i * step) / (60 * 1000))} minutes.`,
+          body: `${ip} increased enemy disruption on ${targetLabel} to ${effectLabel} after ${Math.round((i * step) / (60 * 1000))} minutes.`,
         });
       }
     };
