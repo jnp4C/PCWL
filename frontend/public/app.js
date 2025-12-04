@@ -9,6 +9,7 @@ const parksToggle = document.getElementById('parks-toggle');
 const urbanToggle = document.getElementById('urban-toggle');
 const cyclingToggle = document.getElementById('cycling-toggle');
 const districtRankingToggle = document.getElementById('district-ranking-toggle');
+const favoriteFriendsToggle = document.getElementById('favorite-friends-toggle');
 
 const mapContainer = document.getElementById('map');
 const loginForm = document.getElementById('login-form');
@@ -520,6 +521,7 @@ const FRIEND_LOCATIONS_LAYER_ID = 'friend-locations';
 const FRIEND_LOCATIONS_GLOW_LAYER_ID = 'friend-locations-glow';
 const DISTRICT_STRENGTH_CACHE_KEY = 'districtStrengthSnapshot';
 const DISTRICT_RANKING_OVERLAY_STORAGE_KEY = 'districtRankingOverlayAlwaysOn';
+const FAVORITE_FRIENDS_ONLY_STORAGE_KEY = 'pcwlFavoriteFriendsOnly';
 const DISTRICT_OVERLAY_FADE_EXPRESSION = [
   'interpolate',
   ['linear'],
@@ -4309,6 +4311,7 @@ let friendsState = {
   error: null,
   items: [],
 };
+let mapShowFavoriteFriendsOnly = false;
 let friendsBubbleState = {
   loading: false,
   loaded: false,
@@ -4327,6 +4330,17 @@ function resetFriendsBubbleState() {
     source: 'bubble',
     expanded: false,
   };
+}
+try {
+  const storedFavoritesOnly = typeof window !== 'undefined' && window.localStorage
+    ? window.localStorage.getItem(FAVORITE_FRIENDS_ONLY_STORAGE_KEY)
+    : null;
+  mapShowFavoriteFriendsOnly = storedFavoritesOnly === '1';
+  if (favoriteFriendsToggle) {
+    favoriteFriendsToggle.checked = mapShowFavoriteFriendsOnly;
+  }
+} catch (_) {
+  mapShowFavoriteFriendsOnly = false;
 }
 let partyState = {
   party: null,
@@ -9255,12 +9269,16 @@ function buildFriendLocationsGeoJson(friends) {
   if (!Array.isArray(friends)) {
     return { type: 'FeatureCollection', features: [] };
   }
+  const favoritesOnly = mapShowFavoriteFriendsOnly;
   const features = [];
   const activeParty = getActivePartyState ? getActivePartyState() : null;
   const viewerPartyCode = activeParty && activeParty.code ? activeParty.code : '';
   const partySeen = new Set();
   const partyFeatureMap = new Map();
   friends.forEach((friend) => {
+    if (favoritesOnly && !friend?.is_favorite) {
+      return;
+    }
     const feature = createFriendLocationFeature(friend);
     if (feature) {
       const partyCode = feature.properties.activePartyCode || '';
@@ -18909,6 +18927,19 @@ if (cyclingToggle) {
         map.setLayoutProperty('cycling-routes', 'visibility', visible ? 'visible' : 'none');
       }
     });
+  });
+}
+
+if (favoriteFriendsToggle) {
+  favoriteFriendsToggle.checked = mapShowFavoriteFriendsOnly;
+  favoriteFriendsToggle.addEventListener('change', (event) => {
+    mapShowFavoriteFriendsOnly = Boolean(event.target.checked);
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(FAVORITE_FRIENDS_ONLY_STORAGE_KEY, mapShowFavoriteFriendsOnly ? '1' : '0');
+      }
+    } catch (_) {}
+    updateFriendLocationsLayer();
   });
 }
 
