@@ -281,6 +281,8 @@ const districtLastContestedValue = document.getElementById('district-last-contes
 const districtControlStatusValue = document.getElementById('district-control-status');
 const districtCyberSection = document.getElementById('district-cyber-section');
 const districtCyberHeading = document.getElementById('district-cyber-heading');
+const districtCyberFeedShell = document.getElementById('district-cyber-feed-shell');
+const districtCyberFeedHead = document.getElementById('district-cyber-feed-head');
 const districtCyberFeed = document.getElementById('district-cyber-feed');
 const districtCyberEmpty = document.getElementById('district-cyber-empty');
 const districtCyberIp = document.getElementById('district-cyber-ip');
@@ -290,6 +292,8 @@ const districtCyberToggle = document.querySelectorAll('.cyber-toggle-btn');
 let districtCyberViewMode = 'both'; // both | feed | chat
 let districtCyberIncomingData = null;
 let districtCyberIncomingBound = false;
+let districtCyberAutoScrollDisabledOnce = false;
+let districtCyberForceScrollToLatest = false;
 const districtChatContainer = document.getElementById('district-chat');
 const districtChatLog = document.getElementById('district-chat-log');
 const districtChatEmpty = document.getElementById('district-chat-empty');
@@ -15369,6 +15373,12 @@ function applyCyberViewMode(mode) {
       districtCyberFeed.classList.add('hidden');
     }
   }
+  if (districtCyberFeedShell) {
+    districtCyberFeedShell.classList.remove('hidden');
+    if (nextMode === 'chat') {
+      districtCyberFeedShell.classList.add('hidden');
+    }
+  }
   if (districtCyberEmpty) {
     districtCyberEmpty.classList.remove('hidden');
     if (nextMode === 'chat') {
@@ -15578,7 +15588,7 @@ if (districtChatScopeButtons && districtChatScopeButtons.length) {
       const scope = btn.dataset.chatScope === 'current' ? 'current' : 'home';
       districtChatScopePreference = scope;
       const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
-      renderDistrictCyberActivity(profile);
+      renderDistrictCyberActivity(profile, { autoScroll: false });
     });
   });
 }
@@ -15589,16 +15599,21 @@ if (districtCyberToggle && districtCyberToggle.length) {
       event.preventDefault();
       const mode = btn.dataset.cyberMode || 'both';
       applyCyberViewMode(mode);
+      districtCyberAutoScrollDisabledOnce = true;
     });
   });
 }
 
-async function renderDistrictCyberActivity(profile) {
-  if (!districtCyberSection || !districtCyberFeed || !districtCyberEmpty) {
+async function renderDistrictCyberActivity(profile, { autoScroll = true } = {}) {
+  if (!districtCyberSection || !districtCyberFeed || !districtCyberEmpty || !districtCyberFeedHead) {
     return;
   }
+  const shouldAutoScroll = autoScroll && !districtCyberAutoScrollDisabledOnce;
+  districtCyberAutoScrollDisabledOnce = false;
+  const feedScrollTarget = districtCyberFeedShell || districtCyberFeed;
   const wasNearBottom =
-    districtCyberFeed.scrollHeight - districtCyberFeed.clientHeight - districtCyberFeed.scrollTop < 120;
+    shouldAutoScroll &&
+    feedScrollTarget.scrollHeight - feedScrollTarget.clientHeight - feedScrollTarget.scrollTop < 120;
   const formatDistrictLabel = (name, code) => {
     const trimmed = typeof name === 'string' ? name.trim() : '';
     if (trimmed) {
@@ -15624,10 +15639,41 @@ async function renderDistrictCyberActivity(profile) {
     }
     return `${Math.min(100, Math.max(0, pct)).toFixed(places)}%`;
   };
+  const formatEntryTimestamp = (value, fallback = null) => {
+    const ts = parseServerTimestamp(value);
+    if (Number.isFinite(ts)) {
+      return ts;
+    }
+    if (Number.isFinite(fallback)) {
+      return fallback;
+    }
+    return null;
+  };
+  const formatEntryTime = (timestamp) => {
+    if (!Number.isFinite(timestamp)) {
+      return '—';
+    }
+    const dateObj = new Date(timestamp);
+    return dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+  let entryOrder = 0;
+  const entries = [];
+  const pushEntry = ({ title, body, timestamp }) => {
+    const resolvedTimestamp = Number.isFinite(timestamp) ? timestamp : Date.now();
+    entries.push({
+      title,
+      body,
+      timestamp: resolvedTimestamp,
+      order: entryOrder,
+      timeLabel: formatEntryTime(resolvedTimestamp),
+    });
+    entryOrder += 1;
+  };
   if (districtCyberHeading) {
     districtCyberHeading.textContent = 'Cyber Activity';
   }
   districtCyberFeed.innerHTML = '';
+  districtCyberFeedHead.textContent = '';
   districtCyberEmpty.classList.add('hidden');
   if (districtCyberIp) {
     districtCyberIp.textContent = profile && profile.district_ip_address ? profile.district_ip_address : '—';
@@ -15643,6 +15689,7 @@ async function renderDistrictCyberActivity(profile) {
 
   if (!profile || !profile.homeDistrictName || !profile.homeDistrictId) {
     districtCyberSection.classList.add('hidden');
+    districtCyberForceScrollToLatest = false;
     teardownDistrictChat();
     return;
   }
@@ -15651,6 +15698,7 @@ async function renderDistrictCyberActivity(profile) {
   const chatTargets = resolveDistrictChatTargets(profile);
   if (!chatTargets.home.code) {
     districtCyberSection.classList.add('hidden');
+    districtCyberForceScrollToLatest = false;
     teardownDistrictChat();
     return;
   }
@@ -15680,7 +15728,6 @@ async function renderDistrictCyberActivity(profile) {
 
   try {
     const payload = await apiRequest(`districts/${encodeURIComponent(chatTargets.home.code)}/cyber-activity/`);
-    const entries = [];
     const active = Array.isArray(payload?.active) ? payload.active : [];
     const blocked = Array.isArray(payload?.blocked) ? payload.blocked : [];
     const blockedOutgoing = Array.isArray(payload?.blocked_outgoing) ? payload.blocked_outgoing : [];
@@ -15712,7 +15759,6 @@ async function renderDistrictCyberActivity(profile) {
       item,
       targetLabel,
       ip,
-      list,
       {
         totalEffectPercent = null,
         title = 'DDoS ramped',
@@ -15720,8 +15766,8 @@ async function renderDistrictCyberActivity(profile) {
         growthFn = ddosGrowthEffect,
       } = {},
     ) => {
-      const startedAt = parseServerTimestamp(item.started_at);
-      if (!startedAt || !Number.isFinite(startedAt)) {
+      const startedAt = formatEntryTimestamp(item.started_at);
+      if (!Number.isFinite(startedAt)) {
         return;
       }
       const elapsed = Math.max(0, now - startedAt);
@@ -15734,9 +15780,11 @@ async function renderDistrictCyberActivity(profile) {
           ? Math.max(0, Math.min(100, totalEffectPercent))
           : growthFn(progress);
         const effectLabel = formatDdosPercentPrecise(eff);
-        list.push({
+        const timestamp = startedAt + i * step;
+        pushEntry({
           title,
           body: `${ip} increased enemy disruption on ${targetLabel} to ${effectLabel} after ${Math.round((i * step) / (60 * 1000))} minutes.`,
+          timestamp,
         });
       }
     };
@@ -15746,11 +15794,13 @@ async function renderDistrictCyberActivity(profile) {
       const effectLabel = formatDdosPercent(effectValue);
       const target = formatDistrictLabel(item.target_name, item.target_code);
       const ip = item.attacker_ip || 'district IP';
-      entries.push({
+      const startedAt = formatEntryTimestamp(item.started_at, now);
+      pushEntry({
         title: 'DDoS in progress',
         body: `${ip} performed a DDoS on ${target}, increasing enemy district DDoS disruption to ${effectLabel}.`,
+        timestamp: startedAt,
       });
-      appendMilestones(item, target, ip, entries, {
+      appendMilestones(item, target, ip, {
         totalEffectPercent: effectValue,
         label: 'DDoS ramped',
         durationMs: 3 * 60 * 60 * 1000,
@@ -15804,9 +15854,11 @@ async function renderDistrictCyberActivity(profile) {
       } else if (endedByDisplay) {
         actorLabel = endedByDisplay;
       }
-      entries.push({
+      const endedAt = formatEntryTimestamp(item.ended_at, now);
+      pushEntry({
         title: 'Firewall deployed',
         body: `${actorLabel} knocked off ${sourceIp} (${source}), lowering DDoS disruption on ${target} to ${effectLabel}.`,
+        timestamp: endedAt,
       });
     });
 
@@ -15833,9 +15885,11 @@ async function renderDistrictCyberActivity(profile) {
           meta,
         });
       }
-      entries.push({
+      const endedAt = formatEntryTimestamp(item.ended_at, now);
+      pushEntry({
         title: 'DDoS disrupted',
         body: `${defenderName} deployed a firewall that knocked off your DDoS on ${target}, lowering disruption to ${effectLabel}.`,
+        timestamp: endedAt,
       });
     });
 
@@ -15845,11 +15899,13 @@ async function renderDistrictCyberActivity(profile) {
       const target = profile.homeDistrictName || profile.home_district_name || formatDistrictLabel(item.target_name, item.target_code);
       const ip = item.attacker_ip || 'district IP';
       const sourceCode = formatDistrictLabel(item.attacker_home_name, item.attacker_home_code) || 'unknown district';
-      entries.push({
+      const startedAt = formatEntryTimestamp(item.started_at, now);
+      pushEntry({
         title: 'Incoming DDoS',
         body: `${ip} from ${sourceCode} performed a DDoS on ${target}, raising your home DDoS disruption to ${effectLabel}.`,
+        timestamp: startedAt,
       });
-      appendMilestones(item, target, ip, entries, {
+      appendMilestones(item, target, ip, {
         totalEffectPercent: effectValue,
         label: 'DDoS ramped',
         durationMs: 3 * 60 * 60 * 1000,
@@ -15862,11 +15918,13 @@ async function renderDistrictCyberActivity(profile) {
       const effectLabel = formatDdosPercent(effectValue);
       const target = formatDistrictLabel(item.target_name, item.target_code);
       const ip = item.attacker_ip || 'district IP';
-      entries.push({
+      const startedAt = formatEntryTimestamp(item.started_at, now);
+      pushEntry({
         title: 'Worm in progress',
         body: `${ip} is worming ${target} core infrastructure, raising disruption to ${effectLabel}.`,
+        timestamp: startedAt,
       });
-      appendMilestones(item, target, ip, entries, {
+      appendMilestones(item, target, ip, {
         totalEffectPercent: effectValue,
         label: 'Worm ramped',
         durationMs: 2 * 60 * 60 * 1000,
@@ -15918,9 +15976,11 @@ async function renderDistrictCyberActivity(profile) {
       } else if (endedByDisplay) {
         actorLabel = endedByDisplay;
       }
-      entries.push({
+      const endedAt = formatEntryTimestamp(item.ended_at, now);
+      pushEntry({
         title: 'deWorm deployed',
         body: `${actorLabel} knocked off ${ip} (${source}), lowering worm disruption on ${target} core to ${effectLabel}.`,
+        timestamp: endedAt,
       });
     });
 
@@ -15947,9 +16007,11 @@ async function renderDistrictCyberActivity(profile) {
           meta,
         });
       }
-      entries.push({
+      const endedAt = formatEntryTimestamp(item.ended_at, now);
+      pushEntry({
         title: 'Worm disrupted',
         body: `${defenderName} deployed a deWorm that removed your Worm on ${target}, lowering core disruption to ${effectLabel}.`,
+        timestamp: endedAt,
       });
     });
 
@@ -15959,11 +16021,13 @@ async function renderDistrictCyberActivity(profile) {
       const target = profile.homeDistrictName || profile.home_district_name || formatDistrictLabel(item.target_name, item.target_code);
       const ip = item.attacker_ip || 'district IP';
       const sourceCode = formatDistrictLabel(item.attacker_home_name, item.attacker_home_code) || 'unknown district';
-      entries.push({
+      const startedAt = formatEntryTimestamp(item.started_at, now);
+      pushEntry({
         title: 'Incoming Worm',
         body: `${ip} from ${sourceCode} wormed ${target} core infrastructure, raising disruption to ${effectLabel}.`,
+        timestamp: startedAt,
       });
-      appendMilestones(item, target, ip, entries, {
+      appendMilestones(item, target, ip, {
         totalEffectPercent: effectValue,
         label: 'Worm ramped',
         durationMs: 2 * 60 * 60 * 1000,
@@ -16001,7 +16065,7 @@ async function renderDistrictCyberActivity(profile) {
     if (districtCyberIncoming) {
       const incomingCount = new Set([...incomingDistricts, ...incomingWormDistricts]).size;
       if (incomingCount) {
-        const labelName = profile.homeDistrictName || profile.home_district_name || homeCode;
+        const labelName = homeLabel;
         const text = `${labelName} is targeted by ${incomingCount} district${incomingCount === 1 ? '' : 's'}`;
         districtCyberIncomingText.textContent = text;
         districtCyberIncoming.classList.remove('hidden');
@@ -16031,53 +16095,89 @@ async function renderDistrictCyberActivity(profile) {
       }
     }
 
-    if (districtRecentActivityValue && entries.length) {
-      const preview = entries[0];
-      districtRecentActivityValue.textContent = `${preview.title}: ${preview.body}`;
+    if (Number.isFinite(homeEffectPercent) && homeEffectPercent > 0) {
+      const homeLabel = profile.homeDistrictName || profile.home_district_name || homeCode;
+      pushEntry({
+        title: 'Current disruption',
+        body: `${homeLabel} is under ${formatDdosPercent(homeEffectPercent)} total DDoS disruption from all attackers.`,
+        timestamp: now,
+      });
+    }
+    if (Number.isFinite(homeWormPercent) && homeWormPercent > 0) {
+      const homeLabel = profile.homeDistrictName || profile.home_district_name || homeCode;
+      pushEntry({
+        title: 'Worm disruption',
+        body: `${homeLabel} core infrastructure is wormed ${formatDdosPercent(homeWormPercent)}, boosting enemy local attacks.`,
+        timestamp: now,
+      });
+    }
+
+    const ddosIncomingCount = incoming.length;
+    const ddosOutgoingCount = active.length;
+    const wormIncomingCount = wormIncoming.length;
+    const wormOutgoingCount = wormActive.length;
+    const firewallOutgoingCount = blockedOutgoing.length;
+    const dewormOutgoingCount = wormBlockedOutgoing.length;
+    if (entries.length) {
+      districtCyberFeedHead.textContent = `DDoS in/out of ${homeLabel}: ${ddosIncomingCount}/${ddosOutgoingCount} • Worm in/out: ${wormIncomingCount}/${wormOutgoingCount} • Firewall out: ${firewallOutgoingCount} • deWorm out: ${dewormOutgoingCount}`;
+    } else {
+      districtCyberFeedHead.textContent = `No cyber activity in/out of ${homeLabel}.`;
     }
 
     if (!entries.length) {
       districtCyberSection.classList.remove('hidden');
       districtCyberEmpty.classList.remove('hidden');
+      districtCyberForceScrollToLatest = false;
       return;
     }
 
-    if (Number.isFinite(homeEffectPercent) && homeEffectPercent > 0) {
-      const homeLabel = profile.homeDistrictName || profile.home_district_name || homeCode;
-      entries.unshift({
-        title: 'Current disruption',
-        body: `${homeLabel} is under ${formatDdosPercent(homeEffectPercent)} total DDoS disruption from all attackers.`,
-      });
-    }
-    if (Number.isFinite(homeWormPercent) && homeWormPercent > 0) {
-      const homeLabel = profile.homeDistrictName || profile.home_district_name || homeCode;
-      entries.unshift({
-        title: 'Worm disruption',
-        body: `${homeLabel} core infrastructure is wormed ${formatDdosPercent(homeWormPercent)}, boosting enemy local attacks.`,
-      });
+    entries.sort((a, b) => {
+      const delta = a.timestamp - b.timestamp;
+      if (delta) {
+        return delta;
+      }
+      return a.order - b.order;
+    });
+
+    if (districtRecentActivityValue && entries.length) {
+      const preview = entries[entries.length - 1];
+      districtRecentActivityValue.textContent = `${preview.title}: ${preview.body}`;
     }
 
     entries.forEach((entry) => {
       const li = document.createElement('li');
       li.className = 'district-cyber-item';
+      const header = document.createElement('div');
+      header.className = 'district-cyber-item-header';
       const title = document.createElement('p');
       title.className = 'district-cyber-title';
       title.textContent = entry.title;
+      const time = document.createElement('time');
+      time.className = 'district-cyber-time';
+      if (Number.isFinite(entry.timestamp)) {
+        const dateObj = new Date(entry.timestamp);
+        time.dateTime = dateObj.toISOString();
+      }
+      time.textContent = entry.timeLabel || '—';
+      header.appendChild(title);
+      header.appendChild(time);
       const body = document.createElement('p');
       body.className = 'district-cyber-meta';
       body.textContent = entry.body;
-      li.appendChild(title);
+      li.appendChild(header);
       li.appendChild(body);
       districtCyberFeed.appendChild(li);
     });
 
     districtCyberSection.classList.remove('hidden');
-    if (wasNearBottom && typeof districtCyberFeed.scrollIntoView === 'function') {
-      districtCyberFeed.lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    if ((wasNearBottom || districtCyberForceScrollToLatest) && feedScrollTarget) {
+      feedScrollTarget.scrollTop = feedScrollTarget.scrollHeight;
     }
+    districtCyberForceScrollToLatest = false;
   } catch (error) {
     console.warn('Failed to load cyber activity', error);
     districtCyberSection.classList.add('hidden');
+    districtCyberForceScrollToLatest = false;
     teardownDistrictChat();
   }
 }
@@ -16163,7 +16263,10 @@ function openDistrictDrawer(trigger = null) {
 }
 
 function openDistrictDrawerAndScrollToCyber(trigger = null) {
+  districtCyberAutoScrollDisabledOnce = false;
+  districtCyberForceScrollToLatest = true;
   openDistrictDrawer(trigger);
+  applyCyberViewMode('feed');
   window.setTimeout(() => {
     if (districtCyberSection && typeof districtCyberSection.scrollIntoView === 'function') {
       districtCyberSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
