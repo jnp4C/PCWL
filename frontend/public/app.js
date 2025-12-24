@@ -296,9 +296,13 @@ const districtChatEmpty = document.getElementById('district-chat-empty');
 const districtChatForm = document.getElementById('district-chat-form');
 const districtChatInput = document.getElementById('district-chat-input');
 const districtChatStatus = document.getElementById('district-chat-status');
+const districtChatHeading = document.getElementById('district-chat-heading');
+const districtChatContext = document.getElementById('district-chat-context');
+const districtChatScopeButtons = document.querySelectorAll('.district-chat-scope');
 let districtChatSocket = null;
 let districtChatRoomCode = null;
 let districtChatReconnectTimer = null;
+let districtChatScopePreference = 'auto';
 const districtLeaderboardContainer = document.getElementById('district-leaderboard');
 const districtLeaderboardEmpty = document.getElementById('district-leaderboard-empty');
 const districtLeaderboardAggressive = document.getElementById('district-leaderboard-aggressive');
@@ -6012,6 +6016,25 @@ function sanitizePartyProfile(raw) {
         })
         .filter(Boolean)
     : [];
+  const topVisitors = Array.isArray(raw.top_visitors)
+    ? raw.top_visitors
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') {
+            return null;
+          }
+          const username = typeof entry.username === 'string' ? entry.username : '';
+          if (!username) {
+            return null;
+          }
+          return {
+            username,
+            displayName:
+              typeof entry.display_name === 'string' ? entry.display_name : '',
+            visitCount: Math.max(0, Number(entry.visit_count) || 0),
+          };
+        })
+        .filter(Boolean)
+    : [];
   const districts = Array.isArray(raw.districts)
     ? raw.districts
         .map((entry) => {
@@ -6069,6 +6092,7 @@ function sanitizePartyProfile(raw) {
       activeMembers,
     },
     topPlayers,
+    topVisitors,
     districts,
     recentMembers,
   };
@@ -7810,7 +7834,14 @@ function resolveLatestPartyFromHistory(primaryHistory, excludeCodes = new Set(),
   return null;
 }
 
-function buildPartyPrestigeCardElement({ partyCode, partyName, prestigePoints, statusLabel, detailParts }) {
+function buildPartyPrestigeCardElement({
+  partyCode,
+  partyName,
+  prestigePoints,
+  statusLabel,
+  detailParts,
+  extraMeta,
+}) {
   const prestigeCard = document.createElement('div');
   prestigeCard.className = 'character-card friend-profile-party';
   if (partyCode) {
@@ -7839,6 +7870,35 @@ function buildPartyPrestigeCardElement({ partyCode, partyName, prestigePoints, s
   prestigeCard.appendChild(labelRow);
   prestigeCard.appendChild(prestigeValueEl);
   prestigeCard.appendChild(hint);
+
+  if (Array.isArray(extraMeta) && extraMeta.length) {
+    const meta = document.createElement('div');
+    meta.className = 'party-prestige-meta';
+    extraMeta.forEach((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return;
+      }
+      const label = typeof entry.label === 'string' ? entry.label.trim() : '';
+      const value = typeof entry.value === 'string' ? entry.value.trim() : '';
+      if (!label || !value) {
+        return;
+      }
+      const row = document.createElement('div');
+      row.className = 'party-prestige-meta-row';
+      const labelEl = document.createElement('span');
+      labelEl.className = 'party-prestige-meta-label';
+      labelEl.textContent = label;
+      const valueEl = document.createElement('span');
+      valueEl.className = 'party-prestige-meta-value';
+      valueEl.textContent = value;
+      row.appendChild(labelEl);
+      row.appendChild(valueEl);
+      meta.appendChild(row);
+    });
+    if (meta.children.length) {
+      prestigeCard.appendChild(meta);
+    }
+  }
 
   if (partyCode) {
     prestigeCard.dataset.partyCode = partyCode;
@@ -7894,12 +7954,35 @@ function buildLeadingPartyBanner({ partyProfile = null, fallbackParty = null } =
   if (!detailParts.length) {
     detailParts.push('Tap to view party profile');
   }
+  const extraMeta = [];
+  if (partyProfile) {
+    const districts = Array.isArray(partyProfile.districts) ? partyProfile.districts : [];
+    const topDistricts = [...districts]
+      .sort((a, b) => Math.max(0, Number(b.prestigePoints) || 0) - Math.max(0, Number(a.prestigePoints) || 0))
+      .slice(0, 3)
+      .map((entry) => entry.name || (entry.code ? `District ${entry.code}` : 'Unknown district'))
+      .filter(Boolean);
+    extraMeta.push({
+      label: 'Top districts',
+      value: topDistricts.length ? topDistricts.join(', ') : 'No activity yet',
+    });
+    const visitors = Array.isArray(partyProfile.topVisitors) ? partyProfile.topVisitors : [];
+    const topVisitors = visitors
+      .slice(0, 3)
+      .map((entry) => entry.displayName || (entry.username ? `@${entry.username}` : ''))
+      .filter(Boolean);
+    extraMeta.push({
+      label: 'Frequent visitors',
+      value: topVisitors.length ? topVisitors.join(', ') : 'No frequent visitors yet',
+    });
+  }
   const banner = buildPartyPrestigeCardElement({
     partyCode,
     partyName,
     prestigePoints,
     statusLabel,
     detailParts,
+    extraMeta,
   });
   if (banner) {
     banner.classList.add('leading-party-banner');
@@ -12473,7 +12556,7 @@ function renderPartyProfileContent(profile) {
     partyProfileBody.appendChild(empty);
     return;
   }
-  const { party, topPlayers, districts } = profile;
+  const { party, topPlayers, topVisitors, districts } = profile;
   const header = document.createElement('div');
   header.className = 'party-profile-header';
   const title = document.createElement('h2');
@@ -12645,12 +12728,50 @@ function renderPartyProfileContent(profile) {
   }
   contributorsCard.appendChild(contribList);
 
+  const visitorsCard = document.createElement('div');
+  visitorsCard.className = 'character-card party-profile-card';
+  const visitorsTitle = document.createElement('div');
+  visitorsTitle.className = 'party-profile-card-title';
+  visitorsTitle.textContent = 'Frequent visitors';
+  visitorsCard.appendChild(visitorsTitle);
+  const visitorsList = document.createElement('ul');
+  visitorsList.className = 'party-profile-list';
+  if (topVisitors && topVisitors.length) {
+    topVisitors.forEach((player) => {
+      const li = document.createElement('li');
+      li.className = 'party-profile-list-item';
+      const display = player.displayName ? player.displayName : `@${player.username}`;
+      const trigger = buildPartyProfilePlayerTrigger({
+        username: player.username,
+        displayName: display,
+        meta: 'Frequent visitor',
+      });
+      if (trigger) {
+        li.appendChild(trigger);
+        const meta = document.createElement('span');
+        meta.className = 'party-profile-meta';
+        meta.textContent = ` • ${player.visitCount.toLocaleString()} visits`;
+        li.appendChild(meta);
+      } else {
+        li.textContent = `${display} • ${player.visitCount.toLocaleString()} visits`;
+      }
+      visitorsList.appendChild(li);
+    });
+  } else {
+    const li = document.createElement('li');
+    li.className = 'party-profile-list-item muted';
+    li.textContent = 'No frequent visitors yet.';
+    visitorsList.appendChild(li);
+  }
+  visitorsCard.appendChild(visitorsList);
+
   partyProfileBody.appendChild(header);
   if (membersCard) {
     partyProfileBody.appendChild(membersCard);
   }
   partyProfileBody.appendChild(districtsCard);
   partyProfileBody.appendChild(contributorsCard);
+  partyProfileBody.appendChild(visitorsCard);
 
   if (Array.isArray(profile.recentMembers) && profile.recentMembers.length) {
     const recentCard = document.createElement('div');
@@ -15188,6 +15309,53 @@ function setDistrictChatStatus(label, { live = false } = {}) {
   }
 }
 
+function resolveDistrictChatTargets(profile) {
+  const homeCode =
+    (profile && profile.homeDistrictId ? safeId(profile.homeDistrictId) : null) ||
+    (profile && profile.homeDistrictCode ? safeId(profile.homeDistrictCode) : null) ||
+    (profile && profile.home_district_code ? safeId(profile.home_district_code) : null);
+  const homeLabel =
+    (profile && profile.homeDistrictName && profile.homeDistrictName.trim()) ||
+    (profile && profile.home_district_name && profile.home_district_name.trim()) ||
+    (homeCode ? `District ${homeCode}` : null);
+  const currentInfo = profile ? getCurrentLocationDistrictInfo({ profile, allowHomeFallback: false }) : null;
+  const currentCode = currentInfo && currentInfo.id ? safeId(currentInfo.id) : null;
+  let currentLabel = currentInfo && currentInfo.name
+    ? currentInfo.name
+    : currentCode
+    ? `District ${currentCode}`
+    : null;
+  if (currentCode && (!currentLabel || currentLabel === `District ${currentCode}`)) {
+    const catalogMap = districtCatalogMap instanceof Map ? districtCatalogMap : null;
+    const entry = catalogMap && catalogMap.has(currentCode) ? catalogMap.get(currentCode) : null;
+    if (entry && entry.name) {
+      currentLabel = entry.name;
+    }
+  }
+  return {
+    home: { code: homeCode, label: homeLabel },
+    current: { code: currentCode, label: currentLabel },
+  };
+}
+
+function updateDistrictChatScopeControls({ scope, hasCurrent, label }) {
+  if (districtChatScopeButtons && districtChatScopeButtons.length) {
+    districtChatScopeButtons.forEach((btn) => {
+      const btnScope = btn.dataset.chatScope === 'current' ? 'current' : 'home';
+      btn.setAttribute('aria-pressed', btnScope === scope ? 'true' : 'false');
+      if (btnScope === 'current') {
+        const disabled = !hasCurrent;
+        btn.disabled = disabled;
+        btn.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+      }
+    });
+  }
+  if (districtChatContext) {
+    const prefix = scope === 'current' ? 'Current' : 'Home';
+    districtChatContext.textContent = `${prefix}: ${label || '—'}`;
+  }
+}
+
 function applyCyberViewMode(mode) {
   const nextMode = mode === 'feed' || mode === 'chat' ? mode : 'both';
   districtCyberViewMode = nextMode;
@@ -15315,11 +15483,11 @@ function handleDistrictChatPayload(data) {
   }
 }
 
-function connectDistrictChat(homeCode, profile) {
+function connectDistrictChat(roomCode, profile) {
   if (!districtChatContainer || !window.WebSocket) {
     return;
   }
-  const code = typeof homeCode === 'string' ? homeCode.trim().toLowerCase() : '';
+  const code = typeof roomCode === 'string' ? roomCode.trim().toLowerCase() : '';
   if (!code || !profile) {
     teardownDistrictChat();
     return;
@@ -15403,6 +15571,18 @@ if (districtChatForm && districtChatInput) {
   });
 }
 
+if (districtChatScopeButtons && districtChatScopeButtons.length) {
+  districtChatScopeButtons.forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.preventDefault();
+      const scope = btn.dataset.chatScope === 'current' ? 'current' : 'home';
+      districtChatScopePreference = scope;
+      const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+      renderDistrictCyberActivity(profile);
+    });
+  });
+}
+
 if (districtCyberToggle && districtCyberToggle.length) {
   districtCyberToggle.forEach((btn) => {
     btn.addEventListener('click', (event) => {
@@ -15467,25 +15647,39 @@ async function renderDistrictCyberActivity(profile) {
     return;
   }
 
-  const homeCode =
-    (profile.homeDistrictId ? safeId(profile.homeDistrictId) : null) ||
-    (profile.homeDistrictCode ? safeId(profile.homeDistrictCode) : null) ||
-    (profile.home_district_code ? safeId(profile.home_district_code) : null);
-  if (!homeCode) {
+  await ensureDistrictCatalogLoaded();
+  const chatTargets = resolveDistrictChatTargets(profile);
+  if (!chatTargets.home.code) {
     districtCyberSection.classList.add('hidden');
     teardownDistrictChat();
     return;
   }
 
-  connectDistrictChat(homeCode, profile);
+  const hasCurrentChat = Boolean(chatTargets.current.code);
+  let activeScope = 'home';
+  if (districtChatScopePreference === 'current') {
+    activeScope = hasCurrentChat ? 'current' : 'home';
+  } else if (districtChatScopePreference === 'auto') {
+    activeScope = hasCurrentChat ? 'current' : 'home';
+  }
+  const activeChat = activeScope === 'current' ? chatTargets.current : chatTargets.home;
+  updateDistrictChatScopeControls({
+    scope: activeScope,
+    hasCurrent: hasCurrentChat,
+    label: activeChat.label || activeChat.code,
+  });
+  connectDistrictChat(activeChat.code, profile);
   applyCyberViewMode(districtCyberViewMode);
-  const homeLabel = formatDistrictLabel(profile.homeDistrictName || profile.home_district_name, homeCode);
+  const homeLabel = formatDistrictLabel(
+    chatTargets.home.label || profile.homeDistrictName || profile.home_district_name,
+    chatTargets.home.code,
+  );
   if (districtCyberHeading) {
     districtCyberHeading.textContent = `Cyber Activity in ${homeLabel}`;
   }
 
   try {
-    const payload = await apiRequest(`districts/${encodeURIComponent(homeCode)}/cyber-activity/`);
+    const payload = await apiRequest(`districts/${encodeURIComponent(chatTargets.home.code)}/cyber-activity/`);
     const entries = [];
     const active = Array.isArray(payload?.active) ? payload.active : [];
     const blocked = Array.isArray(payload?.blocked) ? payload.blocked : [];

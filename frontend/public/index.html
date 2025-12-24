@@ -678,7 +678,7 @@
         <div id="district-cyber-section" class="district-cyber-section hidden">
           <div class="district-cyber-header">
             <h3 id="district-cyber-heading">Cyber Activity</h3>
-            <span class="district-cyber-note">Visible to home district players</span>
+            <span class="district-cyber-note">Feed visible to home district players</span>
           </div>
           <div class="district-cyber-toggle" role="group" aria-label="Cyber view">
             <button type="button" class="cyber-toggle-btn" data-cyber-mode="both" aria-pressed="true">Both</button>
@@ -696,8 +696,17 @@
           <p id="district-cyber-empty" class="district-cyber-empty">No cyber activity recorded yet.</p>
           <div id="district-chat" class="district-chat hidden">
             <div class="district-chat-header">
-              <h4>District Chat</h4>
-              <span id="district-chat-status" class="district-chat-status">Offline</span>
+              <div class="district-chat-title">
+                <h4 id="district-chat-heading">District Chat</h4>
+                <span id="district-chat-context" class="district-chat-context">Home: —</span>
+              </div>
+              <div class="district-chat-actions">
+                <div class="district-chat-toggle" role="group" aria-label="Chat scope">
+                  <button type="button" class="district-chat-scope" data-chat-scope="home" aria-pressed="true">Home</button>
+                  <button type="button" class="district-chat-scope" data-chat-scope="current" aria-pressed="false">Current</button>
+                </div>
+                <span id="district-chat-status" class="district-chat-status">Offline</span>
+              </div>
             </div>
             <ul id="district-chat-log" class="district-chat-log" aria-live="polite"></ul>
             <p id="district-chat-empty" class="district-chat-empty">No chat messages yet.</p>

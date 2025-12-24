@@ -6,14 +6,14 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.utils import timezone
 
 from .models import District, DistrictChatMessage, Player
-from .services import _normalise_district_code, _ensure_player_district_ip
+from .services import _are_direct_friends, _ensure_player_district_ip, _normalise_district_code
 
 
 class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
     """
     WebSocket consumer providing a per-district chatroom inside the cyber activity panel.
 
-    Only authenticated players whose home district matches the room code may join.
+    Only authenticated players whose home district or last known location matches the room code may join.
     Messages are persisted so new joiners receive the recent history.
     """
 
@@ -40,8 +40,15 @@ class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
             return
 
         home_code = _normalise_district_code(getattr(player, "home_district_code", None))
-        if home_code != normalized_code:
-            # Restrict chat visibility to home district members, matching the cyber feed rules.
+        last_known = getattr(player, "last_known_location", None) or {}
+        last_known_code = _normalise_district_code(
+            last_known.get("districtId")
+            or last_known.get("district_id")
+            or last_known.get("districtCode")
+            or last_known.get("district_code")
+        )
+        if normalized_code not in {home_code, last_known_code}:
+            # Allow home district or last known location to join the room.
             await self.close(code=4403)
             return
 
@@ -78,16 +85,20 @@ class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
             text = text[: self.max_message_length]
 
         message = await self._persist_message(text)
-        payload = self._serialize_message(message)
         await self.channel_layer.group_send(
             self.group_name,
-            {"type": "chat.broadcast", "payload": payload},
+            {"type": "chat.broadcast", "message_id": message.id},
         )
 
     async def chat_broadcast(self, event: Dict[str, Any]):
-        payload = event.get("payload")
-        if payload:
-            await self.send_json({"type": "chat.message", **payload})
+        message_id = event.get("message_id")
+        if not message_id:
+            return
+        message = await self._get_message(message_id)
+        if not message:
+            return
+        payload = await self._serialize_message(message)
+        await self.send_json({"type": "chat.message", **payload})
 
     def _build_group_name(self, code: str) -> str:
         slug = re.sub(r"[^a-zA-Z0-9_-]", "-", code or "").lower() or "unknown"
@@ -130,18 +141,32 @@ class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
             sent_at=timezone.now(),
         )
 
-    @sync_to_async
-    def _get_recent_history(self) -> List[Dict[str, Any]]:
+    async def _get_recent_history(self) -> List[Dict[str, Any]]:
         assert self.district is not None
-        messages = (
-            DistrictChatMessage.objects.filter(district=self.district)
-            .order_by("-sent_at")[: max(1, self.history_limit)]
-        )
-        serialized = [self._serialize_message(msg) for msg in messages]
-        serialized.reverse()  # send oldest first
+        messages = await self._get_recent_history_records()
+        serialized: List[Dict[str, Any]] = []
+        for msg in reversed(messages):  # send oldest first
+            serialized.append(await self._serialize_message(msg))
         return serialized
 
-    def _serialize_message(self, message: DistrictChatMessage) -> Dict[str, Any]:
+    @sync_to_async
+    def _get_recent_history_records(self) -> List[DistrictChatMessage]:
+        assert self.district is not None
+        return list(
+            DistrictChatMessage.objects.filter(district=self.district)
+            .select_related("sender")
+            .order_by("-sent_at")[: max(1, self.history_limit)]
+        )
+
+    @sync_to_async
+    def _get_message(self, message_id: int) -> Optional[DistrictChatMessage]:
+        return (
+            DistrictChatMessage.objects.select_related("sender")
+            .filter(id=message_id)
+            .first()
+        )
+
+    async def _serialize_message(self, message: DistrictChatMessage) -> Dict[str, Any]:
         district_ip = ""
         sender = getattr(message, "sender", None)
         if sender:
@@ -149,11 +174,19 @@ class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
                 district_ip = _ensure_player_district_ip(sender)
             except Exception:
                 district_ip = sender.district_ip_address or ""
-        return {
+        payload = {
             "id": message.id,
-            "username": message.username,
-            "display_name": message.display_name or message.username,
             "district_ip": district_ip or "",
             "message": message.text,
             "sent_at": message.sent_at.isoformat(),
         }
+        if await self._can_reveal_sender(sender):
+            payload["username"] = message.username
+            payload["display_name"] = message.display_name or message.username
+        return payload
+
+    @sync_to_async
+    def _can_reveal_sender(self, sender: Optional[Player]) -> bool:
+        if not sender or not self.player:
+            return False
+        return _are_direct_friends(self.player, sender)
