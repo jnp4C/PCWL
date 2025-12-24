@@ -15336,34 +15336,29 @@ function formatChatVoteStatus({
   closedPercent = 0,
   decisionAt = null,
 } = {}) {
-  const decisionTime = Number.isFinite(decisionAt)
-    ? new Date(decisionAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    : '11:00';
   const stateSummary = `District is now ${currentState}.`;
   const votingSummary = `Currently voting at ${openPercent}% open / ${closedPercent}% closed.`;
   const votedLine = userVote ? `You voted for ${userVote}.` : '';
+  const timeLine = formatChatRemainingTime(decisionAt);
   return `
     <span class="district-chat-vote-line">${votedLine || stateSummary}</span>
     <span class="district-chat-vote-line">${votedLine ? stateSummary : votingSummary}</span>
-    <span class="district-chat-vote-time">Vote applies at ${decisionTime}</span>
+    <span class="district-chat-vote-time">${timeLine}</span>
     ${votedLine ? `<span class="district-chat-vote-line">${votingSummary}</span>` : ''}
   `;
 }
 
-function getChatResetLabels(decisionAt) {
+function formatChatRemainingTime(decisionAt) {
   if (!Number.isFinite(decisionAt)) {
-    return ['Reset in —', 'Reset in —', 'Reset in —'];
+    return 'Time —';
   }
   const remainingMs = Math.max(0, decisionAt - Date.now());
   const totalSeconds = Math.ceil(remainingMs / 1000);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-  return [
-    `Reset in ${hours}h`,
-    `Reset in ${minutes}m`,
-    `Reset in ${seconds}s`,
-  ];
+  const pad = (value) => String(value).padStart(2, '0');
+  return `Time ${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
 }
 
 function setSwapContent(target, lines) {
@@ -15387,24 +15382,10 @@ function updateChatVoteCountdownTick() {
   if (!districtChatVoteState || !Number.isFinite(districtChatVoteState.decisionAt)) {
     return;
   }
-  const resetLabels = getChatResetLabels(districtChatVoteState.decisionAt);
-  const phase = Math.floor(Date.now() / 3000) % 3;
-  const resetLabel = resetLabels[phase];
-  if (districtChatVoteButtons && districtChatVoteButtons.length) {
-    districtChatVoteButtons.forEach((btn) => {
-      const swap = btn.querySelector('.district-chat-scope-swap-inner');
-      if (swap && swap.children.length >= 3) {
-        swap.children[2].textContent = resetLabel;
-      }
-    });
-  }
-  if (districtChatScopeButtons && districtChatScopeButtons.length) {
-    const currentBtn = Array.from(districtChatScopeButtons).find(
-      (btn) => btn.dataset.chatScope === 'current',
-    );
-    const swap = currentBtn ? currentBtn.querySelector('.district-chat-scope-swap-inner') : null;
-    if (swap && swap.children.length >= 3) {
-      swap.children[2].textContent = resetLabel;
+  if (districtChatVoteStatus && !districtChatVoteStatus.classList.contains('hidden')) {
+    const timeEl = districtChatVoteStatus.querySelector('.district-chat-vote-time');
+    if (timeEl) {
+      timeEl.textContent = formatChatRemainingTime(districtChatVoteState.decisionAt);
     }
   }
   if (Date.now() >= districtChatVoteState.decisionAt && districtChatVoteActiveCode) {
@@ -15442,7 +15423,7 @@ function updateDistrictChatScopeLabels() {
     const stateLabel = districtChatVoteState.currentState === 'closed' ? 'Closed' : 'Open';
     btn.classList.toggle('is-visitor-closed', districtChatRoomVariant === 'visitors');
     btn.classList.add('is-chat-state');
-    setSwapContent(btn, [currentLabel, stateLabel, 'Reset in —']);
+    setSwapContent(btn, [currentLabel, stateLabel]);
   });
 }
 
@@ -15493,7 +15474,7 @@ function applyDistrictChatVoteState(payload = {}) {
       const disable = !canVote || Boolean(userVote);
       btn.disabled = disable;
       btn.setAttribute('aria-disabled', disable ? 'true' : 'false');
-      setSwapContent(btn, [label, percentLabel, 'Reset in —']);
+      setSwapContent(btn, [label, percentLabel]);
     });
   }
   updateDistrictChatScopeLabels();
@@ -15514,7 +15495,7 @@ function applyDistrictChatVoteState(payload = {}) {
   }
 }
 
-function showDistrictChatVoteStatus({ persist = false } = {}) {
+function showDistrictChatVoteStatus() {
   if (!districtChatVoteStatus) {
     return;
   }
@@ -15522,9 +15503,6 @@ function showDistrictChatVoteStatus({ persist = false } = {}) {
   if (districtChatVoteStatusTimer) {
     window.clearTimeout(districtChatVoteStatusTimer);
     districtChatVoteStatusTimer = null;
-  }
-  if (!persist) {
-    return;
   }
   districtChatVoteStatusTimer = window.setTimeout(() => {
     districtChatVoteStatus.classList.add('hidden');

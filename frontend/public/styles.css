@@ -2763,7 +2763,8 @@ body.friend-profile-open .character-drawer {
 
 .district-chat-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: auto;
   gap: 0.5rem;
   align-items: center;
   position: relative;
@@ -2778,6 +2779,7 @@ body.friend-profile-open .character-drawer {
   background: rgba(5, 18, 12, 0.55);
   border: 1px solid rgba(90, 255, 160, 0.25);
   width: 100%;
+  min-height: 2.2rem;
 }
 
 .district-chat-vote {
@@ -2799,7 +2801,7 @@ body.friend-profile-open .character-drawer {
     rgba(255, 120, 120, 0.2) var(--open-pct, 50%),
     rgba(255, 120, 120, 0.28) 100%
   );
-  opacity: 0.7;
+  opacity: 0.35;
   pointer-events: none;
 }
 
@@ -2896,9 +2898,11 @@ body.friend-profile-open .character-drawer {
 }
 
 .district-chat-scope-swap {
-  display: inline-block;
+  display: block;
   height: 1.1em;
   overflow: hidden;
+  width: 100%;
+  text-align: center;
 }
 
 .district-chat-vote-btn .district-chat-scope-swap {
@@ -2907,32 +2911,25 @@ body.friend-profile-open .character-drawer {
 
 .district-chat-scope-swap-inner {
   display: block;
-  animation: chat-scope-swap 4.8s ease-in-out infinite;
+  animation: chat-scope-swap 3.6s ease-in-out infinite;
 }
 
 .district-chat-scope-swap-inner > span {
   display: block;
   line-height: 1.1em;
+  width: 100%;
+  text-align: center;
 }
 
 @keyframes chat-scope-swap {
   0% {
     transform: translateY(0);
   }
-  20% {
+  40% {
     transform: translateY(0);
-  }
-  35% {
-    transform: translateY(-1.1em);
   }
   55% {
     transform: translateY(-1.1em);
-  }
-  70% {
-    transform: translateY(-2.2em);
-  }
-  85% {
-    transform: translateY(-2.2em);
   }
   100% {
     transform: translateY(0);
@@ -2955,16 +2952,6 @@ body.friend-profile-open .character-drawer {
   color: rgba(110, 255, 185, 0.95);
 }
 
-.district-chat-vote-status {
-  padding: 0.35rem 0.6rem;
-  border-radius: 10px;
-  background: rgba(8, 22, 16, 0.85);
-  border: 1px solid rgba(90, 255, 160, 0.18);
-  color: rgba(210, 255, 230, 0.9);
-  font-size: 0.74rem;
-  line-height: 1.2;
-  max-width: 260px;
-}
 
 .district-chat-log {
   list-style: none;
