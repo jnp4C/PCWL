@@ -2766,6 +2766,7 @@ body.friend-profile-open .character-drawer {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.5rem;
   align-items: center;
+  position: relative;
 }
 
 .district-chat-toggle {
@@ -2852,11 +2853,19 @@ body.friend-profile-open .character-drawer {
 }
 
 .district-chat-vote-status {
-  font-size: 0.72rem;
-  color: rgba(200, 245, 220, 0.75);
-  letter-spacing: 0.03em;
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  padding: 0.45rem 0.65rem;
+  border-radius: 10px;
+  background: rgba(8, 22, 16, 0.95);
+  border: 1px solid rgba(90, 255, 160, 0.2);
+  color: rgba(210, 255, 230, 0.95);
+  font-size: 0.74rem;
+  line-height: 1.2;
   max-width: 260px;
-  grid-column: 1 / -1;
+  z-index: 5;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.35);
 }
 
 .district-chat-status {
@@ -2875,6 +2884,10 @@ body.friend-profile-open .character-drawer {
   display: inline-block;
   height: 1.1em;
   overflow: hidden;
+}
+
+.district-chat-vote-btn .district-chat-scope-swap {
+  height: 1em;
 }
 
 .district-chat-scope-swap-inner {

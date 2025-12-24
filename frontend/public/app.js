@@ -15421,10 +15421,20 @@ function applyDistrictChatVoteState(payload = {}) {
   if (districtChatVoteButtons && districtChatVoteButtons.length) {
     districtChatVoteButtons.forEach((btn) => {
       const vote = btn.dataset.chatVote === 'closed' ? 'closed' : 'open';
+      const label = vote === 'closed' ? 'Closed' : 'Open';
+      const percentLabel = vote === 'closed' ? `${closedPercent}%` : `${openPercent}%`;
       btn.setAttribute('aria-pressed', userVote === vote ? 'true' : 'false');
       const disable = !canVote || Boolean(userVote);
       btn.disabled = disable;
       btn.setAttribute('aria-disabled', disable ? 'true' : 'false');
+      btn.innerHTML = `
+        <span class="district-chat-scope-swap">
+          <span class="district-chat-scope-swap-inner">
+            <span>${label}</span>
+            <span>${percentLabel}</span>
+          </span>
+        </span>
+      `;
     });
   }
   updateDistrictChatScopeLabels();
@@ -15752,7 +15762,9 @@ if (districtChatVoteButtons && districtChatVoteButtons.length) {
   districtChatVoteButtons.forEach((btn) => {
     btn.addEventListener('click', async (event) => {
       event.preventDefault();
-      showDistrictChatVoteStatus();
+      if (btn.dataset.chatVote === 'closed') {
+        showDistrictChatVoteStatus();
+      }
       const code = districtChatVoteActiveCode;
       const cached = code ? districtChatVoteCache.get(code) : null;
       if (cached && cached.user_vote) {
