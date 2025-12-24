@@ -217,6 +217,43 @@ def _top_party_prestige_contributors(party: Party, *, limit: int = 5) -> List[Di
     return results
 
 
+def _top_party_visitors(party: Party, *, limit: int = 3) -> List[Dict[str, Any]]:
+    if not party:
+        return []
+    checkin_qs = _party_checkins_for_leader(party) or CheckIn.objects.filter(
+        Q(party=party) | Q(party_code__iexact=party.code)
+    )
+    aggregates = (
+        checkin_qs.values("player_id")
+        .annotate(visit_count=Count("id"))
+        .order_by("-visit_count")
+    )
+    top_rows = list(aggregates[: max(1, limit + 2)])  # fetch extra to skip leader if needed
+    player_ids = [row["player_id"] for row in top_rows if row.get("player_id")]
+    players = {
+        p.id: p
+        for p in Player.objects.filter(id__in=player_ids).only("id", "username", "display_name")
+    }
+    results: List[Dict[str, Any]] = []
+    for row in top_rows:
+        pid = row.get("player_id")
+        if not pid or pid == party.leader_id:
+            continue
+        player = players.get(pid)
+        if not player:
+            continue
+        results.append(
+            {
+                "username": player.username,
+                "display_name": player.display_name or "",
+                "visit_count": int(row.get("visit_count") or 0),
+            }
+        )
+        if len(results) >= limit:
+            break
+    return results
+
+
 def _build_party_profile_payload(party: Party) -> Dict[str, Any]:
     active_memberships = list(
         PartyMembership.objects.select_related("player").filter(
@@ -346,6 +383,7 @@ def _build_party_profile_payload(party: Party) -> Dict[str, Any]:
         )
     )
     top_players = _top_party_prestige_contributors(party, limit=5)
+    top_visitors = _top_party_visitors(party, limit=3)
     recent_members = _recent_party_members(party, sessions=3, limit=12)
     return {
         "party": {
@@ -361,6 +399,7 @@ def _build_party_profile_payload(party: Party) -> Dict[str, Any]:
         },
         "districts": districts,
         "top_players": top_players,
+        "top_visitors": top_visitors,
         "active_members": active_members,
         "recent_members": recent_members,
     }
