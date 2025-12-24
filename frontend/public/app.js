@@ -303,6 +303,7 @@ const districtChatContext = document.getElementById('district-chat-context');
 const districtChatScopeButtons = document.querySelectorAll('.district-chat-scope[data-chat-scope]');
 const districtChatVoteToggle = document.getElementById('district-chat-vote');
 const districtChatVoteMeter = document.getElementById('district-chat-vote-meter');
+const districtChatVoteStatus = document.getElementById('district-chat-vote-status');
 const districtChatVoteButtons = document.querySelectorAll('.district-chat-vote-btn');
 let districtChatSocket = null;
 let districtChatRoomCode = null;
@@ -311,6 +312,8 @@ let districtChatScopePreference = 'auto';
 let districtChatVoteActiveCode = null;
 let districtChatRoomVariant = '';
 let districtChatContextBase = '';
+let districtChatVoteState = { currentState: 'open' };
+let districtChatScopeCurrentLabel = 'Current';
 const districtChatVoteCache = new Map();
 const districtLeaderboardContainer = document.getElementById('district-leaderboard');
 const districtLeaderboardEmpty = document.getElementById('district-leaderboard-empty');
@@ -15324,6 +15327,52 @@ function formatChatVoteTitle({ openVotes = 0, closedVotes = 0, openPercent = 0, 
   return `Open ${openPercent}% • Closed ${closedPercent}% (${total} ${voteLabel})`;
 }
 
+function formatChatVoteStatus({
+  currentState = 'open',
+  userVote = '',
+  openPercent = 0,
+  closedPercent = 0,
+  decisionAt = null,
+} = {}) {
+  const decisionTime = Number.isFinite(decisionAt)
+    ? new Date(decisionAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : '11:00';
+  const stateSummary = `District is now ${currentState}. Vote applies at ${decisionTime}.`;
+  const votingSummary = `Currently voting at ${openPercent}% open / ${closedPercent}% closed.`;
+  if (userVote) {
+    return `You voted for ${userVote}. ${stateSummary} ${votingSummary}`;
+  }
+  return `${stateSummary} ${votingSummary}`;
+}
+
+function updateDistrictChatScopeLabels() {
+  if (!districtChatScopeButtons || !districtChatScopeButtons.length) {
+    return;
+  }
+  if (!districtChatScopeCurrentLabel) {
+    const currentBtn = Array.from(districtChatScopeButtons).find(
+      (btn) => btn.dataset.chatScope === 'current',
+    );
+    if (currentBtn) {
+      districtChatScopeCurrentLabel = currentBtn.textContent.trim() || 'Current';
+    }
+  }
+  districtChatScopeButtons.forEach((btn) => {
+    if (btn.dataset.chatScope !== 'current') {
+      return;
+    }
+    const isVisitor = districtChatRoomVariant === 'visitors';
+    const stateLabel = districtChatVoteState.currentState === 'closed' ? 'Visitor • Closed' : 'Open';
+    if (isVisitor) {
+      btn.classList.add('is-visitor-closed');
+      btn.innerHTML = `<span class="district-chat-scope-scroll">${stateLabel}</span>`;
+    } else {
+      btn.classList.remove('is-visitor-closed');
+      btn.textContent = districtChatScopeCurrentLabel || 'Current';
+    }
+  });
+}
+
 function applyDistrictChatVoteState(payload = {}) {
   if (!districtChatVoteToggle) {
     return;
@@ -15335,22 +15384,41 @@ function applyDistrictChatVoteState(payload = {}) {
   const closedPercent = Number.isFinite(payload.closed_percent) ? payload.closed_percent : 0;
   const openVotes = Number.isFinite(payload.open_votes) ? payload.open_votes : 0;
   const closedVotes = Number.isFinite(payload.closed_votes) ? payload.closed_votes : 0;
+  const decisionAt = parseServerTimestamp(payload.decision_at);
+  districtChatVoteState = {
+    currentState,
+    decisionAt,
+    openPercent,
+    closedPercent,
+    userVote,
+  };
 
   districtChatVoteToggle.dataset.currentState = currentState;
   districtChatVoteToggle.dataset.userVote = userVote;
   districtChatVoteToggle.dataset.canVote = canVote ? 'true' : 'false';
   districtChatVoteToggle.style.setProperty('--open-pct', `${openPercent}%`);
   districtChatVoteToggle.title = formatChatVoteTitle({ openVotes, closedVotes, openPercent, closedPercent });
+  if (districtChatVoteStatus) {
+    districtChatVoteStatus.textContent = formatChatVoteStatus({
+      currentState,
+      userVote,
+      openPercent,
+      closedPercent,
+      decisionAt,
+    });
+  }
 
   if (districtChatVoteButtons && districtChatVoteButtons.length) {
     districtChatVoteButtons.forEach((btn) => {
       const vote = btn.dataset.chatVote === 'closed' ? 'closed' : 'open';
       btn.setAttribute('aria-pressed', userVote === vote ? 'true' : 'false');
-      const disable = !canVote || Boolean(userVote);
+      const disable = !canVote;
       btn.disabled = disable;
       btn.setAttribute('aria-disabled', disable ? 'true' : 'false');
     });
   }
+  updateDistrictChatScopeLabels();
+  applyDistrictChatContext();
 }
 
 function resolveDistrictChatTargets(profile) {
@@ -15405,9 +15473,10 @@ function applyDistrictChatContext() {
   }
   let text = districtChatContextBase || 'Home: —';
   if (districtChatRoomVariant === 'visitors') {
-    text = `${text} • Visitors`;
+    text = `${text} • Visitors${districtChatVoteState.currentState === 'closed' ? ' (Closed)' : ''}`;
   }
   districtChatContext.textContent = text;
+  updateDistrictChatScopeLabels();
 }
 
 function applyCyberViewMode(mode) {
@@ -15655,11 +15724,16 @@ if (districtChatVoteButtons && districtChatVoteButtons.length) {
   districtChatVoteButtons.forEach((btn) => {
     btn.addEventListener('click', async (event) => {
       event.preventDefault();
+      const code = districtChatVoteActiveCode;
+      const cached = code ? districtChatVoteCache.get(code) : null;
+      if (cached && cached.user_vote) {
+        applyDistrictChatVoteState(cached);
+        return;
+      }
       if (btn.disabled) {
         return;
       }
       const vote = btn.dataset.chatVote === 'closed' ? 'closed' : 'open';
-      const code = districtChatVoteActiveCode;
       if (!code) {
         return;
       }
