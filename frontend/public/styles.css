@@ -2765,6 +2765,7 @@ body.friend-profile-open .character-drawer {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .district-chat-toggle {
@@ -2775,6 +2776,43 @@ body.friend-profile-open .character-drawer {
   border-radius: 999px;
   background: rgba(5, 18, 12, 0.55);
   border: 1px solid rgba(90, 255, 160, 0.25);
+}
+
+.district-chat-vote {
+  position: relative;
+  overflow: hidden;
+  padding: 0.2rem;
+  border-radius: 999px;
+}
+
+.district-chat-vote-meter {
+  position: absolute;
+  inset: 0.15rem;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    rgba(110, 255, 185, 0.18) 0%,
+    rgba(110, 255, 185, 0.22) var(--open-pct, 50%),
+    rgba(255, 120, 120, 0.2) var(--open-pct, 50%),
+    rgba(255, 120, 120, 0.28) 100%
+  );
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.district-chat-vote[data-current-state='open'] .district-chat-vote-btn[data-chat-vote='open'],
+.district-chat-vote[data-current-state='closed'] .district-chat-vote-btn[data-chat-vote='closed'] {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(235, 255, 245, 0.98);
+}
+
+.district-chat-vote[data-user-vote='open'] .district-chat-vote-btn[data-chat-vote='open'],
+.district-chat-vote[data-user-vote='closed'] .district-chat-vote-btn[data-chat-vote='closed'] {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
+.district-chat-vote[data-can-vote='false'] {
+  opacity: 0.6;
 }
 
 .district-chat-scope {
@@ -2788,6 +2826,11 @@ body.friend-profile-open .character-drawer {
   text-transform: uppercase;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
+}
+
+.district-chat-vote-btn {
+  position: relative;
+  z-index: 1;
 }
 
 .district-chat-scope[aria-pressed='true'] {

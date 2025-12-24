@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import Count, F
 from django.utils import timezone
 import math
 
@@ -16,6 +16,7 @@ from .models import (
     DistrictContributionStat,
     DistrictEngagement,
     DistrictDdosEntry,
+    DistrictFirewallEntry,
     DistrictWormEntry,
     FriendLink,
     Party,
@@ -25,6 +26,7 @@ from .models import (
     Player,
     PlayerDistrictContribution,
     PlayerPartyBond,
+    DistrictChatVote,
     DistrictPartyStat,
 )
 
@@ -50,7 +52,7 @@ COOLDOWN_DURATIONS_MS = {
     "charge": 2 * 60 * 1000,
     "ddos": 3 * 60 * 60 * 1000,  # 3h
     "worm": 2 * 60 * 60 * 1000,  # 2h
-    "firewall": int(1.5 * 60 * 60 * 1000),  # 1.5h
+    "firewall": 20 * 60 * 1000,  # 20 minutes
     "deworm": int(1.5 * 60 * 60 * 1000),  # 1.5h
 }
 
@@ -63,6 +65,8 @@ PARTY_NAME_MAX_LENGTH = 48
 STREAK_MAX_DAYS = 30
 STREAK_DAILY_BONUS = Decimal("1") / Decimal(STREAK_MAX_DAYS)
 STREAK_TIMEZONE = ZoneInfo("Europe/Prague")
+CHAT_VOTE_TIMEZONE = ZoneInfo("Europe/Prague")
+CHAT_VOTE_CUTOFF_HOUR = 11
 
 LEGACY_DISTRICT_CODE_ALIASES = {
     "1100": "500054",
@@ -681,6 +685,51 @@ def _member_inferred_district(member: Player, party_code: Optional[str] = None) 
     if any_ci and any_ci.district_code:
         return _normalise_district_code(any_ci.district_code)
     return None
+
+
+def get_chat_vote_period(now: Optional[timezone.datetime] = None) -> Dict[str, timezone.datetime]:
+    """Return the current vote period boundaries in UTC (11:00 Prague time)."""
+    current = now or timezone.now()
+    local = timezone.localtime(current, CHAT_VOTE_TIMEZONE)
+    cutoff = local.replace(hour=CHAT_VOTE_CUTOFF_HOUR, minute=0, second=0, microsecond=0)
+    if local < cutoff:
+        cutoff = cutoff - timedelta(days=1)
+    period_start_local = cutoff
+    period_end_local = cutoff + timedelta(days=1)
+    return {
+        "start": period_start_local.astimezone(timezone.utc),
+        "end": period_end_local.astimezone(timezone.utc),
+    }
+
+
+def get_chat_vote_counts(district: District, period_start: timezone.datetime) -> Dict[str, int]:
+    tallies = (
+        DistrictChatVote.objects.filter(district=district, period_start=period_start)
+        .values("choice")
+        .annotate(count=Count("id"))
+    )
+    counts = {"open": 0, "closed": 0}
+    for row in tallies:
+        choice = row.get("choice")
+        if choice in counts:
+            counts[choice] = int(row.get("count") or 0)
+    return counts
+
+
+def get_chat_effective_state(
+    district: District,
+    *,
+    now: Optional[timezone.datetime] = None,
+    default_open: bool = True,
+) -> bool:
+    period = get_chat_vote_period(now)
+    previous_start = period["start"] - timedelta(days=1)
+    counts = get_chat_vote_counts(district, previous_start)
+    open_votes = counts.get("open", 0)
+    closed_votes = counts.get("closed", 0)
+    if open_votes == 0 and closed_votes == 0:
+        return default_open
+    return open_votes >= closed_votes
 
 
 def _determine_party_active_district(party: Party, members: Optional[List[Player]] = None) -> Dict[str, Any]:
@@ -1606,12 +1655,47 @@ def _active_ddos_qs(district: District, *, now=None):
     return DistrictDdosEntry.objects.filter(district=district, ended_at__isnull=True, expires_at__gt=now)
 
 
+def _active_firewall_qs(district: District, *, now=None):
+    now = now or timezone.now()
+    return DistrictFirewallEntry.objects.filter(district=district, ended_at__isnull=True, expires_at__gt=now)
+
+
+def _firewall_entry_effect(entry: DistrictFirewallEntry, *, now=None) -> float:
+    """Return the current mitigation contribution for a single firewall entry."""
+    if not entry:
+        return 0.0
+    now = now or timezone.now()
+    start = entry.started_at or now
+    end = entry.expires_at or (start + timedelta(minutes=20))
+    effective_end = entry.ended_at if entry.ended_at and entry.ended_at < end else end
+    if now >= effective_end:
+        return 0.0
+    ramp_seconds = 10 * 60
+    elapsed_seconds = max(0.0, (now - start).total_seconds())
+    peak = 0.004  # Mitigate up to two full DDoS attackers.
+    if elapsed_seconds >= ramp_seconds:
+        return peak
+    ratio = max(0.0, min(1.0, elapsed_seconds / ramp_seconds))
+    return max(0.0, min(peak, round(peak * ratio, 6)))
+
+
+def _firewall_defense_percent(district: District, *, now=None) -> float:
+    now = now or timezone.now()
+    qs = _active_firewall_qs(district, now=now)
+    defense = 0.0
+    for entry in qs:
+        defense += _firewall_entry_effect(entry, now=now)
+    return round(min(1.0, defense), 4)
+
+
 def _ddos_debuff_percent(district: District, *, now=None) -> float:
     qs = _active_ddos_qs(district, now=now)
     debuff = 0.0
     for entry in qs:
         debuff += _ddos_entry_effect(entry, now=now)
-    return round(min(1.0, debuff), 4)
+    firewall_defense = _firewall_defense_percent(district, now=now)
+    mitigated = max(0.0, debuff - firewall_defense)
+    return round(min(1.0, mitigated), 4)
 
 
 def _ddos_entry_effect(entry: DistrictDdosEntry, *, now=None) -> float:
@@ -1721,24 +1805,35 @@ def apply_firewall(player: Player, target_code: str) -> Dict[str, Any]:
         target_district = _resolve_target_district(target_code)
 
         qs = _active_ddos_qs(target_district, now=now)
-        count = qs.count()
-        removed_entry = None
-        if count:
-            # Pick a pseudo-random active entry without loading all rows
-            idx = int(_now_ms() % count)
-            removed_entry = qs.order_by("id")[idx]
-            removed_entry.ended_at = now
-            removed_entry.ended_by_player = locked
-            removed_entry.save(update_fields=["ended_at", "updated_at"])
+        removed_entries = []
+        for entry in qs.order_by("started_at")[:2]:
+            entry.ended_at = now
+            entry.ended_by_player = locked
+            entry.save(update_fields=["ended_at", "updated_at", "ended_by_player"])
+            removed_entries.append(entry)
+
+        defender_ip = _clean_district_ip(_ensure_player_district_ip(locked))
+        attacker_home = _get_or_create_district_record(locked.home_district_code, locked.home_district_name)
+        expires_at = now + timedelta(minutes=20)
+        DistrictFirewallEntry.objects.create(
+            district=target_district,
+            defender=locked,
+            defender_home_district=attacker_home,
+            defender_ip=defender_ip,
+            started_at=now,
+            expires_at=expires_at,
+        )
 
         _update_cooldown(locked, COOLDOWN_KEYS["firewall"], COOLDOWN_DURATIONS_MS["firewall"], now_ms=int(now.timestamp() * 1000))
-        locked.save(update_fields=["cooldowns", "cooldown_details", "updated_at"])
+        locked.save(update_fields=["cooldowns", "cooldown_details", "updated_at", "district_ip_address"])
 
     debuff = _ddos_debuff_percent(target_district, now=now)
     return {
-        "removed": removed_entry.pk if removed_entry else None,
+        "removed": removed_entries[0].pk if removed_entries else None,
+        "removed_ids": [entry.pk for entry in removed_entries],
         "active_attackers": _active_ddos_qs(target_district, now=now).count(),
         "debuff": debuff,
+        "expires_at": expires_at,
     }
 
 

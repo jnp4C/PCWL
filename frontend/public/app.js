@@ -292,8 +292,6 @@ const districtCyberToggle = document.querySelectorAll('.cyber-toggle-btn');
 let districtCyberViewMode = 'both'; // both | feed | chat
 let districtCyberIncomingData = null;
 let districtCyberIncomingBound = false;
-let districtCyberAutoScrollDisabledOnce = false;
-let districtCyberForceScrollToLatest = false;
 const districtChatContainer = document.getElementById('district-chat');
 const districtChatLog = document.getElementById('district-chat-log');
 const districtChatEmpty = document.getElementById('district-chat-empty');
@@ -302,11 +300,18 @@ const districtChatInput = document.getElementById('district-chat-input');
 const districtChatStatus = document.getElementById('district-chat-status');
 const districtChatHeading = document.getElementById('district-chat-heading');
 const districtChatContext = document.getElementById('district-chat-context');
-const districtChatScopeButtons = document.querySelectorAll('.district-chat-scope');
+const districtChatScopeButtons = document.querySelectorAll('.district-chat-scope[data-chat-scope]');
+const districtChatVoteToggle = document.getElementById('district-chat-vote');
+const districtChatVoteMeter = document.getElementById('district-chat-vote-meter');
+const districtChatVoteButtons = document.querySelectorAll('.district-chat-vote-btn');
 let districtChatSocket = null;
 let districtChatRoomCode = null;
 let districtChatReconnectTimer = null;
 let districtChatScopePreference = 'auto';
+let districtChatVoteActiveCode = null;
+let districtChatRoomVariant = '';
+let districtChatContextBase = '';
+const districtChatVoteCache = new Map();
 const districtLeaderboardContainer = document.getElementById('district-leaderboard');
 const districtLeaderboardEmpty = document.getElementById('district-leaderboard-empty');
 const districtLeaderboardAggressive = document.getElementById('district-leaderboard-aggressive');
@@ -15313,6 +15318,41 @@ function setDistrictChatStatus(label, { live = false } = {}) {
   }
 }
 
+function formatChatVoteTitle({ openVotes = 0, closedVotes = 0, openPercent = 0, closedPercent = 0 } = {}) {
+  const total = openVotes + closedVotes;
+  const voteLabel = total === 1 ? 'vote' : 'votes';
+  return `Open ${openPercent}% • Closed ${closedPercent}% (${total} ${voteLabel})`;
+}
+
+function applyDistrictChatVoteState(payload = {}) {
+  if (!districtChatVoteToggle) {
+    return;
+  }
+  const currentState = payload.current_state === 'closed' ? 'closed' : 'open';
+  const userVote = payload.user_vote === 'closed' ? 'closed' : payload.user_vote === 'open' ? 'open' : '';
+  const canVote = Boolean(payload.can_vote);
+  const openPercent = Number.isFinite(payload.open_percent) ? payload.open_percent : 0;
+  const closedPercent = Number.isFinite(payload.closed_percent) ? payload.closed_percent : 0;
+  const openVotes = Number.isFinite(payload.open_votes) ? payload.open_votes : 0;
+  const closedVotes = Number.isFinite(payload.closed_votes) ? payload.closed_votes : 0;
+
+  districtChatVoteToggle.dataset.currentState = currentState;
+  districtChatVoteToggle.dataset.userVote = userVote;
+  districtChatVoteToggle.dataset.canVote = canVote ? 'true' : 'false';
+  districtChatVoteToggle.style.setProperty('--open-pct', `${openPercent}%`);
+  districtChatVoteToggle.title = formatChatVoteTitle({ openVotes, closedVotes, openPercent, closedPercent });
+
+  if (districtChatVoteButtons && districtChatVoteButtons.length) {
+    districtChatVoteButtons.forEach((btn) => {
+      const vote = btn.dataset.chatVote === 'closed' ? 'closed' : 'open';
+      btn.setAttribute('aria-pressed', userVote === vote ? 'true' : 'false');
+      const disable = !canVote || Boolean(userVote);
+      btn.disabled = disable;
+      btn.setAttribute('aria-disabled', disable ? 'true' : 'false');
+    });
+  }
+}
+
 function resolveDistrictChatTargets(profile) {
   const homeCode =
     (profile && profile.homeDistrictId ? safeId(profile.homeDistrictId) : null) ||
@@ -15354,10 +15394,20 @@ function updateDistrictChatScopeControls({ scope, hasCurrent, label }) {
       }
     });
   }
-  if (districtChatContext) {
-    const prefix = scope === 'current' ? 'Current' : 'Home';
-    districtChatContext.textContent = `${prefix}: ${label || '—'}`;
+  const prefix = scope === 'current' ? 'Current' : 'Home';
+  districtChatContextBase = `${prefix}: ${label || '—'}`;
+  applyDistrictChatContext();
+}
+
+function applyDistrictChatContext() {
+  if (!districtChatContext) {
+    return;
   }
+  let text = districtChatContextBase || 'Home: —';
+  if (districtChatRoomVariant === 'visitors') {
+    text = `${text} • Visitors`;
+  }
+  districtChatContext.textContent = text;
 }
 
 function applyCyberViewMode(mode) {
@@ -15419,6 +15469,9 @@ function teardownDistrictChat({ hide = true, clear = true } = {}) {
   }
   districtChatSocket = null;
   districtChatRoomCode = null;
+  districtChatRoomVariant = '';
+  districtChatVoteActiveCode = null;
+  applyDistrictChatContext();
   if (clear) {
     clearDistrictChatMessages();
     setDistrictChatStatus('Offline', { live: false });
@@ -15434,8 +15487,6 @@ function appendDistrictChatMessage(message) {
   }
   const username = typeof message.username === 'string' ? message.username : '';
   const districtIp = typeof message.district_ip === 'string' ? message.district_ip : '';
-  const wasNearBottom =
-    districtChatLog.scrollHeight - districtChatLog.clientHeight - districtChatLog.scrollTop < 120;
   const entry = document.createElement('li');
   entry.className = 'district-chat-entry';
   const meta = document.createElement('div');
@@ -15468,10 +15519,6 @@ function appendDistrictChatMessage(message) {
   if (districtChatEmpty) {
     districtChatEmpty.classList.add('hidden');
   }
-
-  if (wasNearBottom) {
-    districtChatLog.scrollTop = districtChatLog.scrollHeight;
-  }
 }
 
 function handleDistrictChatPayload(data) {
@@ -15490,6 +15537,29 @@ function handleDistrictChatPayload(data) {
   if (data.type === 'chat.status' && typeof data.status === 'string') {
     const statusLabel = data.status.toLowerCase() === 'connected' ? 'Live' : data.status;
     setDistrictChatStatus(statusLabel, { live: data.status.toLowerCase() === 'connected' });
+    if (data.room) {
+      districtChatRoomVariant = data.room === 'visitors' ? 'visitors' : '';
+      applyDistrictChatContext();
+    }
+  }
+}
+
+async function fetchDistrictChatVote(code, { silent = false } = {}) {
+  const cleanCode = typeof code === 'string' ? code.trim() : '';
+  if (!cleanCode) {
+    return null;
+  }
+  try {
+    const payload = await apiRequest(`districts/${encodeURIComponent(cleanCode)}/chat-vote/`);
+    if (payload) {
+      districtChatVoteCache.set(cleanCode, payload);
+    }
+    return payload || null;
+  } catch (error) {
+    if (!silent) {
+      console.warn('Failed to load chat vote status', error);
+    }
+    return null;
   }
 }
 
@@ -15581,6 +15651,45 @@ if (districtChatForm && districtChatInput) {
   });
 }
 
+if (districtChatVoteButtons && districtChatVoteButtons.length) {
+  districtChatVoteButtons.forEach((btn) => {
+    btn.addEventListener('click', async (event) => {
+      event.preventDefault();
+      if (btn.disabled) {
+        return;
+      }
+      const vote = btn.dataset.chatVote === 'closed' ? 'closed' : 'open';
+      const code = districtChatVoteActiveCode;
+      if (!code) {
+        return;
+      }
+      btn.disabled = true;
+      try {
+        const payload = await apiRequest(`districts/${encodeURIComponent(code)}/chat-vote/`, {
+          method: 'POST',
+          body: { vote },
+        });
+        if (payload) {
+          districtChatVoteCache.set(code, payload);
+          applyDistrictChatVoteState(payload);
+        }
+      } catch (error) {
+        if (error && error.status === 409 && error.data) {
+          districtChatVoteCache.set(code, error.data);
+          applyDistrictChatVoteState(error.data);
+          return;
+        }
+        console.warn('Failed to submit chat vote', error);
+      } finally {
+        const cached = districtChatVoteCache.get(code);
+        if (cached) {
+          applyDistrictChatVoteState(cached);
+        }
+      }
+    });
+  });
+}
+
 if (districtChatScopeButtons && districtChatScopeButtons.length) {
   districtChatScopeButtons.forEach((btn) => {
     btn.addEventListener('click', (event) => {
@@ -15588,7 +15697,7 @@ if (districtChatScopeButtons && districtChatScopeButtons.length) {
       const scope = btn.dataset.chatScope === 'current' ? 'current' : 'home';
       districtChatScopePreference = scope;
       const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
-      renderDistrictCyberActivity(profile, { autoScroll: false });
+      renderDistrictCyberActivity(profile);
     });
   });
 }
@@ -15599,30 +15708,32 @@ if (districtCyberToggle && districtCyberToggle.length) {
       event.preventDefault();
       const mode = btn.dataset.cyberMode || 'both';
       applyCyberViewMode(mode);
-      districtCyberAutoScrollDisabledOnce = true;
     });
   });
 }
 
-async function renderDistrictCyberActivity(profile, { autoScroll = true } = {}) {
+async function renderDistrictCyberActivity(profile) {
   if (!districtCyberSection || !districtCyberFeed || !districtCyberEmpty || !districtCyberFeedHead) {
     return;
   }
-  const shouldAutoScroll = autoScroll && !districtCyberAutoScrollDisabledOnce;
-  districtCyberAutoScrollDisabledOnce = false;
-  const feedScrollTarget = districtCyberFeedShell || districtCyberFeed;
-  const wasNearBottom =
-    shouldAutoScroll &&
-    feedScrollTarget.scrollHeight - feedScrollTarget.clientHeight - feedScrollTarget.scrollTop < 120;
-  const formatDistrictLabel = (name, code) => {
+  const resolveDistrictName = (name, code) => {
     const trimmed = typeof name === 'string' ? name.trim() : '';
     if (trimmed) {
       return trimmed;
     }
-    if (code) {
-      return `District ${code}`;
+    const catalogMap = districtCatalogMap instanceof Map ? districtCatalogMap : null;
+    const normalizedCode = code ? safeId(code) : null;
+    const entry = catalogMap && normalizedCode ? catalogMap.get(normalizedCode) : null;
+    if (entry && entry.name) {
+      return entry.name;
+    }
+    if (normalizedCode) {
+      return `District ${normalizedCode}`;
     }
     return 'a district';
+  };
+  const formatDistrictLabel = (name, code) => {
+    return resolveDistrictName(name, code);
   };
   const formatDdosPercent = (value) => {
     const pct = Number(value);
@@ -15656,10 +15767,22 @@ async function renderDistrictCyberActivity(profile, { autoScroll = true } = {}) 
     const dateObj = new Date(timestamp);
     return dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
+  const formatEntryExpiry = (value) => {
+    const ts = parseServerTimestamp(value);
+    if (Number.isFinite(ts)) {
+      return ts;
+    }
+    return null;
+  };
+  const runtimeNow = Date.now();
   let entryOrder = 0;
   const entries = [];
-  const pushEntry = ({ title, body, timestamp }) => {
-    const resolvedTimestamp = Number.isFinite(timestamp) ? timestamp : Date.now();
+  const pushEntry = ({ title, body, timestamp, expiresAt }) => {
+    const expiresAtValue = formatEntryExpiry(expiresAt);
+    if (Number.isFinite(expiresAtValue) && expiresAtValue <= runtimeNow) {
+      return;
+    }
+    const resolvedTimestamp = Number.isFinite(timestamp) ? timestamp : runtimeNow;
     entries.push({
       title,
       body,
@@ -15689,7 +15812,6 @@ async function renderDistrictCyberActivity(profile, { autoScroll = true } = {}) 
 
   if (!profile || !profile.homeDistrictName || !profile.homeDistrictId) {
     districtCyberSection.classList.add('hidden');
-    districtCyberForceScrollToLatest = false;
     teardownDistrictChat();
     return;
   }
@@ -15698,7 +15820,6 @@ async function renderDistrictCyberActivity(profile, { autoScroll = true } = {}) 
   const chatTargets = resolveDistrictChatTargets(profile);
   if (!chatTargets.home.code) {
     districtCyberSection.classList.add('hidden');
-    districtCyberForceScrollToLatest = false;
     teardownDistrictChat();
     return;
   }
@@ -15716,6 +15837,20 @@ async function renderDistrictCyberActivity(profile, { autoScroll = true } = {}) 
     hasCurrent: hasCurrentChat,
     label: activeChat.label || activeChat.code,
   });
+  districtChatRoomVariant = '';
+  applyDistrictChatContext();
+  districtChatVoteActiveCode = activeChat.code || null;
+  if (districtChatVoteActiveCode) {
+    const cachedVote = districtChatVoteCache.get(districtChatVoteActiveCode);
+    if (cachedVote) {
+      applyDistrictChatVoteState(cachedVote);
+    }
+    fetchDistrictChatVote(districtChatVoteActiveCode, { silent: true }).then((payload) => {
+      if (payload && districtChatVoteActiveCode === activeChat.code) {
+        applyDistrictChatVoteState(payload);
+      }
+    });
+  }
   connectDistrictChat(activeChat.code, profile);
   applyCyberViewMode(districtCyberViewMode);
   const homeLabel = formatDistrictLabel(
@@ -15731,6 +15866,7 @@ async function renderDistrictCyberActivity(profile, { autoScroll = true } = {}) 
     const active = Array.isArray(payload?.active) ? payload.active : [];
     const blocked = Array.isArray(payload?.blocked) ? payload.blocked : [];
     const blockedOutgoing = Array.isArray(payload?.blocked_outgoing) ? payload.blocked_outgoing : [];
+    const firewallActiveCount = Number(payload?.firewall_active_count) || 0;
     const incoming = Array.isArray(payload?.incoming) ? payload.incoming : [];
     const incomingByDistrict = payload?.incoming_by_district || {};
     const wormActive = Array.isArray(payload?.worm_active) ? payload.worm_active : [];
@@ -15767,6 +15903,7 @@ async function renderDistrictCyberActivity(profile, { autoScroll = true } = {}) 
       } = {},
     ) => {
       const startedAt = formatEntryTimestamp(item.started_at);
+      const expiresAt = item.expires_at || null;
       if (!Number.isFinite(startedAt)) {
         return;
       }
@@ -15785,6 +15922,7 @@ async function renderDistrictCyberActivity(profile, { autoScroll = true } = {}) 
           title,
           body: `${ip} increased enemy disruption on ${targetLabel} to ${effectLabel} after ${Math.round((i * step) / (60 * 1000))} minutes.`,
           timestamp,
+          expiresAt,
         });
       }
     };
@@ -15799,6 +15937,7 @@ async function renderDistrictCyberActivity(profile, { autoScroll = true } = {}) 
         title: 'DDoS in progress',
         body: `${ip} performed a DDoS on ${target}, increasing enemy district DDoS disruption to ${effectLabel}.`,
         timestamp: startedAt,
+        expiresAt: item.expires_at,
       });
       appendMilestones(item, target, ip, {
         totalEffectPercent: effectValue,
@@ -15859,6 +15998,7 @@ async function renderDistrictCyberActivity(profile, { autoScroll = true } = {}) 
         title: 'Firewall deployed',
         body: `${actorLabel} knocked off ${sourceIp} (${source}), lowering DDoS disruption on ${target} to ${effectLabel}.`,
         timestamp: endedAt,
+        expiresAt: item.expires_at,
       });
     });
 
@@ -15890,6 +16030,7 @@ async function renderDistrictCyberActivity(profile, { autoScroll = true } = {}) 
         title: 'DDoS disrupted',
         body: `${defenderName} deployed a firewall that knocked off your DDoS on ${target}, lowering disruption to ${effectLabel}.`,
         timestamp: endedAt,
+        expiresAt: item.expires_at,
       });
     });
 
@@ -15904,6 +16045,7 @@ async function renderDistrictCyberActivity(profile, { autoScroll = true } = {}) 
         title: 'Incoming DDoS',
         body: `${ip} from ${sourceCode} performed a DDoS on ${target}, raising your home DDoS disruption to ${effectLabel}.`,
         timestamp: startedAt,
+        expiresAt: item.expires_at,
       });
       appendMilestones(item, target, ip, {
         totalEffectPercent: effectValue,
@@ -15923,6 +16065,7 @@ async function renderDistrictCyberActivity(profile, { autoScroll = true } = {}) 
         title: 'Worm in progress',
         body: `${ip} is worming ${target} core infrastructure, raising disruption to ${effectLabel}.`,
         timestamp: startedAt,
+        expiresAt: item.expires_at,
       });
       appendMilestones(item, target, ip, {
         totalEffectPercent: effectValue,
@@ -15981,6 +16124,7 @@ async function renderDistrictCyberActivity(profile, { autoScroll = true } = {}) 
         title: 'deWorm deployed',
         body: `${actorLabel} knocked off ${ip} (${source}), lowering worm disruption on ${target} core to ${effectLabel}.`,
         timestamp: endedAt,
+        expiresAt: item.expires_at,
       });
     });
 
@@ -16012,6 +16156,7 @@ async function renderDistrictCyberActivity(profile, { autoScroll = true } = {}) 
         title: 'Worm disrupted',
         body: `${defenderName} deployed a deWorm that removed your Worm on ${target}, lowering core disruption to ${effectLabel}.`,
         timestamp: endedAt,
+        expiresAt: item.expires_at,
       });
     });
 
@@ -16026,6 +16171,7 @@ async function renderDistrictCyberActivity(profile, { autoScroll = true } = {}) 
         title: 'Incoming Worm',
         body: `${ip} from ${sourceCode} wormed ${target} core infrastructure, raising disruption to ${effectLabel}.`,
         timestamp: startedAt,
+        expiresAt: item.expires_at,
       });
       appendMilestones(item, target, ip, {
         totalEffectPercent: effectValue,
@@ -16116,18 +16262,31 @@ async function renderDistrictCyberActivity(profile, { autoScroll = true } = {}) 
     const ddosOutgoingCount = active.length;
     const wormIncomingCount = wormIncoming.length;
     const wormOutgoingCount = wormActive.length;
-    const firewallOutgoingCount = blockedOutgoing.length;
+    const firewallOutgoingCount = firewallActiveCount;
     const dewormOutgoingCount = wormBlockedOutgoing.length;
-    if (entries.length) {
+    const hasActivity =
+      entries.length ||
+      ddosIncomingCount ||
+      ddosOutgoingCount ||
+      wormIncomingCount ||
+      wormOutgoingCount ||
+      firewallOutgoingCount ||
+      dewormOutgoingCount;
+    if (hasActivity) {
       districtCyberFeedHead.textContent = `DDoS in/out of ${homeLabel}: ${ddosIncomingCount}/${ddosOutgoingCount} • Worm in/out: ${wormIncomingCount}/${wormOutgoingCount} • Firewall out: ${firewallOutgoingCount} • deWorm out: ${dewormOutgoingCount}`;
     } else {
       districtCyberFeedHead.textContent = `No cyber activity in/out of ${homeLabel}.`;
     }
 
-    if (!entries.length) {
+    if (!hasActivity) {
       districtCyberSection.classList.remove('hidden');
       districtCyberEmpty.classList.remove('hidden');
-      districtCyberForceScrollToLatest = false;
+      return;
+    }
+
+    if (!entries.length) {
+      districtCyberSection.classList.remove('hidden');
+      districtCyberEmpty.classList.add('hidden');
       return;
     }
 
@@ -16170,14 +16329,9 @@ async function renderDistrictCyberActivity(profile, { autoScroll = true } = {}) 
     });
 
     districtCyberSection.classList.remove('hidden');
-    if ((wasNearBottom || districtCyberForceScrollToLatest) && feedScrollTarget) {
-      feedScrollTarget.scrollTop = feedScrollTarget.scrollHeight;
-    }
-    districtCyberForceScrollToLatest = false;
   } catch (error) {
     console.warn('Failed to load cyber activity', error);
     districtCyberSection.classList.add('hidden');
-    districtCyberForceScrollToLatest = false;
     teardownDistrictChat();
   }
 }
@@ -16263,8 +16417,6 @@ function openDistrictDrawer(trigger = null) {
 }
 
 function openDistrictDrawerAndScrollToCyber(trigger = null) {
-  districtCyberAutoScrollDisabledOnce = false;
-  districtCyberForceScrollToLatest = true;
   openDistrictDrawer(trigger);
   applyCyberViewMode('feed');
   window.setTimeout(() => {

@@ -704,6 +704,11 @@
                 <span id="district-chat-context" class="district-chat-context">Home: —</span>
               </div>
               <div class="district-chat-actions">
+                <div id="district-chat-vote" class="district-chat-toggle district-chat-vote" role="group" aria-label="Visitor chat vote">
+                  <div id="district-chat-vote-meter" class="district-chat-vote-meter" aria-hidden="true"></div>
+                  <button type="button" class="district-chat-scope district-chat-vote-btn" data-chat-vote="open" aria-pressed="false">Open</button>
+                  <button type="button" class="district-chat-scope district-chat-vote-btn" data-chat-vote="closed" aria-pressed="false">Closed</button>
+                </div>
                 <div class="district-chat-toggle" role="group" aria-label="Chat scope">
                   <button type="button" class="district-chat-scope" data-chat-scope="home" aria-pressed="true">Home</button>
                   <button type="button" class="district-chat-scope" data-chat-scope="current" aria-pressed="false">Current</button>

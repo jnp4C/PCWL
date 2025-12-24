@@ -6,7 +6,12 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.utils import timezone
 
 from .models import District, DistrictChatMessage, Player
-from .services import _are_direct_friends, _ensure_player_district_ip, _normalise_district_code
+from .services import (
+    _are_direct_friends,
+    _ensure_player_district_ip,
+    _normalise_district_code,
+    get_chat_effective_state,
+)
 
 
 class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
@@ -25,6 +30,7 @@ class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
         self.district: Optional[District] = None
         self.player: Optional[Player] = None
         self.group_name: str = ""
+        self.room_type: str = DistrictChatMessage.Room.MAIN
 
     async def connect(self):
         code = self.scope.get("url_route", {}).get("kwargs", {}).get("code")
@@ -47,6 +53,8 @@ class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
             or last_known.get("districtCode")
             or last_known.get("district_code")
         )
+        is_home = normalized_code == home_code
+        is_current = normalized_code == last_known_code
         if normalized_code not in {home_code, last_known_code}:
             # Allow home district or last known location to join the room.
             await self.close(code=4403)
@@ -59,7 +67,12 @@ class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
 
         self.player = player
         self.district = district
-        self.group_name = self._build_group_name(normalized_code)
+        allow_visitors = await sync_to_async(get_chat_effective_state)(district)
+        if not is_home and is_current and not allow_visitors:
+            self.room_type = DistrictChatMessage.Room.VISITORS
+        else:
+            self.room_type = DistrictChatMessage.Room.MAIN
+        self.group_name = self._build_group_name(normalized_code, self.room_type)
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
@@ -67,7 +80,14 @@ class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
         history = await self._get_recent_history()
         if history:
             await self.send_json({"type": "chat.history", "messages": history})
-        await self.send_json({"type": "chat.status", "status": "connected"})
+        await self.send_json(
+            {
+                "type": "chat.status",
+                "status": "connected",
+                "room": self.room_type,
+                "state": "open" if allow_visitors else "closed",
+            }
+        )
 
     async def disconnect(self, close_code):
         if self.group_name:
@@ -100,9 +120,10 @@ class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
         payload = await self._serialize_message(message)
         await self.send_json({"type": "chat.message", **payload})
 
-    def _build_group_name(self, code: str) -> str:
+    def _build_group_name(self, code: str, room: str) -> str:
         slug = re.sub(r"[^a-zA-Z0-9_-]", "-", code or "").lower() or "unknown"
-        return f"district_chat_{slug}"
+        suffix = "visitors" if room == DistrictChatMessage.Room.VISITORS else "main"
+        return f"district_chat_{slug}_{suffix}"
 
     @sync_to_async
     def _get_district(self, code: str) -> Optional[District]:
@@ -138,6 +159,7 @@ class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
             username=self.player.username,
             display_name=display_name,
             text=text,
+            room=self.room_type,
             sent_at=timezone.now(),
         )
 
@@ -153,7 +175,7 @@ class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
     def _get_recent_history_records(self) -> List[DistrictChatMessage]:
         assert self.district is not None
         return list(
-            DistrictChatMessage.objects.filter(district=self.district)
+            DistrictChatMessage.objects.filter(district=self.district, room=self.room_type)
             .select_related("sender")
             .order_by("-sent_at")[: max(1, self.history_limit)]
         )

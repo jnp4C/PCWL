@@ -392,6 +392,49 @@ class DistrictWormEntry(models.Model):
         return f"Worm {self.attacker_ip or self.attacker_id} -> {self.district.code}"
 
 
+class DistrictFirewallEntry(models.Model):
+    """Tracks active firewall boosts on a district."""
+
+    district = models.ForeignKey(
+        District,
+        on_delete=models.CASCADE,
+        related_name="active_firewall_entries",
+    )
+    defender = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="firewall_entries",
+    )
+    defender_home_district = models.ForeignKey(
+        District,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="outgoing_firewall_entries",
+    )
+    defender_ip = models.CharField(max_length=32, blank=True, default="")
+    started_at = models.DateTimeField(default=timezone.now)
+    expires_at = models.DateTimeField()
+    ended_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["district", "expires_at"], name="firewall_district_expires_idx"),
+            models.Index(fields=["defender", "expires_at"], name="firewall_defender_expires_idx"),
+        ]
+
+    def is_active(self, now=None) -> bool:
+        now = now or timezone.now()
+        if self.ended_at and self.ended_at <= now:
+            return False
+        return self.expires_at > now
+
+    def __str__(self):
+        return f"Firewall {self.defender_id} -> {self.district.code}"
+
+
 class DistrictEngagement(models.Model):
     """Aggregated attack focus from one home district toward another."""
 
@@ -457,6 +500,10 @@ class PlayerDistrictContribution(models.Model):
 class DistrictChatMessage(models.Model):
     """Chat messages scoped to a district's cyber activity window."""
 
+    class Room(models.TextChoices):
+        MAIN = "main", "Main"
+        VISITORS = "visitors", "Visitors"
+
     district = models.ForeignKey(
         District,
         on_delete=models.CASCADE,
@@ -472,6 +519,7 @@ class DistrictChatMessage(models.Model):
     username = models.CharField(max_length=50)
     display_name = models.CharField(max_length=100, blank=True)
     text = models.CharField(max_length=500)
+    room = models.CharField(max_length=12, choices=Room.choices, default=Room.MAIN, db_index=True)
     sent_at = models.DateTimeField(default=timezone.now, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -481,10 +529,48 @@ class DistrictChatMessage(models.Model):
         indexes = [
             models.Index(fields=["district", "-sent_at"], name="district_chat_time_idx"),
             models.Index(fields=["district", "id"], name="district_chat_id_idx"),
+            models.Index(fields=["district", "room", "-sent_at"], name="district_chat_room_idx"),
         ]
 
     def __str__(self):
         return f"{self.username} -> {self.district.code}: {self.text[:32]}..."
+
+
+class DistrictChatVote(models.Model):
+    """Vote that determines if a district chat is open to visitors."""
+
+    class Choice(models.TextChoices):
+        OPEN = "open", "Open"
+        CLOSED = "closed", "Closed"
+
+    district = models.ForeignKey(
+        District,
+        on_delete=models.CASCADE,
+        related_name="chat_votes",
+    )
+    player = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="district_chat_votes",
+    )
+    period_start = models.DateTimeField(db_index=True)
+    choice = models.CharField(max_length=8, choices=Choice.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["district", "player", "period_start"],
+                name="unique_district_chat_vote",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["district", "period_start"], name="district_chat_vote_period_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.district.code} {self.period_start.date()} {self.player.username}: {self.choice}"
 
 
 class Party(models.Model):

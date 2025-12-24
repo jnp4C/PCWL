@@ -28,8 +28,10 @@ from .models import (
     DistrictContributionStat,
     DistrictEngagement,
     DistrictDdosEntry,
+    DistrictFirewallEntry,
     DistrictWormEntry,
     DistrictPartyStat,
+    DistrictChatVote,
     FriendLink,
     FriendRequest,
     Party,
@@ -77,6 +79,9 @@ from .services import (
     _worm_entry_effect,
     _normalise_district_code,
     _determine_party_active_district,
+    get_chat_effective_state,
+    get_chat_vote_counts,
+    get_chat_vote_period,
     respond_to_party_invitation,
     start_charge,
     start_ddos_attack,
@@ -402,6 +407,52 @@ def _build_party_profile_payload(party: Party) -> Dict[str, Any]:
         "top_visitors": top_visitors,
         "active_members": active_members,
         "recent_members": recent_members,
+    }
+
+
+def _resolve_player_chat_codes(player: Player) -> Tuple[str, str]:
+    home_code = _normalise_district_code(getattr(player, "home_district_code", None))
+    last_known = getattr(player, "last_known_location", None) or {}
+    current_code = _normalise_district_code(
+        last_known.get("districtId")
+        or last_known.get("district_id")
+        or last_known.get("districtCode")
+        or last_known.get("district_code")
+    )
+    return home_code, current_code
+
+
+def _build_chat_vote_payload(player: Player, district: District, *, now: Optional[timezone.datetime] = None) -> Dict[str, Any]:
+    period = get_chat_vote_period(now)
+    counts = get_chat_vote_counts(district, period["start"])
+    open_votes = int(counts.get("open") or 0)
+    closed_votes = int(counts.get("closed") or 0)
+    total_votes = open_votes + closed_votes
+    if total_votes:
+        open_pct = round((open_votes / total_votes) * 100)
+        closed_pct = max(0, 100 - open_pct)
+    else:
+        open_pct = 0
+        closed_pct = 0
+    current_state_open = get_chat_effective_state(district, now=now)
+    user_vote = (
+        DistrictChatVote.objects.filter(district=district, player=player, period_start=period["start"])
+        .values_list("choice", flat=True)
+        .first()
+        or ""
+    )
+    return {
+        "district": district.code,
+        "period_start": period["start"].isoformat(),
+        "period_end": period["end"].isoformat(),
+        "decision_at": period["end"].isoformat(),
+        "current_state": "open" if current_state_open else "closed",
+        "open_votes": open_votes,
+        "closed_votes": closed_votes,
+        "total_votes": total_votes,
+        "open_percent": open_pct,
+        "closed_percent": closed_pct,
+        "user_vote": user_vote,
     }
 
 
@@ -1382,6 +1433,7 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
             return Response({"detail": "Cyber activity is restricted to home district members."}, status=status.HTTP_403_FORBIDDEN)
 
         now = timezone.now()
+        feed_retention = timedelta(minutes=20)
         district_obj = District.objects.filter(code__iexact=code_normalized).first()
         # Active DDoS launched by this district's players
         active_attacks = (
@@ -1398,23 +1450,23 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
         # Recently ended attacks on this district (firewall effect)
         recent_blocked = (
             DistrictDdosEntry.objects.select_related("district", "attacker_home_district")
-            .filter(district__code__iexact=code_normalized, ended_at__isnull=False)
+            .filter(district__code__iexact=code_normalized, ended_at__isnull=False, ended_at__gte=now - feed_retention)
             .order_by("-ended_at")[:20]
         )
         recent_dewormed = (
             DistrictWormEntry.objects.select_related("district", "attacker_home_district")
-            .filter(district__code__iexact=code_normalized, ended_at__isnull=False)
+            .filter(district__code__iexact=code_normalized, ended_at__isnull=False, ended_at__gte=now - feed_retention)
             .order_by("-ended_at")[:20]
         )
         # Attacks launched by this district that were knocked off elsewhere
         outgoing_blocked = (
             DistrictDdosEntry.objects.select_related("district", "attacker_home_district", "ended_by_player")
-            .filter(attacker_home_district__code__iexact=code_normalized, ended_at__isnull=False)
+            .filter(attacker_home_district__code__iexact=code_normalized, ended_at__isnull=False, ended_at__gte=now - feed_retention)
             .order_by("-ended_at")[:20]
         )
         outgoing_dewormed = (
             DistrictWormEntry.objects.select_related("district", "attacker_home_district", "ended_by_player")
-            .filter(attacker_home_district__code__iexact=code_normalized, ended_at__isnull=False)
+            .filter(attacker_home_district__code__iexact=code_normalized, ended_at__isnull=False, ended_at__gte=now - feed_retention)
             .order_by("-ended_at")[:20]
         )
         # Incoming attacks against this district from other districts
@@ -1470,6 +1522,9 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
                 ended_by_is_self = entry.ended_by_player_id == player.id
                 # Friend check deferred to client; flag best-effort using reverse links if available.
                 ended_by_is_friend = False
+            expires_at = entry.expires_at if entry.expires_at else None
+            if entry.ended_at:
+                expires_at = entry.ended_at + feed_retention
             return {
                 "type": kind,
                 "attacker_ip": entry.attacker_ip or "",
@@ -1484,6 +1539,7 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
                 "target_name": target_name,
                 "started_at": entry.started_at,
                 "ended_at": entry.ended_at,
+                "expires_at": expires_at,
                 "effect_percent": round(effect_total * 100, 2),
                 "entry_effect_percent": round(entry_effect * 100, 2),
             }
@@ -1514,6 +1570,9 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
 
         incoming_by_district = build_incoming_map(incoming_qs, lambda row: _ddos_entry_effect(row, now=now))
         incoming_worm_by_district = build_incoming_map(incoming_worm_qs, lambda row: _worm_entry_effect(row, now=now))
+        firewall_active_count = DistrictFirewallEntry.objects.filter(
+            district__code__iexact=code_normalized, ended_at__isnull=True, expires_at__gt=now
+        ).count()
 
         home_effect_percent = 0.0
         home_worm_percent = 0.0
@@ -1540,7 +1599,62 @@ class DistrictCyberActivityView(PlayerScopedAPIView):
             "worm_incoming": [serialize_entry(entry, kind="worm_incoming") for entry in incoming_worm_recent],
             "worm_incoming_by_district": incoming_worm_by_district,
             "home_worm_percent": home_worm_percent,
+            "firewall_active_count": firewall_active_count,
         }
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class DistrictChatVoteView(PlayerScopedAPIView):
+    """Expose daily chat vote state and accept home-district votes."""
+
+    def get(self, request, code: str):
+        player = self.get_current_player(request)
+        code_normalized = _normalise_district_code(code)
+        if not code_normalized:
+            raise ValidationError({"detail": "Invalid district code."})
+        home_code, current_code = _resolve_player_chat_codes(player)
+        if code_normalized not in {home_code, current_code}:
+            return Response({"detail": "Chat votes are restricted to active districts."}, status=status.HTTP_403_FORBIDDEN)
+        district = District.objects.filter(code__iexact=code_normalized).first()
+        if not district:
+            return Response({"detail": "District not found."}, status=status.HTTP_404_NOT_FOUND)
+        payload = _build_chat_vote_payload(player, district, now=timezone.now())
+        payload["can_vote"] = bool(home_code and code_normalized == home_code)
+        return Response(payload, status=status.HTTP_200_OK)
+
+    def post(self, request, code: str):
+        player = self.get_current_player(request)
+        code_normalized = _normalise_district_code(code)
+        if not code_normalized:
+            raise ValidationError({"detail": "Invalid district code."})
+        home_code, current_code = _resolve_player_chat_codes(player)
+        if code_normalized not in {home_code, current_code}:
+            return Response({"detail": "Chat votes are restricted to active districts."}, status=status.HTTP_403_FORBIDDEN)
+        if not home_code or code_normalized != home_code:
+            return Response({"detail": "Only home district members can vote."}, status=status.HTTP_403_FORBIDDEN)
+        district = District.objects.filter(code__iexact=code_normalized).first()
+        if not district:
+            return Response({"detail": "District not found."}, status=status.HTTP_404_NOT_FOUND)
+        vote = request.data.get("vote")
+        if vote not in {DistrictChatVote.Choice.OPEN, DistrictChatVote.Choice.CLOSED}:
+            raise ValidationError({"detail": "Vote must be 'open' or 'closed'."})
+        period = get_chat_vote_period(timezone.now())
+        obj, created = DistrictChatVote.objects.get_or_create(
+            district=district,
+            player=player,
+            period_start=period["start"],
+            defaults={"choice": vote},
+        )
+        if not created:
+            payload = _build_chat_vote_payload(player, district, now=timezone.now())
+            payload["can_vote"] = True
+            payload["detail"] = "Already voted for this period."
+            return Response(payload, status=status.HTTP_409_CONFLICT)
+        if obj.choice != vote:
+            obj.choice = vote
+            obj.save(update_fields=["choice", "updated_at"])
+        payload = _build_chat_vote_payload(player, district, now=timezone.now())
+        payload["can_vote"] = True
         return Response(payload, status=status.HTTP_200_OK)
 
 
