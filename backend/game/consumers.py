@@ -78,6 +78,14 @@ class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
             self.room_type = DistrictChatMessage.Room.MAIN
         self.group_name = self._build_group_name(normalized_code, self.room_type)
 
+        if self.period_start:
+            await sync_to_async(
+                DistrictChatMessage.objects.filter(
+                    district=district,
+                    sent_at__lt=self.period_start,
+                ).delete
+            )()
+
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
 
