@@ -11,6 +11,7 @@ from .services import (
     _ensure_player_district_ip,
     _normalise_district_code,
     get_chat_effective_state,
+    get_chat_vote_period,
 )
 
 
@@ -31,6 +32,7 @@ class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
         self.player: Optional[Player] = None
         self.group_name: str = ""
         self.room_type: str = DistrictChatMessage.Room.MAIN
+        self.period_start: Optional[timezone.datetime] = None
 
     async def connect(self):
         code = self.scope.get("url_route", {}).get("kwargs", {}).get("code")
@@ -65,6 +67,8 @@ class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
             await self.close(code=4404)
             return
 
+        period = get_chat_vote_period(timezone.now())
+        self.period_start = period.get("start")
         self.player = player
         self.district = district
         allow_visitors = await sync_to_async(get_chat_effective_state)(district)
@@ -146,6 +150,11 @@ class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
     def _persist_message(self, text: str) -> DistrictChatMessage:
         assert self.player is not None
         assert self.district is not None
+        if self.period_start:
+            DistrictChatMessage.objects.filter(
+                district=self.district,
+                sent_at__lt=self.period_start,
+            ).delete()
         display_name = (self.player.display_name or "").strip() or self.player.username
         # Ensure the synthetic district IP is available for chat display.
         try:
@@ -174,11 +183,10 @@ class DistrictChatConsumer(AsyncJsonWebsocketConsumer):
     @sync_to_async
     def _get_recent_history_records(self) -> List[DistrictChatMessage]:
         assert self.district is not None
-        return list(
-            DistrictChatMessage.objects.filter(district=self.district, room=self.room_type)
-            .select_related("sender")
-            .order_by("-sent_at")[: max(1, self.history_limit)]
-        )
+        qs = DistrictChatMessage.objects.filter(district=self.district, room=self.room_type)
+        if self.period_start:
+            qs = qs.filter(sent_at__gte=self.period_start)
+        return list(qs.select_related("sender").order_by("-sent_at")[: max(1, self.history_limit)])
 
     @sync_to_async
     def _get_message(self, message_id: int) -> Optional[DistrictChatMessage]:
