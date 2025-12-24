@@ -2866,6 +2866,21 @@ body.friend-profile-open .character-drawer {
   max-width: 260px;
   z-index: 5;
   box-shadow: 0 10px 20px rgba(0, 0, 0, 0.35);
+  text-align: center;
+}
+
+.district-chat-vote-line {
+  display: block;
+  margin-bottom: 0.15rem;
+}
+
+.district-chat-vote-time {
+  display: block;
+  margin: 0.2rem 0;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(210, 255, 230, 0.85);
 }
 
 .district-chat-status {

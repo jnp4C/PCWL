@@ -15339,12 +15339,15 @@ function formatChatVoteStatus({
   const decisionTime = Number.isFinite(decisionAt)
     ? new Date(decisionAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : '11:00';
-  const stateSummary = `District is now ${currentState}. Vote applies at ${decisionTime}.`;
+  const stateSummary = `District is now ${currentState}.`;
   const votingSummary = `Currently voting at ${openPercent}% open / ${closedPercent}% closed.`;
-  if (userVote) {
-    return `You voted for ${userVote}. ${stateSummary} ${votingSummary}`;
-  }
-  return `${stateSummary} ${votingSummary}`;
+  const votedLine = userVote ? `You voted for ${userVote}.` : '';
+  return `
+    <span class="district-chat-vote-line">${votedLine || stateSummary}</span>
+    <span class="district-chat-vote-line">${votedLine ? stateSummary : votingSummary}</span>
+    <span class="district-chat-vote-time">Vote applies at ${decisionTime}</span>
+    ${votedLine ? `<span class="district-chat-vote-line">${votingSummary}</span>` : ''}
+  `;
 }
 
 function getChatResetLabels(decisionAt) {
@@ -15472,7 +15475,7 @@ function applyDistrictChatVoteState(payload = {}) {
   districtChatVoteToggle.style.setProperty('--open-pct', `${openPercent}%`);
   districtChatVoteToggle.title = formatChatVoteTitle({ openVotes, closedVotes, openPercent, closedPercent });
   if (districtChatVoteStatus) {
-    districtChatVoteStatus.textContent = formatChatVoteStatus({
+    districtChatVoteStatus.innerHTML = formatChatVoteStatus({
       currentState,
       userVote,
       openPercent,
@@ -15882,6 +15885,19 @@ if (districtChatVoteButtons && districtChatVoteButtons.length) {
 if (districtChatVoteToggle) {
   districtChatVoteToggle.addEventListener('mouseenter', () => showDistrictChatVoteStatus());
   districtChatVoteToggle.addEventListener('mouseleave', () => {});
+}
+
+if (districtChatVoteStatus) {
+  document.addEventListener('click', (event) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (!target) {
+      return;
+    }
+    if (target.closest('#district-chat-vote') || target.closest('#district-chat-vote-status')) {
+      return;
+    }
+    districtChatVoteStatus.classList.add('hidden');
+  });
 }
 
 if (districtChatScopeButtons && districtChatScopeButtons.length) {
