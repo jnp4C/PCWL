@@ -315,6 +315,7 @@ let districtChatContextBase = '';
 let districtChatVoteState = { currentState: 'open' };
 let districtChatScopeCurrentLabel = 'Current';
 const districtChatVoteCache = new Map();
+let districtChatVoteStatusTimer = null;
 const districtLeaderboardContainer = document.getElementById('district-leaderboard');
 const districtLeaderboardEmpty = document.getElementById('district-leaderboard-empty');
 const districtLeaderboardAggressive = document.getElementById('district-leaderboard-aggressive');
@@ -15361,15 +15362,24 @@ function updateDistrictChatScopeLabels() {
     if (btn.dataset.chatScope !== 'current') {
       return;
     }
-    const isVisitor = districtChatRoomVariant === 'visitors';
-    const stateLabel = districtChatVoteState.currentState === 'closed' ? 'Visitor • Closed' : 'Open';
-    if (isVisitor) {
-      btn.classList.add('is-visitor-closed');
-      btn.innerHTML = `<span class="district-chat-scope-scroll">${stateLabel}</span>`;
-    } else {
-      btn.classList.remove('is-visitor-closed');
+    const hasCurrent = !btn.disabled;
+    if (!hasCurrent) {
+      btn.classList.remove('is-visitor-closed', 'is-chat-state');
       btn.textContent = districtChatScopeCurrentLabel || 'Current';
+      return;
     }
+    const currentLabel = districtChatScopeCurrentLabel || 'Current';
+    const stateLabel = districtChatVoteState.currentState === 'closed' ? 'Closed' : 'Open';
+    btn.classList.toggle('is-visitor-closed', districtChatRoomVariant === 'visitors');
+    btn.classList.add('is-chat-state');
+    btn.innerHTML = `
+      <span class="district-chat-scope-swap">
+        <span class="district-chat-scope-swap-inner">
+          <span>${currentLabel}</span>
+          <span>${stateLabel}</span>
+        </span>
+      </span>
+    `;
   });
 }
 
@@ -15412,13 +15422,31 @@ function applyDistrictChatVoteState(payload = {}) {
     districtChatVoteButtons.forEach((btn) => {
       const vote = btn.dataset.chatVote === 'closed' ? 'closed' : 'open';
       btn.setAttribute('aria-pressed', userVote === vote ? 'true' : 'false');
-      const disable = !canVote;
+      const disable = !canVote || Boolean(userVote);
       btn.disabled = disable;
       btn.setAttribute('aria-disabled', disable ? 'true' : 'false');
     });
   }
   updateDistrictChatScopeLabels();
   applyDistrictChatContext();
+}
+
+function showDistrictChatVoteStatus({ persist = false } = {}) {
+  if (!districtChatVoteStatus) {
+    return;
+  }
+  districtChatVoteStatus.classList.remove('hidden');
+  if (districtChatVoteStatusTimer) {
+    window.clearTimeout(districtChatVoteStatusTimer);
+    districtChatVoteStatusTimer = null;
+  }
+  if (!persist) {
+    return;
+  }
+  districtChatVoteStatusTimer = window.setTimeout(() => {
+    districtChatVoteStatus.classList.add('hidden');
+    districtChatVoteStatusTimer = null;
+  }, 5000);
 }
 
 function resolveDistrictChatTargets(profile) {
@@ -15724,6 +15752,7 @@ if (districtChatVoteButtons && districtChatVoteButtons.length) {
   districtChatVoteButtons.forEach((btn) => {
     btn.addEventListener('click', async (event) => {
       event.preventDefault();
+      showDistrictChatVoteStatus();
       const code = districtChatVoteActiveCode;
       const cached = code ? districtChatVoteCache.get(code) : null;
       if (cached && cached.user_vote) {
@@ -15762,6 +15791,11 @@ if (districtChatVoteButtons && districtChatVoteButtons.length) {
       }
     });
   });
+}
+
+if (districtChatVoteToggle) {
+  districtChatVoteToggle.addEventListener('mouseenter', () => showDistrictChatVoteStatus());
+  districtChatVoteToggle.addEventListener('mouseleave', () => {});
 }
 
 if (districtChatScopeButtons && districtChatScopeButtons.length) {

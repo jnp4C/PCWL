@@ -2784,6 +2784,7 @@ body.friend-profile-open .character-drawer {
   overflow: hidden;
   padding: 0.2rem;
   border-radius: 999px;
+  flex-wrap: nowrap;
 }
 
 .district-chat-vote-meter {
@@ -2836,7 +2837,8 @@ body.friend-profile-open .character-drawer {
 .district-chat-vote-btn {
   position: relative;
   z-index: 1;
-  flex: 1 1 0;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .district-chat-scope[aria-pressed='true'] {
@@ -2865,20 +2867,38 @@ body.friend-profile-open .character-drawer {
   overflow: hidden;
 }
 
-.district-chat-scope.is-visitor-closed .district-chat-scope-scroll {
-  display: inline-block;
-  animation: chat-scope-scroll 3s ease-in-out infinite;
+.district-chat-scope.is-chat-state {
+  overflow: hidden;
 }
 
-@keyframes chat-scope-scroll {
+.district-chat-scope-swap {
+  display: inline-block;
+  height: 1.1em;
+  overflow: hidden;
+}
+
+.district-chat-scope-swap-inner {
+  display: block;
+  animation: chat-scope-swap 3.6s ease-in-out infinite;
+}
+
+.district-chat-scope-swap-inner > span {
+  display: block;
+  line-height: 1.1em;
+}
+
+@keyframes chat-scope-swap {
   0% {
-    transform: translateX(0);
+    transform: translateY(0);
   }
-  50% {
-    transform: translateX(-8px);
+  45% {
+    transform: translateY(0);
+  }
+  55% {
+    transform: translateY(-1.1em);
   }
   100% {
-    transform: translateX(0);
+    transform: translateY(-1.1em);
   }
 }
 
@@ -2896,6 +2916,17 @@ body.friend-profile-open .character-drawer {
 
 .district-chat-status.live {
   color: rgba(110, 255, 185, 0.95);
+}
+
+.district-chat-vote-status {
+  padding: 0.35rem 0.6rem;
+  border-radius: 10px;
+  background: rgba(8, 22, 16, 0.85);
+  border: 1px solid rgba(90, 255, 160, 0.18);
+  color: rgba(210, 255, 230, 0.9);
+  font-size: 0.74rem;
+  line-height: 1.2;
+  max-width: 260px;
 }
 
 .district-chat-log {
@@ -5085,6 +5116,11 @@ button.secondary:hover,
 
   .leaderboard-table td:nth-child(n + 3) {
     padding: 0.6rem 0.65rem;
+  }
+
+  .district-chat-vote-btn {
+    font-size: 0.68rem;
+    padding: 0.2rem 0.45rem;
   }
 }
 
