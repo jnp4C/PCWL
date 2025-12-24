@@ -2892,7 +2892,7 @@ body.friend-profile-open .character-drawer {
 
 .district-chat-scope-swap-inner {
   display: block;
-  animation: chat-scope-swap 3.6s ease-in-out infinite;
+  animation: chat-scope-swap 4.8s ease-in-out infinite;
 }
 
 .district-chat-scope-swap-inner > span {
@@ -2904,14 +2904,23 @@ body.friend-profile-open .character-drawer {
   0% {
     transform: translateY(0);
   }
-  45% {
+  20% {
     transform: translateY(0);
+  }
+  35% {
+    transform: translateY(-1.1em);
   }
   55% {
     transform: translateY(-1.1em);
   }
+  70% {
+    transform: translateY(-2.2em);
+  }
+  85% {
+    transform: translateY(-2.2em);
+  }
   100% {
-    transform: translateY(-1.1em);
+    transform: translateY(0);
   }
 }
 

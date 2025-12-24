@@ -316,6 +316,7 @@ let districtChatVoteState = { currentState: 'open' };
 let districtChatScopeCurrentLabel = 'Current';
 const districtChatVoteCache = new Map();
 let districtChatVoteStatusTimer = null;
+let districtChatVoteCountdownTimer = null;
 const districtLeaderboardContainer = document.getElementById('district-leaderboard');
 const districtLeaderboardEmpty = document.getElementById('district-leaderboard-empty');
 const districtLeaderboardAggressive = document.getElementById('district-leaderboard-aggressive');
@@ -15346,6 +15347,72 @@ function formatChatVoteStatus({
   return `${stateSummary} ${votingSummary}`;
 }
 
+function getChatResetLabels(decisionAt) {
+  if (!Number.isFinite(decisionAt)) {
+    return ['Reset in —', 'Reset in —', 'Reset in —'];
+  }
+  const remainingMs = Math.max(0, decisionAt - Date.now());
+  const totalSeconds = Math.ceil(remainingMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [
+    `Reset in ${hours}h`,
+    `Reset in ${minutes}m`,
+    `Reset in ${seconds}s`,
+  ];
+}
+
+function setSwapContent(target, lines) {
+  if (!target) {
+    return;
+  }
+  const safeLines = Array.isArray(lines) ? lines.filter(Boolean) : [];
+  if (!safeLines.length) {
+    return;
+  }
+  target.innerHTML = `
+    <span class="district-chat-scope-swap">
+      <span class="district-chat-scope-swap-inner">
+        ${safeLines.map((line) => `<span>${line}</span>`).join('')}
+      </span>
+    </span>
+  `;
+}
+
+function updateChatVoteCountdownTick() {
+  if (!districtChatVoteState || !Number.isFinite(districtChatVoteState.decisionAt)) {
+    return;
+  }
+  const resetLabels = getChatResetLabels(districtChatVoteState.decisionAt);
+  const phase = Math.floor(Date.now() / 3000) % 3;
+  const resetLabel = resetLabels[phase];
+  if (districtChatVoteButtons && districtChatVoteButtons.length) {
+    districtChatVoteButtons.forEach((btn) => {
+      const swap = btn.querySelector('.district-chat-scope-swap-inner');
+      if (swap && swap.children.length >= 3) {
+        swap.children[2].textContent = resetLabel;
+      }
+    });
+  }
+  if (districtChatScopeButtons && districtChatScopeButtons.length) {
+    const currentBtn = Array.from(districtChatScopeButtons).find(
+      (btn) => btn.dataset.chatScope === 'current',
+    );
+    const swap = currentBtn ? currentBtn.querySelector('.district-chat-scope-swap-inner') : null;
+    if (swap && swap.children.length >= 3) {
+      swap.children[2].textContent = resetLabel;
+    }
+  }
+  if (Date.now() >= districtChatVoteState.decisionAt && districtChatVoteActiveCode) {
+    fetchDistrictChatVote(districtChatVoteActiveCode, { silent: true }).then((payload) => {
+      if (payload && districtChatVoteActiveCode) {
+        applyDistrictChatVoteState(payload);
+      }
+    });
+  }
+}
+
 function updateDistrictChatScopeLabels() {
   if (!districtChatScopeButtons || !districtChatScopeButtons.length) {
     return;
@@ -15372,14 +15439,7 @@ function updateDistrictChatScopeLabels() {
     const stateLabel = districtChatVoteState.currentState === 'closed' ? 'Closed' : 'Open';
     btn.classList.toggle('is-visitor-closed', districtChatRoomVariant === 'visitors');
     btn.classList.add('is-chat-state');
-    btn.innerHTML = `
-      <span class="district-chat-scope-swap">
-        <span class="district-chat-scope-swap-inner">
-          <span>${currentLabel}</span>
-          <span>${stateLabel}</span>
-        </span>
-      </span>
-    `;
+    setSwapContent(btn, [currentLabel, stateLabel, 'Reset in —']);
   });
 }
 
@@ -15395,12 +15455,15 @@ function applyDistrictChatVoteState(payload = {}) {
   const openVotes = Number.isFinite(payload.open_votes) ? payload.open_votes : 0;
   const closedVotes = Number.isFinite(payload.closed_votes) ? payload.closed_votes : 0;
   const decisionAt = parseServerTimestamp(payload.decision_at);
+  const periodStart = typeof payload.period_start === 'string' ? payload.period_start : '';
+  const previousPeriodStart = districtChatVoteState.periodStart || '';
   districtChatVoteState = {
     currentState,
     decisionAt,
     openPercent,
     closedPercent,
     userVote,
+    periodStart,
   };
 
   districtChatVoteToggle.dataset.currentState = currentState;
@@ -15427,18 +15490,25 @@ function applyDistrictChatVoteState(payload = {}) {
       const disable = !canVote || Boolean(userVote);
       btn.disabled = disable;
       btn.setAttribute('aria-disabled', disable ? 'true' : 'false');
-      btn.innerHTML = `
-        <span class="district-chat-scope-swap">
-          <span class="district-chat-scope-swap-inner">
-            <span>${label}</span>
-            <span>${percentLabel}</span>
-          </span>
-        </span>
-      `;
+      setSwapContent(btn, [label, percentLabel, 'Reset in —']);
     });
   }
   updateDistrictChatScopeLabels();
   applyDistrictChatContext();
+  if (periodStart && previousPeriodStart && periodStart !== previousPeriodStart && districtChatVoteActiveCode) {
+    clearDistrictChatMessages();
+    const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+    if (profile) {
+      connectDistrictChat(districtChatVoteActiveCode, profile);
+    }
+  }
+  if (districtChatVoteCountdownTimer) {
+    window.clearInterval(districtChatVoteCountdownTimer);
+  }
+  if (Number.isFinite(decisionAt)) {
+    updateChatVoteCountdownTick();
+    districtChatVoteCountdownTimer = window.setInterval(updateChatVoteCountdownTick, 1000);
+  }
 }
 
 function showDistrictChatVoteStatus({ persist = false } = {}) {
@@ -15563,6 +15633,10 @@ function teardownDistrictChat({ hide = true, clear = true } = {}) {
   if (districtChatReconnectTimer) {
     window.clearTimeout(districtChatReconnectTimer);
     districtChatReconnectTimer = null;
+  }
+  if (districtChatVoteCountdownTimer) {
+    window.clearInterval(districtChatVoteCountdownTimer);
+    districtChatVoteCountdownTimer = null;
   }
   if (districtChatSocket) {
     districtChatSocket.onclose = null;
