@@ -4347,7 +4347,7 @@ let friendsState = {
   items: [],
 };
 let mapShowFavoriteFriendsOnly = false;
-let mapShowFriendAvatars = false;
+let mapShowFriendAvatars = true;
 let friendsBubbleState = {
   loading: false,
   loaded: false,
@@ -4382,12 +4382,12 @@ try {
   const storedAvatars = typeof window !== 'undefined' && window.localStorage
     ? window.localStorage.getItem(FRIEND_AVATARS_STORAGE_KEY)
     : null;
-  mapShowFriendAvatars = storedAvatars === '1';
+  mapShowFriendAvatars = storedAvatars === null ? true : storedAvatars === '1';
   if (friendAvatarsToggle) {
     friendAvatarsToggle.checked = mapShowFriendAvatars;
   }
 } catch (_) {
-  mapShowFriendAvatars = false;
+  mapShowFriendAvatars = true;
 }
 let partyState = {
   party: null,
@@ -19206,8 +19206,8 @@ function initialiseMap() {
     style: MAP_STYLE,
     center: MAP_CENTER,
     zoom: 12.6,
-    pitch: 45,
-    bearing: -15,
+    pitch: 0,
+    bearing: 0,
     attributionControl: false,
     antialias: true,
   });
