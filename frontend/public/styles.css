@@ -3964,6 +3964,15 @@ body.friend-profile-open .character-drawer {
   color: var(--color-text-muted);
 }
 
+.profile-image-file-info {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  padding: 0.45rem 0.65rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(7, 10, 20, 0.3);
+}
+
 .profile-image-actions {
   display: flex;
   gap: 0.65rem;

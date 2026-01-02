@@ -90,6 +90,7 @@ const profileImageModalOverlay = document.getElementById('profile-image-modal-ov
 const profileImageModalCloseButton = document.getElementById('profile-image-modal-close');
 const profileImageFileInput = document.getElementById('profile-image-file-input');
 const profileImageUploadButton = document.getElementById('profile-image-upload');
+const profileImageFileInfo = document.getElementById('profile-image-file-info');
 
 const pageConfig =
   typeof window !== 'undefined' &&
@@ -8503,6 +8504,25 @@ function setProfileImageFeedback(message, type = 'info') {
   profileImageFeedback.dataset.type = type;
 }
 
+function setProfileImageFileInfo(message) {
+  if (!profileImageFileInfo) return;
+  profileImageFileInfo.textContent = message || '';
+  profileImageFileInfo.hidden = !message;
+}
+
+function formatFileSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB'];
+  let size = bytes;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  const precision = size >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${size.toFixed(precision)} ${units[unitIndex]}`;
+}
+
 function setProfileImageFallbackInitial(initial = '') {
   if (profileImageFallback) {
     profileImageFallback.textContent = initial || 'P';
@@ -8647,7 +8667,11 @@ async function resizeAvatarImageFile(file, size = 256) {
       const sx = (img.width - minSide) / 2;
       const sy = (img.height - minSide) / 2;
       ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, size, size);
-      resolve(canvas.toDataURL('image/jpeg', 0.85));
+      resolve({
+        dataUrl: canvas.toDataURL('image/jpeg', 0.85),
+        width: img.width,
+        height: img.height,
+      });
     };
     img.onerror = () => reject(new Error('Unable to load image.'));
     img.src = dataUrl;
@@ -8683,11 +8707,13 @@ function initialiseProfileImageControls(profile) {
   primeProfileImagePreview(currentUrl);
   setProfileImageFeedback('Paste a JPG/PNG link or upload a photo.', 'info');
   profileImageSaveButton.disabled = true;
+  setProfileImageFileInfo('');
 
   if (!profileImageHandlersInitialised) {
     profileImageHandlersInitialised = true;
 
     profileImageUrlInput.addEventListener('input', () => {
+      setProfileImageFileInfo('');
       const value = profileImageUrlInput.value.trim();
       if (!value) {
         setProfileImageFeedback('No image URL set. You can paste a link and Save.', 'info');
@@ -8735,6 +8761,7 @@ function initialiseProfileImageControls(profile) {
       const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
       profileImageUrlInput.value = '';
       primeProfileImagePreview('');
+      setProfileImageFileInfo('');
       setProfileImageFeedback('Cleared. Click Save to apply.', 'info');
       profileImageSaveButton.disabled = false;
       // Optionally persist immediately on clear:
@@ -8765,22 +8792,33 @@ function initialiseProfileImageControls(profile) {
         const isAllowedType = file.type === 'image/jpeg' || file.type === 'image/png';
         if (!isAllowedType) {
           setProfileImageFeedback('Only JPG or PNG files are allowed.', 'error');
+          setProfileImageFileInfo('');
           return;
         }
         setProfileImageFeedback('Preparing upload...', 'info');
         try {
           const resized = await resizeAvatarImageFile(file);
-          if (!isValidProfileImageUrl(resized)) {
+          const details = [
+            file.name || 'Upload',
+            file.type || 'image',
+            formatFileSize(file.size),
+          ];
+          if (resized.width && resized.height) {
+            details.push(`${resized.width}x${resized.height}`);
+          }
+          setProfileImageFileInfo(`${details.join(' / ')} (cropped to 256x256)`);
+          if (!isValidProfileImageUrl(resized.dataUrl)) {
             setProfileImageFeedback('Image is too large. Please use a smaller file.', 'error');
             return;
           }
-          profileImageUrlInput.value = resized;
-          primeProfileImagePreview(resized);
+          profileImageUrlInput.value = resized.dataUrl;
+          primeProfileImagePreview(resized.dataUrl);
           setProfileImageFeedback('Ready to save. Click Save to apply.', 'success');
           profileImageSaveButton.disabled = false;
         } catch (error) {
           console.warn('Failed to process avatar image', error);
           setProfileImageFeedback('Unable to process that image. Try another file.', 'error');
+          setProfileImageFileInfo('');
         } finally {
           profileImageFileInput.value = '';
         }
