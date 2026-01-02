@@ -54,7 +54,7 @@ class Player(models.Model):
 
     username = models.CharField(max_length=50, unique=True)
     display_name = models.CharField(max_length=100, blank=True)
-    profile_image_url = models.URLField(blank=True, default="")
+    profile_image_url = models.TextField(blank=True, default="")
     map_marker_color = models.CharField(
         max_length=16,
         blank=True,

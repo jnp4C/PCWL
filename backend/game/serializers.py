@@ -1,5 +1,6 @@
 import math
 import re
+from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from django.utils import timezone
@@ -347,6 +348,31 @@ class PlayerSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Map marker color must be a hex color like #ff0000.")
         return trimmed.lower()
 
+    def validate_profile_image_url(self, value: Any) -> str:
+        if value in (None, ""):
+            return ""
+        if not isinstance(value, str):
+            raise serializers.ValidationError("Profile image must be a string.")
+        trimmed = value.strip()
+        if not trimmed:
+            return ""
+        if trimmed.startswith("data:image/"):
+            lowered = trimmed.lower()
+            if not (lowered.startswith("data:image/jpeg") or lowered.startswith("data:image/png")):
+                raise serializers.ValidationError("Profile image data URL must be a PNG or JPG.")
+            if ";base64," not in trimmed:
+                raise serializers.ValidationError("Profile image data URL must be base64 encoded.")
+            if len(trimmed) > 200000:
+                raise serializers.ValidationError("Profile image data URL is too large.")
+            return trimmed
+        if trimmed.startswith("http://") or trimmed.startswith("https://"):
+            parsed = urlparse(trimmed)
+            path = (parsed.path or "").lower()
+            if not (path.endswith(".jpg") or path.endswith(".jpeg") or path.endswith(".png")):
+                raise serializers.ValidationError("Profile image URL must end with .jpg or .png.")
+            return trimmed
+        raise serializers.ValidationError("Profile image must be a http(s) URL or data:image URL.")
+
 
 class FriendLinkSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="friend.username", read_only=True)
@@ -367,6 +393,7 @@ class FriendLinkSerializer(serializers.ModelSerializer):
     streak_multiplier = serializers.FloatField(source="friend.streak_multiplier", read_only=True)
     checkins = serializers.IntegerField(source="friend.checkins", read_only=True)
     profile_bio = serializers.CharField(source="friend.profile_bio", read_only=True)
+    profile_image_url = serializers.CharField(source="friend.profile_image_url", read_only=True)
     checkin_counts = serializers.SerializerMethodField()
     recent_checkins = serializers.SerializerMethodField()
     last_known_location = serializers.SerializerMethodField()
@@ -390,6 +417,7 @@ class FriendLinkSerializer(serializers.ModelSerializer):
             "defend_ratio",
             "checkins",
             "profile_bio",
+            "profile_image_url",
             "checkin_counts",
             "recent_checkins",
             "last_known_location",
@@ -416,6 +444,7 @@ class FriendLinkSerializer(serializers.ModelSerializer):
             "defend_ratio",
             "checkins",
             "profile_bio",
+            "profile_image_url",
             "checkin_counts",
             "recent_checkins",
             "last_known_location",
@@ -756,6 +785,7 @@ class PlayerPublicProfileSerializer(serializers.ModelSerializer):
             "username",
             "display_name",
             "profile_bio",
+            "profile_image_url",
             "map_marker_color",
             "streak_days",
             "streak_multiplier",
