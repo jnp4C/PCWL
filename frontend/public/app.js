@@ -15906,11 +15906,16 @@ async function renderDistrictCyberActivity(profile) {
   }
   const resolveDistrictName = (name, code) => {
     const trimmed = typeof name === 'string' ? name.trim() : '';
-    if (trimmed) {
+    const normalizedCode = code ? safeId(code) : null;
+    const normalizedName = trimmed.toLowerCase();
+    const isPlaceholder =
+      normalizedCode &&
+      (normalizedName === normalizedCode.toLowerCase() ||
+        normalizedName === `district ${normalizedCode.toLowerCase()}`);
+    if (trimmed && !isPlaceholder) {
       return trimmed;
     }
     const catalogMap = districtCatalogMap instanceof Map ? districtCatalogMap : null;
-    const normalizedCode = code ? safeId(code) : null;
     const entry = catalogMap && normalizedCode ? catalogMap.get(normalizedCode) : null;
     if (entry && entry.name) {
       return entry.name;

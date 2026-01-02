@@ -141,6 +141,14 @@ def _normalise_district_name(value: Optional[str]) -> Optional[str]:
     return text[:120]
 
 
+def _is_placeholder_district_name(name: str, code: str) -> bool:
+    if not name or not code:
+        return True
+    normalized = str(name).strip().lower()
+    normalized_code = str(code).strip().lower()
+    return normalized in {normalized_code, f"district {normalized_code}"}
+
+
 def _normalise_party_name(value: Optional[str]) -> str:
     if value is None:
         return ""
@@ -167,7 +175,9 @@ def _get_or_create_district_record(code: Optional[str], name: Optional[str]) -> 
     normalised_code = _normalise_district_code(code)
     if not normalised_code:
         return None
-    desired_name = _normalise_district_name(name) or f"District {normalised_code}"
+    raw_name = _normalise_district_name(name)
+    use_name = raw_name and not _is_placeholder_district_name(raw_name, normalised_code)
+    desired_name = raw_name if use_name else f"District {normalised_code}"
     district, created = District.objects.get_or_create(
         code=normalised_code,
         defaults={
@@ -176,7 +186,7 @@ def _get_or_create_district_record(code: Optional[str], name: Optional[str]) -> 
         },
     )
     updates = {}
-    if desired_name and district.name != desired_name:
+    if use_name and district.name != desired_name:
         updates["name"] = desired_name
     if not district.is_active:
         updates["is_active"] = True
