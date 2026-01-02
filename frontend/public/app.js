@@ -8089,6 +8089,9 @@ function buildIdentityFlipCard({
 
   const back = document.createElement('div');
   back.className = 'flip-card-face flip-card-back public-identity-back';
+  if (!editable) {
+    back.classList.add('public-identity-back--readonly');
+  }
   if (editable) {
     const label = document.createElement('label');
     label.className = 'public-bio-label';
@@ -8118,6 +8121,7 @@ function buildIdentityFlipCard({
       saveButton.textContent = 'Save';
       if (saved && typeof saved.profile_bio === 'string') {
         const nextBio = saved.profile_bio.slice(0, 50);
+        input.value = nextBio;
         bioPreview.textContent = nextBio || fallbackBioHint;
         toggleCard(false);
         updateStatus('Profile message saved.');

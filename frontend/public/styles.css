@@ -1840,6 +1840,16 @@ body.dark .friend-profile-marker {
   color: var(--color-text);
 }
 
+.public-identity-back--readonly {
+  align-items: center;
+  text-align: center;
+}
+
+.public-identity-back--readonly .public-bio-label,
+.public-identity-back--readonly .public-bio-body {
+  text-align: center;
+}
+
 .public-bio-actions {
   display: flex;
   gap: 0.5rem;
