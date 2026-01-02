@@ -5587,6 +5587,14 @@ function triggerPragueOutOfBoundsAlert() {
     return;
   }
   outOfBoundsAlertArmed = false;
+  if (geolocateControl && geolocateControl.options && geolocateControl.options.trackUserLocation) {
+    const watchState = geolocateControl._watchState;
+    if (watchState && watchState !== 'OFF') {
+      try {
+        geolocateControl.trigger();
+      } catch (_) {}
+    }
+  }
   if (pragueOutOfBoundsTimeoutId) {
     window.clearTimeout(pragueOutOfBoundsTimeoutId);
     pragueOutOfBoundsTimeoutId = null;
