@@ -7956,9 +7956,13 @@ function updateDistrictFeatureStates() {
         // Feature not ready yet; ignore until loaded.
       }
     });
-    fillExpression.push('#9f9be9');
     try {
-      map.setPaintProperty('districts-fill', 'fill-color', fillExpression);
+      if (fillExpression.length > 2) {
+        fillExpression.push('#9f9be9');
+        map.setPaintProperty('districts-fill', 'fill-color', fillExpression);
+      } else {
+        map.setPaintProperty('districts-fill', 'fill-color', '#9f9be9');
+      }
     } catch (_) {
       // ignore paint updates if layer is not ready yet
     }
