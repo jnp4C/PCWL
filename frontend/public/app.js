@@ -4363,6 +4363,7 @@ let map;
 let mapReady = false;
 let pragueOutOfBoundsAnimationFrame = null;
 let outOfBoundsAlertTimerId = null;
+let pragueOutOfBoundsTimeoutId = null;
 let outOfBoundsAlertArmed = false;
 let geolocateControl;
 let hasTriggeredGeolocate = false;
@@ -5586,58 +5587,65 @@ function triggerPragueOutOfBoundsAlert() {
     return;
   }
   outOfBoundsAlertArmed = false;
+  if (pragueOutOfBoundsTimeoutId) {
+    window.clearTimeout(pragueOutOfBoundsTimeoutId);
+    pragueOutOfBoundsTimeoutId = null;
+  }
   if (pragueOutOfBoundsAnimationFrame) {
     window.cancelAnimationFrame(pragueOutOfBoundsAnimationFrame);
     pragueOutOfBoundsAnimationFrame = null;
   }
   showOutOfBoundsOverlay();
-  setPragueAlertGlowPaint({
-    color: PRAGUE_ALERT_BASE_COLOR,
-    width: PRAGUE_ALERT_BASE_WIDTH,
-    opacity: PRAGUE_ALERT_BASE_OPACITY,
-  });
-  map.easeTo({
-    center: MAP_CENTER,
-    zoom: 12.4,
-    pitch: 0,
-    bearing: 0,
-    duration: 1200,
-  });
-
-  const startTime = performance.now();
-  const duration = 1400;
-  const animate = (now) => {
-    const t = clampNumber((now - startTime) / duration, 0, 1);
-    const pulse = Math.sin(Math.PI * t);
-    const width =
-      lerpNumber(PRAGUE_ALERT_BASE_WIDTH, PRAGUE_ALERT_FINAL_WIDTH, t) +
-      (PRAGUE_ALERT_FLASH_WIDTH - PRAGUE_ALERT_FINAL_WIDTH) * pulse;
-    const opacity = clampNumber(
-      lerpNumber(PRAGUE_ALERT_BASE_OPACITY, PRAGUE_ALERT_FINAL_OPACITY, t) + 0.3 * pulse,
-      0,
-      1
-    );
-    const color =
-      t < 0.5
-        ? interpolateHexColor(PRAGUE_ALERT_BASE_COLOR, PRAGUE_ALERT_FLASH_COLOR, t * 2)
-        : interpolateHexColor(PRAGUE_ALERT_FLASH_COLOR, PRAGUE_ALERT_FINAL_COLOR, (t - 0.5) * 2);
-
-    setPragueAlertGlowPaint({ color, width, opacity });
-
-    if (t < 1) {
-      pragueOutOfBoundsAnimationFrame = window.requestAnimationFrame(animate);
-      return;
-    }
-
+  pragueOutOfBoundsTimeoutId = window.setTimeout(() => {
+    pragueOutOfBoundsTimeoutId = null;
     setPragueAlertGlowPaint({
-      color: PRAGUE_ALERT_FINAL_COLOR,
-      width: PRAGUE_ALERT_FINAL_WIDTH,
-      opacity: PRAGUE_ALERT_FINAL_OPACITY,
+      color: PRAGUE_ALERT_BASE_COLOR,
+      width: PRAGUE_ALERT_BASE_WIDTH,
+      opacity: PRAGUE_ALERT_BASE_OPACITY,
     });
-    pragueOutOfBoundsAnimationFrame = null;
-  };
+    map.easeTo({
+      center: MAP_CENTER,
+      zoom: 12.4,
+      pitch: 0,
+      bearing: 0,
+      duration: 1200,
+    });
 
-  pragueOutOfBoundsAnimationFrame = window.requestAnimationFrame(animate);
+    const startTime = performance.now();
+    const duration = 1400;
+    const animate = (now) => {
+      const t = clampNumber((now - startTime) / duration, 0, 1);
+      const pulse = Math.sin(Math.PI * t);
+      const width =
+        lerpNumber(PRAGUE_ALERT_BASE_WIDTH, PRAGUE_ALERT_FINAL_WIDTH, t) +
+        (PRAGUE_ALERT_FLASH_WIDTH - PRAGUE_ALERT_FINAL_WIDTH) * pulse;
+      const opacity = clampNumber(
+        lerpNumber(PRAGUE_ALERT_BASE_OPACITY, PRAGUE_ALERT_FINAL_OPACITY, t) + 0.3 * pulse,
+        0,
+        1
+      );
+      const color =
+        t < 0.5
+          ? interpolateHexColor(PRAGUE_ALERT_BASE_COLOR, PRAGUE_ALERT_FLASH_COLOR, t * 2)
+          : interpolateHexColor(PRAGUE_ALERT_FLASH_COLOR, PRAGUE_ALERT_FINAL_COLOR, (t - 0.5) * 2);
+
+      setPragueAlertGlowPaint({ color, width, opacity });
+
+      if (t < 1) {
+        pragueOutOfBoundsAnimationFrame = window.requestAnimationFrame(animate);
+        return;
+      }
+
+      setPragueAlertGlowPaint({
+        color: PRAGUE_ALERT_FINAL_COLOR,
+        width: PRAGUE_ALERT_FINAL_WIDTH,
+        opacity: PRAGUE_ALERT_FINAL_OPACITY,
+      });
+      pragueOutOfBoundsAnimationFrame = null;
+    };
+
+    pragueOutOfBoundsAnimationFrame = window.requestAnimationFrame(animate);
+  }, 2000);
 }
 
 function isMobileViewport() {
