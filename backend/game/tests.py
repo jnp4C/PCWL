@@ -716,6 +716,35 @@ class CheckInApiTests(TestCase):
         self.assertIn("charge", self.player.cooldowns)
 
 
+class CheckInMetadataRetentionTests(TestCase):
+    def test_previous_checkin_metadata_is_cleared(self):
+        player = Player.objects.create(
+            username="checkin-meta",
+            home_district_code="1100",
+            home_district_name="Prague 1",
+            home_district="Prague 1",
+        )
+        first = apply_checkin(
+            player,
+            district_code="1200",
+            district_name="Prague 2",
+            mode=CheckIn.Mode.RANGED,
+            metadata={"source": "test-1"},
+        ).checkin
+        second = apply_checkin(
+            player,
+            district_code="1300",
+            district_name="Prague 3",
+            mode=CheckIn.Mode.RANGED,
+            metadata={"source": "test-2"},
+        ).checkin
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(first.metadata, {})
+        self.assertEqual(second.metadata.get("source"), "test-2")
+
+
 class StreakMechanicTests(TestCase):
     def setUp(self):
         self.player = Player.objects.create(

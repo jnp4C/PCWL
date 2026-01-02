@@ -1358,6 +1358,7 @@ def apply_checkin(
             is_party_contribution=is_party_contribution,
             metadata=payload_meta,
         )
+        CheckIn.objects.filter(player=locked).exclude(id=checkin.id).update(metadata={})
         if party and action == CheckIn.Action.ATTACK and mode == CheckIn.Mode.LOCAL:
             prestige_delta = abs(district_points_delta) or abs(points_awarded)
             if prestige_delta:
@@ -1572,6 +1573,7 @@ def apply_checkin(
                             "synchronized": True,
                         },
                     )
+                    CheckIn.objects.filter(player=m_locked).exclude(id=m_checkin.id).update(metadata={})
 
                     _apply_district_activity(code, name, m_district_points, occurred_at=now)
 
