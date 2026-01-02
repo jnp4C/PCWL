@@ -2195,6 +2195,57 @@ body.friend-profile-open .character-drawer {
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.35);
 }
 
+.friend-location-avatar {
+  --friend-avatar-color: #6366f1;
+  width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--friend-avatar-color) 70%, rgba(255, 255, 255, 0.4));
+  background: rgba(10, 10, 22, 0.6);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--friend-avatar-color) 70%, transparent),
+    0 0 18px color-mix(in srgb, var(--friend-avatar-color) 45%, transparent),
+    0 12px 22px color-mix(in srgb, var(--friend-avatar-color) 30%, transparent);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  transform: translateY(-4px);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.friend-location-avatar:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px rgba(99, 102, 241, 0.35),
+    0 12px 22px color-mix(in srgb, var(--friend-avatar-color) 30%, transparent);
+}
+
+.friend-location-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.friend-location-avatar img.loaded {
+  opacity: 1;
+}
+
+.friend-location-avatar .friend-avatar-fallback {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #f8fafc;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  transition: opacity 0.2s ease;
+}
+
+.friend-location-avatar img.loaded + .friend-avatar-fallback {
+  opacity: 0;
+}
+
 .friend-label-name {
   text-transform: lowercase;
 }
@@ -2403,9 +2454,11 @@ body.friend-profile-open .character-drawer {
 
 .district-summary {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
   gap: 0.85rem;
   padding: 1rem;
+  min-height: 9.5rem;
   border-radius: 16px;
   background: color-mix(in srgb, var(--color-panel-bg) 88%, rgba(118, 55, 188, 0.12));
   box-shadow: inset 0 0 0 1px rgba(118, 55, 188, 0.22);
@@ -2418,6 +2471,9 @@ body.friend-profile-open .character-drawer {
 }
 
 .district-summary-item .label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -2427,6 +2483,29 @@ body.friend-profile-open .character-drawer {
 .district-summary-item .value {
   font-size: 0.95rem;
   font-weight: 600;
+}
+
+.district-summary-toggle {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--color-button-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.district-summary-toggle:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 720px) {
+  .district-summary {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    min-height: auto;
+  }
 }
 
 .district-detail {
@@ -3404,6 +3483,8 @@ body.friend-profile-open .character-drawer {
   align-items: center;
   justify-content: center;
   border-radius: 18px;
+  position: relative;
+  overflow: hidden;
   background: linear-gradient(
     135deg,
     color-mix(in srgb, var(--player-marker-color, #6366f1) 45%, rgba(255, 255, 255, 0.35)),
@@ -3414,6 +3495,31 @@ body.friend-profile-open .character-drawer {
   font-weight: 700;
   text-transform: uppercase;
   box-shadow: 0 10px 30px color-mix(in srgb, var(--player-marker-color, #6366f1) 30%, transparent);
+}
+
+.character-avatar.has-photo {
+  background: rgba(8, 10, 24, 0.55);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--player-marker-color, #6366f1) 80%, #ffffff),
+    0 12px 28px color-mix(in srgb, var(--player-marker-color, #6366f1) 35%, transparent);
+}
+
+.character-avatar-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.character-avatar.has-photo .character-avatar-image {
+  opacity: 1;
+}
+
+.character-avatar.has-photo .character-avatar-initial {
+  opacity: 0;
 }
 
 .character-avatar-initial {
@@ -3707,6 +3813,13 @@ body.friend-profile-open .character-drawer {
   gap: 0.5rem;
 }
 
+.appearance-divider {
+  height: 1px;
+  background: color-mix(in srgb, var(--player-marker-color, #6366f1) 25%, rgba(255, 255, 255, 0.12));
+  margin: 0.9rem 0;
+  border-radius: 999px;
+}
+
 .character-color-label {
   font-size: 0.9rem;
   font-weight: 600;
@@ -3739,6 +3852,112 @@ body.friend-profile-open .character-drawer {
   outline: none;
   border-color: var(--color-button-primary);
   box-shadow: 0 0 0 3px var(--color-outline-focus);
+}
+
+.character-avatar-control {
+  margin-top: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.character-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.profile-image-button {
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--player-marker-color, #6366f1) 40%, rgba(255, 255, 255, 0.4));
+  background: rgba(7, 10, 20, 0.4);
+  display: grid;
+  place-items: center;
+  position: relative;
+  overflow: hidden;
+  padding: 0;
+  cursor: pointer;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--player-marker-color, #6366f1) 70%, transparent),
+    0 0 18px color-mix(in srgb, var(--player-marker-color, #6366f1) 45%, transparent),
+    0 10px 22px color-mix(in srgb, var(--player-marker-color, #6366f1) 25%, transparent);
+}
+
+.profile-image-button:focus-visible {
+  outline: none;
+  border-color: var(--color-button-primary);
+  box-shadow:
+    0 0 0 3px var(--color-outline-focus),
+    0 10px 22px color-mix(in srgb, var(--player-marker-color, #6366f1) 25%, transparent);
+}
+
+.profile-image-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.profile-image-preview.loaded {
+  opacity: 1;
+}
+
+.profile-image-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #f8fafc;
+  font-weight: 700;
+  font-size: 1.05rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  transition: opacity 0.2s ease;
+}
+
+.profile-image-preview.loaded + .profile-image-fallback {
+  opacity: 0;
+}
+
+.profile-image-preview-modal {
+  width: 96px;
+  height: 96px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--player-marker-color, #6366f1) 40%, rgba(255, 255, 255, 0.4));
+  background: rgba(7, 10, 20, 0.35);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--player-marker-color, #6366f1) 70%, transparent),
+    0 0 22px color-mix(in srgb, var(--player-marker-color, #6366f1) 45%, transparent),
+    0 14px 26px color-mix(in srgb, var(--player-marker-color, #6366f1) 25%, transparent);
+}
+
+.profile-image-preview-modal .profile-image-preview {
+  border-radius: 999px;
+}
+
+.profile-image-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.profile-image-upload-hint {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.profile-image-actions {
+  display: flex;
+  gap: 0.65rem;
+  flex-wrap: wrap;
 }
 
 .character-stats-grid {

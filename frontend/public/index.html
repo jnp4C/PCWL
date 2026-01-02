@@ -202,6 +202,10 @@
               <span>Show only favorite friends</span>
             </label>
             <label class="control checkbox">
+              <input type="checkbox" id="friend-avatars-toggle" />
+              <span>Show friend avatars on map</span>
+            </label>
+            <label class="control checkbox">
               <input type="checkbox" id="district-ranking-toggle" />
               <span>Always show ranking overlay</span>
             </label>
@@ -291,7 +295,7 @@
       <div class="sheet-body">
         <section class="character-summary">
           <div class="character-card character-identity" id="character-identity-card">
-            <div class="character-avatar" aria-hidden="true">
+            <div class="character-avatar" id="character-avatar" aria-hidden="true">
               <span class="character-avatar-initial" id="character-avatar-initial">G</span>
             </div>
             <div class="character-meta">
@@ -357,6 +361,18 @@
               <button id="marker-color-reset" class="secondary small" type="button">Reset Color</button>
             </div>
             <p id="marker-color-feedback" class="help-text"></p>
+          </div>
+          <div class="appearance-divider" aria-hidden="true"></div>
+          <div class="character-avatar-control">
+            <label class="character-color-label" for="profile-image-trigger">Avatar photo</label>
+            <div class="character-avatar-row">
+              <button type="button" id="profile-image-trigger" class="profile-image-button" aria-label="Edit avatar photo">
+                <img id="profile-image-preview" class="profile-image-preview" alt="" />
+                <span class="profile-image-fallback" id="profile-image-fallback">G</span>
+              </button>
+              <button type="button" id="profile-image-open" class="secondary small">Edit Photo</button>
+            </div>
+            <p id="profile-image-feedback" class="help-text"></p>
           </div>
         </section>
         <section class="character-stats">
@@ -654,26 +670,23 @@
             <span class="label">Recent Activity</span>
             <span class="value" id="district-recent-activity">No check-ins yet</span>
           </div>
-        </div>
-        <div class="district-detail">
-          <h3>Performance Snapshot</h3>
-          <p id="district-performance-blurb">
-            Sign in and set a home district to see how your team is doing.
-          </p>
-          <ul class="district-metrics">
-            <li>
-              <span class="metric-label">Check-ins recorded</span>
-              <span class="metric-value" id="district-checkins-count">0</span>
-            </li>
-            <li>
-              <span class="metric-label">Last contested</span>
-              <span class="metric-value" id="district-last-contested">—</span>
-            </li>
-            <li>
-              <span class="metric-label">Control status</span>
-              <span class="metric-value" id="district-control-status">Unknown</span>
-            </li>
-          </ul>
+          <div class="district-summary-item">
+            <span class="label">Current Residents</span>
+            <span class="value" id="district-resident-count">0</span>
+          </div>
+          <div class="district-summary-item">
+            <span class="label">
+              Visitors
+              <button type="button" class="district-summary-toggle" id="district-visitors-window" aria-pressed="false">
+                today
+              </button>
+            </span>
+            <span class="value" id="district-visitor-count">0</span>
+          </div>
+          <div class="district-summary-item">
+            <span class="label">Total Check-ins</span>
+            <span class="value" id="district-total-checkins">0</span>
+          </div>
         </div>
         <div id="district-cyber-section" class="district-cyber-section hidden">
           <div class="district-cyber-header">
@@ -774,6 +787,34 @@
         <button type="button" id="home-district-cancel" class="secondary">Cancel</button>
         <button type="button" id="home-district-confirm" class="primary" disabled>Set Home</button>
       </footer>
+    </div>
+  </div>
+
+  <div id="profile-image-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="profile-image-modal-title">
+    <div id="profile-image-modal-overlay" class="modal-overlay" tabindex="-1"></div>
+    <div class="modal-content">
+      <header class="modal-header">
+        <h2 id="profile-image-modal-title">Update Avatar</h2>
+        <button type="button" id="profile-image-modal-close" class="icon-button" aria-label="Close avatar editor">
+          &times;
+        </button>
+      </header>
+      <div class="modal-body">
+        <div class="profile-image-preview-modal">
+          <img id="profile-image-preview-modal" class="profile-image-preview" alt="" />
+        </div>
+        <div class="profile-image-upload-row">
+          <input type="file" id="profile-image-file-input" accept="image/jpeg,image/png" hidden />
+          <button type="button" id="profile-image-upload" class="secondary small">Upload photo</button>
+          <span class="profile-image-upload-hint">Square crop, 256px max.</span>
+        </div>
+        <label class="character-color-label" for="profile-image-url-input">Image URL</label>
+        <input type="text" id="profile-image-url-input" class="modal-search" placeholder="https://example.com/photo.jpg" autocomplete="off" />
+        <div class="profile-image-actions">
+          <button type="button" id="profile-image-save" class="primary small">Save</button>
+          <button type="button" id="profile-image-clear" class="secondary small">Clear</button>
+        </div>
+      </div>
     </div>
   </div>
 

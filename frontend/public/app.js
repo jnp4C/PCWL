@@ -10,6 +10,7 @@ const urbanToggle = document.getElementById('urban-toggle');
 const cyclingToggle = document.getElementById('cycling-toggle');
 const districtRankingToggle = document.getElementById('district-ranking-toggle');
 const favoriteFriendsToggle = document.getElementById('favorite-friends-toggle');
+const friendAvatarsToggle = document.getElementById('friend-avatars-toggle');
 
 const mapContainer = document.getElementById('map');
 const loginForm = document.getElementById('login-form');
@@ -77,9 +78,18 @@ const howtoContent = document.getElementById('howto-content');
 const howtoCloseButton = document.getElementById('howto-close');
 const profileImageUrlInput = document.getElementById('profile-image-url-input');
 const profileImagePreview = document.getElementById('profile-image-preview');
+const profileImageModalPreview = document.getElementById('profile-image-preview-modal');
 const profileImageSaveButton = document.getElementById('profile-image-save');
 const profileImageClearButton = document.getElementById('profile-image-clear');
 const profileImageFeedback = document.getElementById('profile-image-feedback');
+const profileImageTriggerButton = document.getElementById('profile-image-trigger');
+const profileImageOpenButton = document.getElementById('profile-image-open');
+const profileImageFallback = document.getElementById('profile-image-fallback');
+const profileImageModal = document.getElementById('profile-image-modal');
+const profileImageModalOverlay = document.getElementById('profile-image-modal-overlay');
+const profileImageModalCloseButton = document.getElementById('profile-image-modal-close');
+const profileImageFileInput = document.getElementById('profile-image-file-input');
+const profileImageUploadButton = document.getElementById('profile-image-upload');
 
 const pageConfig =
   typeof window !== 'undefined' &&
@@ -181,6 +191,7 @@ const characterDrawer = document.getElementById('character-drawer');
 const characterOverlay = document.getElementById('character-overlay');
 const characterCloseButton = document.getElementById('character-close');
 const characterContent = document.getElementById('character-content');
+const characterAvatar = document.getElementById('character-avatar');
 const characterAvatarInitial = document.getElementById('character-avatar-initial');
 const characterNameLabel = document.getElementById('character-name');
 const characterHomeBadge = document.getElementById('character-home-badge');
@@ -275,10 +286,10 @@ const districtContent = document.getElementById('district-content');
 const districtHomeNameValue = document.getElementById('district-home-name');
 const districtContributionValue = document.getElementById('district-contribution');
 const districtRecentActivityValue = document.getElementById('district-recent-activity');
-const districtPerformanceBlurb = document.getElementById('district-performance-blurb');
-const districtCheckinsCountValue = document.getElementById('district-checkins-count');
-const districtLastContestedValue = document.getElementById('district-last-contested');
-const districtControlStatusValue = document.getElementById('district-control-status');
+const districtResidentCountValue = document.getElementById('district-resident-count');
+const districtVisitorCountValue = document.getElementById('district-visitor-count');
+const districtTotalCheckinsValue = document.getElementById('district-total-checkins');
+const districtVisitorsWindowToggle = document.getElementById('district-visitors-window');
 const districtCyberSection = document.getElementById('district-cyber-section');
 const districtCyberHeading = document.getElementById('district-cyber-heading');
 const districtCyberFeedShell = document.getElementById('district-cyber-feed-shell');
@@ -318,6 +329,9 @@ const districtChatVoteCache = new Map();
 let districtChatVoteStatusTimer = null;
 let districtChatVoteCountdownTimer = null;
 const districtLeaderboardContainer = document.getElementById('district-leaderboard');
+let districtSummaryCode = null;
+let districtVisitorsWindow = 'today';
+const districtActivitySnapshotCache = new Map();
 const districtLeaderboardEmpty = document.getElementById('district-leaderboard-empty');
 const districtLeaderboardAggressive = document.getElementById('district-leaderboard-aggressive');
 const districtLeaderboardSupport = document.getElementById('district-leaderboard-support');
@@ -540,6 +554,7 @@ const FRIEND_LOCATIONS_GLOW_LAYER_ID = 'friend-locations-glow';
 const DISTRICT_STRENGTH_CACHE_KEY = 'districtStrengthSnapshot';
 const DISTRICT_RANKING_OVERLAY_STORAGE_KEY = 'districtRankingOverlayAlwaysOn';
 const FAVORITE_FRIENDS_ONLY_STORAGE_KEY = 'pcwlFavoriteFriendsOnly';
+const FRIEND_AVATARS_STORAGE_KEY = 'pcwlFriendAvatars';
 const DISTRICT_OVERLAY_FADE_EXPRESSION = [
   'interpolate',
   ['linear'],
@@ -2392,6 +2407,7 @@ function applyServerPlayerData(profile, apiPlayer) {
   }
   if (typeof apiPlayer.profile_image_url === 'string') {
     profile.profileImageUrl = apiPlayer.profile_image_url;
+    profile.profile_image_url = apiPlayer.profile_image_url;
   }
   if (typeof apiPlayer.profile_bio === 'string') {
     profile.profileBio = apiPlayer.profile_bio.slice(0, 50);
@@ -4330,6 +4346,7 @@ let friendsState = {
   items: [],
 };
 let mapShowFavoriteFriendsOnly = false;
+let mapShowFriendAvatars = false;
 let friendsBubbleState = {
   loading: false,
   loaded: false,
@@ -4359,6 +4376,17 @@ try {
   }
 } catch (_) {
   mapShowFavoriteFriendsOnly = false;
+}
+try {
+  const storedAvatars = typeof window !== 'undefined' && window.localStorage
+    ? window.localStorage.getItem(FRIEND_AVATARS_STORAGE_KEY)
+    : null;
+  mapShowFriendAvatars = storedAvatars === '1';
+  if (friendAvatarsToggle) {
+    friendAvatarsToggle.checked = mapShowFriendAvatars;
+  }
+} catch (_) {
+  mapShowFriendAvatars = false;
 }
 let partyState = {
   party: null,
@@ -8009,6 +8037,7 @@ function buildIdentityFlipCard({
   displayName = '',
   bio = '',
   markerColor = '',
+  profileImageUrl = '',
   tagline = '',
   editable = false,
   fallbackBioHint = 'Tap to view message',
@@ -8028,7 +8057,11 @@ function buildIdentityFlipCard({
   const avatar = document.createElement('div');
   avatar.className = 'character-avatar';
   const initial = cleanUsername ? cleanUsername.charAt(0).toUpperCase() : 'P';
-  avatar.textContent = initial || 'P';
+  const initialSpan = document.createElement('span');
+  initialSpan.className = 'character-avatar-initial';
+  avatar.appendChild(initialSpan);
+  const resolvedProfileUrl = typeof profileImageUrl === 'string' ? profileImageUrl.trim() : '';
+  applyAvatarImage(avatar, initialSpan, resolvedProfileUrl, initial || 'P');
   const metaBlock = document.createElement('div');
   metaBlock.className = 'character-meta';
   const nameEl = document.createElement('h3');
@@ -8148,6 +8181,7 @@ function sanitizePublicProfile(raw) {
     username,
     displayName: typeof raw.display_name === 'string' ? raw.display_name : '',
     profileBio: typeof raw.profile_bio === 'string' ? raw.profile_bio.slice(0, 50) : '',
+    profileImageUrl: typeof raw.profile_image_url === 'string' ? raw.profile_image_url : '',
     mapMarkerColor: normaliseMarkerColor(raw.map_marker_color),
     streakDays: Math.max(0, Number(raw.streak_days) || 0),
     streakMultiplier: Math.max(1, Number(raw.streak_multiplier) || 1),
@@ -8223,6 +8257,7 @@ async function saveProfileBio(bioText = '') {
         username: currentUser,
         displayName: players[currentUser]?.displayName || '',
         profileBio: updated.profile_bio.slice(0, 50),
+        profileImageUrl: players[currentUser]?.profileImageUrl || '',
         mapMarkerColor: players[currentUser]?.mapMarkerColor || '',
         streakDays: players[currentUser]?.streakDays || 0,
         streakMultiplier: players[currentUser]?.streakMultiplier || 1,
@@ -8435,13 +8470,24 @@ let profileImageHandlersInitialised = false;
 let markerColorHandlersInitialised = false;
 const friendLocationMarkers = new Map();
 
-function isValidHttpUrl(value) {
+function isValidProfileImageUrl(value) {
   if (typeof value !== 'string') return false;
   const trimmed = value.trim();
   if (!trimmed) return false;
+  if (trimmed.startsWith('data:image/')) {
+    const lower = trimmed.toLowerCase();
+    const isAllowed = lower.startsWith('data:image/jpeg') || lower.startsWith('data:image/png');
+    return isAllowed && trimmed.includes(';base64,') && trimmed.length <= 200000;
+  }
   try {
     const url = new URL(trimmed);
-    return url.protocol === 'http:' || url.protocol === 'https:';
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return false;
+    }
+    const pathname = url.pathname.toLowerCase();
+    const hasExtension =
+      pathname.endsWith('.jpg') || pathname.endsWith('.jpeg') || pathname.endsWith('.png');
+    return hasExtension;
   } catch (e) {
     return false;
   }
@@ -8453,15 +8499,59 @@ function setProfileImageFeedback(message, type = 'info') {
   profileImageFeedback.dataset.type = type;
 }
 
-function primeProfileImagePreview(url) {
-  if (!profileImagePreview) return;
+function setProfileImageFallbackInitial(initial = '') {
+  if (profileImageFallback) {
+    profileImageFallback.textContent = initial || 'P';
+  }
+}
+
+function updateProfileImageElement(imgEl, url) {
+  if (!imgEl) return;
+  imgEl.classList.remove('invalid', 'loaded');
   if (!url) {
-    profileImagePreview.src = '';
-    profileImagePreview.classList.remove('invalid');
+    imgEl.removeAttribute('src');
     return;
   }
-  profileImagePreview.classList.remove('invalid');
-  profileImagePreview.src = url;
+  imgEl.onload = () => {
+    imgEl.classList.add('loaded');
+  };
+  imgEl.onerror = () => {
+    imgEl.classList.remove('loaded');
+    imgEl.classList.add('invalid');
+  };
+  imgEl.src = url;
+}
+
+function primeProfileImagePreview(url) {
+  updateProfileImageElement(profileImagePreview, url);
+  updateProfileImageElement(profileImageModalPreview, url);
+}
+
+function applyAvatarImage(container, initialEl, imageUrl, fallbackInitial = 'P') {
+  if (!container || !initialEl) {
+    return;
+  }
+  initialEl.textContent = fallbackInitial || 'P';
+  let img = container.querySelector('.character-avatar-image');
+  if (!img) {
+    img = document.createElement('img');
+    img.className = 'character-avatar-image';
+    img.alt = '';
+    container.appendChild(img);
+  }
+  if (!imageUrl) {
+    container.classList.remove('has-photo');
+    img.removeAttribute('src');
+    return;
+  }
+  img.onload = () => {
+    container.classList.add('has-photo');
+  };
+  img.onerror = () => {
+    container.classList.remove('has-photo');
+    img.removeAttribute('src');
+  };
+  img.src = imageUrl;
 }
 
 async function saveProfileImageUrl(profile, url) {
@@ -8488,6 +8578,30 @@ async function saveProfileImageUrl(profile, url) {
       primeProfileImagePreview(updated.profile_image_url);
       if (profileImageUrlInput) profileImageUrlInput.value = updated.profile_image_url;
     }
+    if (currentUser) {
+      const cacheKey = currentUser.toLowerCase();
+      const cached = publicProfileCache.get(cacheKey);
+      const resolvedUrl =
+        (typeof updated.profile_image_url === 'string' && updated.profile_image_url) ||
+        payload.profile_image_url ||
+        '';
+      if (cached) {
+        cached.profileImageUrl = resolvedUrl;
+        publicProfileCache.set(cacheKey, cached);
+      } else {
+        publicProfileCache.set(cacheKey, {
+          username: currentUser,
+          displayName: players[currentUser]?.displayName || '',
+          profileBio: players[currentUser]?.profileBio || players[currentUser]?.profile_bio || '',
+          profileImageUrl: resolvedUrl,
+          mapMarkerColor: players[currentUser]?.mapMarkerColor || '',
+          streakDays: players[currentUser]?.streakDays || 0,
+          streakMultiplier: players[currentUser]?.streakMultiplier || 1,
+          isFriend: false,
+          isSelf: true,
+        });
+      }
+    }
     // Rerender character/drawer summaries if needed
     updateCharacterDrawerContent(profile);
     updateDrawerSummaries(profile);
@@ -8499,6 +8613,62 @@ async function saveProfileImageUrl(profile, url) {
   }
 }
 
+function readImageFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) {
+      reject(new Error('No file selected.'));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Unable to read image.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function resizeAvatarImageFile(file, size = 256) {
+  const dataUrl = await readImageFileAsDataUrl(file);
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const minSide = Math.min(img.width, img.height);
+      if (!minSide) {
+        reject(new Error('Invalid image dimensions.'));
+        return;
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      const sx = (img.width - minSide) / 2;
+      const sy = (img.height - minSide) / 2;
+      ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, size, size);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => reject(new Error('Unable to load image.'));
+    img.src = dataUrl;
+  });
+}
+
+function openProfileImageModal() {
+  if (!profileImageModal || !profileImageUrlInput) {
+    return;
+  }
+  profileImageModal.classList.remove('hidden');
+  document.body.classList.add('modal-open');
+  queueMicrotask(() => {
+    profileImageUrlInput.focus({ preventScroll: true });
+  });
+}
+
+function closeProfileImageModal() {
+  if (!profileImageModal || profileImageModal.classList.contains('hidden')) {
+    return;
+  }
+  profileImageModal.classList.add('hidden');
+  document.body.classList.remove('modal-open');
+}
+
 function initialiseProfileImageControls(profile) {
   if (!profileImageUrlInput || !profileImagePreview || !profileImageSaveButton || !profileImageClearButton) {
     return;
@@ -8507,7 +8677,7 @@ function initialiseProfileImageControls(profile) {
   const currentUrl = profile && typeof profile.profileImageUrl === 'string' ? profile.profileImageUrl : '';
   profileImageUrlInput.value = currentUrl;
   primeProfileImagePreview(currentUrl);
-  setProfileImageFeedback('Paste a direct image link (http/https).', 'info');
+  setProfileImageFeedback('Paste a JPG/PNG link or upload a photo.', 'info');
   profileImageSaveButton.disabled = true;
 
   if (!profileImageHandlersInitialised) {
@@ -8521,15 +8691,14 @@ function initialiseProfileImageControls(profile) {
         profileImageSaveButton.disabled = false; // allow saving empty to clear
         return;
       }
-      if (!isValidHttpUrl(value)) {
-        setProfileImageFeedback('Please enter a valid http(s) URL.', 'error');
+      if (!isValidProfileImageUrl(value)) {
+        setProfileImageFeedback('Please enter a JPG/PNG image URL or upload a photo.', 'error');
         profileImageSaveButton.disabled = true;
         primeProfileImagePreview('');
         return;
       }
       setProfileImageFeedback('Previewing image...', 'info');
       profileImageSaveButton.disabled = true;
-      // Load preview and enable save only when it loads
       const testImg = new Image();
       testImg.onload = () => {
         primeProfileImagePreview(value);
@@ -8551,8 +8720,8 @@ function initialiseProfileImageControls(profile) {
         await saveProfileImageUrl(profile, '');
         return;
       }
-      if (!isValidHttpUrl(value)) {
-        setProfileImageFeedback('Please enter a valid http(s) URL.', 'error');
+      if (!isValidProfileImageUrl(value)) {
+        setProfileImageFeedback('Please enter a JPG/PNG image URL or upload a photo.', 'error');
         return;
       }
       await saveProfileImageUrl(profile, value);
@@ -8567,6 +8736,52 @@ function initialiseProfileImageControls(profile) {
       // Optionally persist immediately on clear:
       // await saveProfileImageUrl(profile, '');
     });
+
+    if (profileImageTriggerButton) {
+      profileImageTriggerButton.addEventListener('click', openProfileImageModal);
+    }
+    if (profileImageOpenButton) {
+      profileImageOpenButton.addEventListener('click', openProfileImageModal);
+    }
+    if (profileImageModalCloseButton) {
+      profileImageModalCloseButton.addEventListener('click', closeProfileImageModal);
+    }
+    if (profileImageModalOverlay) {
+      profileImageModalOverlay.addEventListener('click', closeProfileImageModal);
+    }
+    if (profileImageUploadButton && profileImageFileInput) {
+      profileImageUploadButton.addEventListener('click', () => {
+        profileImageFileInput.click();
+      });
+      profileImageFileInput.addEventListener('change', async () => {
+        const file = profileImageFileInput.files && profileImageFileInput.files[0];
+        if (!file) {
+          return;
+        }
+        const isAllowedType = file.type === 'image/jpeg' || file.type === 'image/png';
+        if (!isAllowedType) {
+          setProfileImageFeedback('Only JPG or PNG files are allowed.', 'error');
+          return;
+        }
+        setProfileImageFeedback('Preparing upload...', 'info');
+        try {
+          const resized = await resizeAvatarImageFile(file);
+          if (!isValidProfileImageUrl(resized)) {
+            setProfileImageFeedback('Image is too large. Please use a smaller file.', 'error');
+            return;
+          }
+          profileImageUrlInput.value = resized;
+          primeProfileImagePreview(resized);
+          setProfileImageFeedback('Ready to save. Click Save to apply.', 'success');
+          profileImageSaveButton.disabled = false;
+        } catch (error) {
+          console.warn('Failed to process avatar image', error);
+          setProfileImageFeedback('Unable to process that image. Try another file.', 'error');
+        } finally {
+          profileImageFileInput.value = '';
+        }
+      });
+    }
   }
 }
 
@@ -9325,6 +9540,13 @@ function createFriendLocationFeature(friend) {
     },
   };
 
+  const rawProfileImageUrl =
+    (typeof friend.profile_image_url === 'string' && friend.profile_image_url.trim()) ||
+    (typeof friend.profileImageUrl === 'string' && friend.profileImageUrl.trim()) ||
+    '';
+  if (rawProfileImageUrl) {
+    feature.properties.profileImageUrl = rawProfileImageUrl;
+  }
   if (typeof friend.display_name === 'string' && friend.display_name.trim()) {
     feature.properties.displayName = friend.display_name.trim();
   }
@@ -9462,56 +9684,86 @@ function rebuildFriendLocationMarkers() {
     const partyCode = feature.properties && typeof feature.properties.activePartyCode === 'string' ? feature.properties.activePartyCode : '';
     const partyName = feature.properties && typeof feature.properties.activePartyName === 'string' ? feature.properties.activePartyName : '';
 
-    const el = document.createElement('div');
-    el.className = 'friend-location-label';
-    el.style.setProperty('--friend-label-color', markerColor);
-    if (partyCode) {
-      el.classList.add('friend-location-party');
-      const badge = document.createElement('div');
-      badge.className = 'friend-party-chip';
-      badge.style.background = markerColor;
-      badge.style.boxShadow = `0 0 14px ${markerColor}55`;
-      const dot = document.createElement('div');
-      dot.className = 'friend-party-chip-dot';
-      dot.style.background = '#0f0f1a';
-      dot.style.boxShadow = `0 0 0 2px ${markerColor}`;
-      badge.appendChild(dot);
-      const title = document.createElement('div');
-      title.className = 'friend-party-chip-title';
-      title.textContent = partyName || 'Party';
-      badge.appendChild(title);
-      const memberCount =
-        (feature.properties && Number(feature.properties.activePartySize)) ||
-        (feature.properties &&
-          Array.isArray(feature.properties.partyMemberUsernames) &&
-          feature.properties.partyMemberUsernames.length) ||
-        0;
-      if (memberCount > 1) {
-        const meta = document.createElement('div');
-        meta.className = 'friend-party-chip-meta';
-        meta.textContent = `${memberCount} members`;
-        badge.appendChild(meta);
+    let el = null;
+    const profileImageUrl =
+      feature.properties && typeof feature.properties.profileImageUrl === 'string'
+        ? feature.properties.profileImageUrl.trim()
+        : '';
+    const showAvatar = mapShowFriendAvatars && !partyCode && Boolean(profileImageUrl);
+    if (showAvatar) {
+      el = document.createElement('div');
+      el.className = 'friend-location-avatar';
+      el.style.setProperty('--friend-avatar-color', markerColor);
+      const img = document.createElement('img');
+      img.alt = '';
+      if (profileImageUrl) {
+        img.onload = () => {
+          img.classList.add('loaded');
+        };
+        img.onerror = () => {
+          img.classList.remove('loaded');
+          img.removeAttribute('src');
+        };
+        img.src = profileImageUrl;
       }
-      el.appendChild(badge);
+      const fallback = document.createElement('span');
+      fallback.className = 'friend-avatar-fallback';
+      fallback.textContent = username ? username.charAt(0).toUpperCase() : 'P';
+      el.appendChild(img);
+      el.appendChild(fallback);
     } else {
-      const nameSpan = document.createElement('span');
-      nameSpan.className = 'friend-label-name';
-      nameSpan.textContent = label;
-      el.appendChild(nameSpan);
+      el = document.createElement('div');
+      el.className = 'friend-location-label';
+      el.style.setProperty('--friend-label-color', markerColor);
+      if (partyCode) {
+        el.classList.add('friend-location-party');
+        const badge = document.createElement('div');
+        badge.className = 'friend-party-chip';
+        badge.style.background = markerColor;
+        badge.style.boxShadow = `0 0 14px ${markerColor}55`;
+        const dot = document.createElement('div');
+        dot.className = 'friend-party-chip-dot';
+        dot.style.background = '#0f0f1a';
+        dot.style.boxShadow = `0 0 0 2px ${markerColor}`;
+        badge.appendChild(dot);
+        const title = document.createElement('div');
+        title.className = 'friend-party-chip-title';
+        title.textContent = partyName || 'Party';
+        badge.appendChild(title);
+        const memberCount =
+          (feature.properties && Number(feature.properties.activePartySize)) ||
+          (feature.properties &&
+            Array.isArray(feature.properties.partyMemberUsernames) &&
+            feature.properties.partyMemberUsernames.length) ||
+          0;
+        if (memberCount > 1) {
+          const meta = document.createElement('div');
+          meta.className = 'friend-party-chip-meta';
+          meta.textContent = `${memberCount} members`;
+          badge.appendChild(meta);
+        }
+        el.appendChild(badge);
+      } else {
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'friend-label-name';
+        nameSpan.textContent = label;
+        el.appendChild(nameSpan);
+      }
+
+      const deltaRaw =
+        feature.properties && feature.properties.lastActionDelta !== undefined
+          ? Number(feature.properties.lastActionDelta)
+          : null;
+      if (Number.isFinite(deltaRaw) && deltaRaw !== 0) {
+        const deltaSpan = document.createElement('span');
+        const isPositive = deltaRaw > 0;
+        deltaSpan.className = `friend-label-delta ${isPositive ? 'positive' : 'negative'}`;
+        const prefix = isPositive ? '+' : '-';
+        deltaSpan.textContent = `${prefix}${FRIEND_DELTA_FORMATTER.format(Math.abs(deltaRaw))}`;
+        el.appendChild(deltaSpan);
+      }
     }
 
-    const deltaRaw =
-      feature.properties && feature.properties.lastActionDelta !== undefined
-        ? Number(feature.properties.lastActionDelta)
-        : null;
-    if (Number.isFinite(deltaRaw) && deltaRaw !== 0) {
-      const deltaSpan = document.createElement('span');
-      const isPositive = deltaRaw > 0;
-      deltaSpan.className = `friend-label-delta ${isPositive ? 'positive' : 'negative'}`;
-      const prefix = isPositive ? '+' : '-';
-      deltaSpan.textContent = `${prefix}${FRIEND_DELTA_FORMATTER.format(Math.abs(deltaRaw))}`;
-      el.appendChild(deltaSpan);
-    }
     if (partyCode) {
       el.dataset.partyCode = partyCode;
       el.setAttribute('role', 'button');
@@ -9713,6 +9965,12 @@ function normaliseFriendEntry(raw) {
   friend.topOtherParty = sanitizeOtherParty(raw.top_other_party || raw.topOtherParty);
   if (typeof raw.profile_bio === 'string') {
     friend.profile_bio = raw.profile_bio.slice(0, 50);
+  }
+  if (typeof raw.profile_image_url === 'string') {
+    friend.profile_image_url = raw.profile_image_url.trim();
+  }
+  if (typeof raw.profileImageUrl === 'string' && !friend.profile_image_url) {
+    friend.profile_image_url = raw.profileImageUrl.trim();
   }
   return friend;
 }
@@ -11676,7 +11934,7 @@ function renderFriendProfileContent(friend) {
   }
 
   if (friendProfileTitle) {
-    friendProfileTitle.textContent = `@${friend.username}`;
+    friendProfileTitle.textContent = 'Player Profile';
   }
 
   const markerColor = normaliseMarkerColor(friend.map_marker_color);
@@ -11694,6 +11952,7 @@ function renderFriendProfileContent(friend) {
     displayName: displayName || `@${friend.username}`,
     bio: friend.profile_bio || friend.profileBio || '',
     markerColor,
+    profileImageUrl: friend.profile_image_url || friend.profileImageUrl || '',
     tagline: taglineText,
     editable: currentUser && friend.username && friend.username.toLowerCase() === currentUser.toLowerCase(),
     fallbackBioHint: 'Tap to view message',
@@ -12313,7 +12572,7 @@ async function openPublicProfileDrawer(username, { displayName = '', meta = '', 
   friendProfileLastTrigger = trigger instanceof HTMLElement ? trigger : null;
   friendProfileBody.innerHTML = '<p class="friend-profile-empty">Loading profile…</p>';
   if (friendProfileTitle) {
-    friendProfileTitle.textContent = `@${cleanUsername}`;
+    friendProfileTitle.textContent = 'Player Profile';
   }
   document.body.classList.add('friend-profile-open');
   friendProfileDrawer.setAttribute('aria-hidden', 'false');
@@ -12348,6 +12607,7 @@ function buildPublicIdentityCard(profile, { editable = false, fallbackMeta = '',
     displayName: profile.displayName || fallbackDisplayName || `@${profile.username}`,
     bio: profile.profileBio,
     markerColor: profile.mapMarkerColor,
+    profileImageUrl: profile.profileImageUrl || '',
     tagline: '',
     editable,
     fallbackBioHint: fallbackMeta || 'Tap to view message',
@@ -12474,7 +12734,7 @@ function renderPublicProfileContent(profile, highlights = null, { fallbackMeta =
   }
   friendProfileBody.innerHTML = '';
   if (friendProfileTitle) {
-    friendProfileTitle.textContent = `@${profile.username}`;
+    friendProfileTitle.textContent = 'Player Profile';
   }
 
   const summary = document.createElement('div');
@@ -15172,6 +15432,36 @@ function updateDistrictPartySection(entries) {
   }
 }
 
+function updateDistrictSummaryActivity(snapshot = {}) {
+  if (!districtResidentCountValue || !districtVisitorCountValue || !districtTotalCheckinsValue) {
+    return;
+  }
+  const residentCount = Math.max(0, Math.round(Number(snapshot.resident_count) || 0));
+  const totalCheckins = Math.max(0, Math.round(Number(snapshot.checkins_total) || 0));
+  const visitorCounts = snapshot.visitor_counts || {};
+  const visitorsToday = Math.max(0, Math.round(Number(visitorCounts.today) || 0));
+  const visitorsSeason = Math.max(0, Math.round(Number(visitorCounts.season) || 0));
+  const visitorCount = districtVisitorsWindow === 'season' ? visitorsSeason : visitorsToday;
+  districtResidentCountValue.textContent = residentCount.toLocaleString();
+  districtTotalCheckinsValue.textContent = totalCheckins.toLocaleString();
+  districtVisitorCountValue.textContent = visitorCount.toLocaleString();
+}
+
+function setDistrictVisitorsWindow(nextWindow) {
+  if (nextWindow !== 'today' && nextWindow !== 'season') {
+    return;
+  }
+  districtVisitorsWindow = nextWindow;
+  if (districtVisitorsWindowToggle) {
+    const isSeason = nextWindow === 'season';
+    districtVisitorsWindowToggle.textContent = isSeason ? 'this season' : 'today';
+    districtVisitorsWindowToggle.setAttribute('aria-pressed', isSeason.toString());
+  }
+  if (districtSummaryCode && districtActivitySnapshotCache.has(districtSummaryCode)) {
+    updateDistrictSummaryActivity(districtActivitySnapshotCache.get(districtSummaryCode));
+  }
+}
+
 async function refreshDistrictPartyActivity(
   districtCode,
   { silent = true, force = false } = {},
@@ -15193,6 +15483,16 @@ async function refreshDistrictPartyActivity(
     const parties = Array.isArray(response?.top_parties) ? response.top_parties : [];
     districtPartyCache.set(code, parties);
     updateDistrictPartySection(parties);
+    if (response && typeof response === 'object') {
+      districtActivitySnapshotCache.set(code, {
+        resident_count: response.resident_count,
+        visitor_counts: response.visitor_counts,
+        checkins_total: response.checkins_total,
+      });
+      if (districtSummaryCode === code) {
+        updateDistrictSummaryActivity(districtActivitySnapshotCache.get(code));
+      }
+    }
     const topParty = parties && parties.length ? parties[0] : null;
     if (topParty) {
       updateDistrictLeadingParty(code, topParty);
@@ -15223,15 +15523,21 @@ if (districtPartyToggle) {
   });
 }
 
+if (districtVisitorsWindowToggle) {
+  districtVisitorsWindowToggle.addEventListener('click', () => {
+    const nextWindow = districtVisitorsWindow === 'today' ? 'season' : 'today';
+    setDistrictVisitorsWindow(nextWindow);
+  });
+}
+
 function updateDistrictDrawerContent(profile = null) {
   if (
     !districtHomeNameValue ||
     !districtContributionValue ||
     !districtRecentActivityValue ||
-    !districtPerformanceBlurb ||
-    !districtCheckinsCountValue ||
-    !districtLastContestedValue ||
-    !districtControlStatusValue
+    !districtResidentCountValue ||
+    !districtVisitorCountValue ||
+    !districtTotalCheckinsValue
   ) {
     return;
   }
@@ -15242,10 +15548,9 @@ function updateDistrictDrawerContent(profile = null) {
     districtHomeNameValue.textContent = 'Not set';
     districtContributionValue.textContent = '0 pts • 0 local check-ins';
     districtRecentActivityValue.textContent = 'No check-ins yet';
-    districtPerformanceBlurb.textContent = 'Sign in and choose a home district to see its performance.';
-    districtCheckinsCountValue.textContent = '0';
-    districtLastContestedValue.textContent = '—';
-    districtControlStatusValue.textContent = 'Not assigned';
+    districtSummaryCode = null;
+    updateDistrictSummaryActivity({});
+    setDistrictVisitorsWindow('today');
     return;
   }
 
@@ -15262,57 +15567,41 @@ function updateDistrictDrawerContent(profile = null) {
   }`;
   districtContributionValue.textContent = `${localContributionPoints.toLocaleString()} pts • ${localCheckinsLabel}`;
 
-  const checkinsCount =
-    resolvedProfile.serverCheckinCount || (Array.isArray(resolvedProfile.checkins) ? resolvedProfile.checkins.length : 0);
-  districtCheckinsCountValue.textContent = checkinsCount.toLocaleString();
-
   const latestCheckin =
     Array.isArray(resolvedProfile.checkins) && resolvedProfile.checkins.length
       ? resolvedProfile.checkins[0]
       : null;
   if (latestCheckin) {
     districtRecentActivityValue.textContent = formatRecentCheckinTag(latestCheckin);
-    districtLastContestedValue.textContent = latestCheckin.timestamp ? formatTimeAgo(latestCheckin.timestamp) : 'Just now';
   } else {
     districtRecentActivityValue.textContent = 'No check-ins yet';
-    districtLastContestedValue.textContent = '—';
   }
 
   const hasHomeDistrict =
     Boolean(resolvedProfile.homeDistrictId) || Boolean(resolvedProfile.homeDistrictName && resolvedProfile.homeDistrictName.trim());
   if (!hasHomeDistrict) {
-    districtPerformanceBlurb.textContent = 'Choose a home district to start building its strength.';
-    districtControlStatusValue.textContent = 'Not assigned';
+    districtSummaryCode = null;
+    updateDistrictSummaryActivity({});
     return;
   }
-
-  const latestType = latestCheckin && typeof latestCheckin.type === 'string' ? latestCheckin.type.toLowerCase() : '';
-  let controlStatus = 'Holding steady';
-  if (!latestCheckin) {
-    controlStatus = 'Awaiting activity';
-  } else if (latestType === 'defend') {
-    controlStatus = 'Fortifying defenses';
-  } else if (latestType === 'attack') {
-    controlStatus = 'On the offensive';
-  } else {
-    controlStatus = 'Expanding influence';
-  }
-  districtControlStatusValue.textContent = controlStatus;
-
-  const defendText = localContributionCheckins
-    ? `Keep showing up in ${homeName} to fortify it.`
-    : `Visit ${homeName} and defend on location to boost its resilience.`;
-  districtPerformanceBlurb.textContent = `You have contributed ${localContributionPoints.toLocaleString()} pts directly to ${homeName} through ${localCheckinsLabel}. ${defendText}`;
 
   const homeCode =
     (resolvedProfile.homeDistrictId ? safeId(resolvedProfile.homeDistrictId) : null) ||
     (resolvedProfile.homeDistrictCode ? safeId(resolvedProfile.homeDistrictCode) : null);
   if (homeCode) {
-  refreshDistrictPartyActivity(homeCode, { silent: true, force: true });
-  renderDistrictCyberActivity(resolvedProfile);
+    districtSummaryCode = homeCode;
+    if (districtActivitySnapshotCache.has(homeCode)) {
+      updateDistrictSummaryActivity(districtActivitySnapshotCache.get(homeCode));
+    } else {
+      updateDistrictSummaryActivity({});
+    }
+    refreshDistrictPartyActivity(homeCode, { silent: true, force: true });
+    renderDistrictCyberActivity(resolvedProfile);
   } else {
     updateDistrictPartySection([]);
     renderDistrictCyberActivity(null);
+    districtSummaryCode = null;
+    updateDistrictSummaryActivity({});
   }
 }
 
@@ -17179,7 +17468,8 @@ function updateCharacterDrawerContent(profile = null) {
   const resolvedProfile = profile || (currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null);
   if (!resolvedProfile || !currentUser) {
     characterNameLabel.textContent = 'Guest';
-    characterAvatarInitial.textContent = 'G';
+    applyAvatarImage(characterAvatar, characterAvatarInitial, '', 'G');
+    setProfileImageFallbackInitial('G');
     characterTagline.textContent = 'Sign in to personalise your character.';
     const preview = document.getElementById(CHARACTER_BIO_PREVIEW_ID);
     if (preview) {
@@ -17214,7 +17504,12 @@ function updateCharacterDrawerContent(profile = null) {
   const nameText = document.createTextNode(trimmedName || 'Player');
   characterNameLabel.appendChild(nameText);
   const initial = trimmedName ? trimmedName.charAt(0).toUpperCase() : 'P';
-  characterAvatarInitial.textContent = initial;
+  const avatarUrl =
+    (resolvedProfile.profileImageUrl && String(resolvedProfile.profileImageUrl).trim()) ||
+    (resolvedProfile.profile_image_url && String(resolvedProfile.profile_image_url).trim()) ||
+    '';
+  applyAvatarImage(characterAvatar, characterAvatarInitial, avatarUrl, initial);
+  setProfileImageFallbackInitial(initial);
 
   const homeName =
     (resolvedProfile.homeDistrictName && resolvedProfile.homeDistrictName.trim()) ||
@@ -19579,6 +19874,19 @@ if (favoriteFriendsToggle) {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.setItem(FAVORITE_FRIENDS_ONLY_STORAGE_KEY, mapShowFavoriteFriendsOnly ? '1' : '0');
+      }
+    } catch (_) {}
+    updateFriendLocationsLayer();
+  });
+}
+
+if (friendAvatarsToggle) {
+  friendAvatarsToggle.checked = mapShowFriendAvatars;
+  friendAvatarsToggle.addEventListener('change', (event) => {
+    mapShowFriendAvatars = Boolean(event.target.checked);
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(FRIEND_AVATARS_STORAGE_KEY, mapShowFriendAvatars ? '1' : '0');
       }
     } catch (_) {}
     updateFriendLocationsLayer();

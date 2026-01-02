@@ -1183,6 +1183,9 @@ class DistrictAnalyticsTests(TestCase):
         self.assertEqual(data["totals"]["attacked"], 10)
         self.assertEqual(data["totals"]["defended"], 10)
         self.assertEqual(data["status"], "contested")
+        self.assertEqual(data["resident_count"], 1)
+        self.assertEqual(data["visitor_counts"]["today"], 2)
+        self.assertEqual(data["checkins_total"], 2)
         self.assertTrue(any(entry["home_district_code"] == "1100" for entry in data["top_attackers"]))
         self.assertTrue(data["recent_checkins"])
 

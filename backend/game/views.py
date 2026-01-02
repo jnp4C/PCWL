@@ -2012,6 +2012,8 @@ class DistrictActivityView(APIView):
         if not district_code:
             return Response({"detail": "District code is required."}, status=status.HTTP_400_BAD_REQUEST)
 
+        district_obj = District.objects.filter(code__iexact=district_code).first()
+
         window_param = request.query_params.get("window")
         try:
             window_hours = int(window_param) if window_param is not None else 24
@@ -2021,6 +2023,29 @@ class DistrictActivityView(APIView):
 
         cutoff = timezone.now() - timedelta(hours=window_hours)
         base_qs = CheckIn.objects.filter(district_code__iexact=district_code)
+        now = timezone.now()
+        today_start = timezone.localtime(now).replace(hour=0, minute=0, second=0, microsecond=0)
+        season_start = now - timedelta(days=30)
+        resident_count = (
+            Player.objects.filter(is_active=True)
+            .filter(
+                Q(home_district_code__iexact=district_code)
+                | Q(home_district_ref__code__iexact=district_code)
+            )
+            .count()
+        )
+        visitors_today = (
+            base_qs.filter(occurred_at__gte=today_start)
+            .values("player_id")
+            .distinct()
+            .count()
+        )
+        visitors_season = (
+            base_qs.filter(occurred_at__gte=season_start)
+            .values("player_id")
+            .distinct()
+            .count()
+        )
         totals = base_qs.aggregate(
             defended=Coalesce(
                 Sum(
@@ -2067,6 +2092,11 @@ class DistrictActivityView(APIView):
             .values_list("district_name", flat=True)
             .first()
         )
+        if not district_name:
+            if district_obj and district_obj.name:
+                district_name = district_obj.name
+            else:
+                district_name = None
         if not district_name:
             engagement_name = (
                 DistrictEngagement.objects.filter(target_district_code__iexact=district_code)
@@ -2149,6 +2179,12 @@ class DistrictActivityView(APIView):
                 "code": district_code,
                 "name": district_name,
             },
+            "resident_count": resident_count,
+            "visitor_counts": {
+                "today": visitors_today,
+                "season": visitors_season,
+            },
+            "checkins_total": int(getattr(district_obj, "checkin_total", 0) or 0),
             "window_hours": window_hours,
             "status": _classify_district_state(defended_total, attacked_total, DISTRICT_SECURE_THRESHOLD),
             "recent_status": _classify_district_state(
