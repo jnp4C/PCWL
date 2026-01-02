@@ -360,6 +360,7 @@ if (typeof document !== 'undefined' && document.body) {
 const welcomeScreen = document.getElementById('welcome-screen');
 const gameScreen = document.getElementById('game-screen');
 const statusBox = document.getElementById('status');
+const outOfBoundsAlert = document.getElementById('out-of-bounds-alert');
 
 const MAP_CENTER = [14.4205, 50.0875];
 const MAP_STYLE = {
@@ -403,6 +404,16 @@ const DISTRICT_GLOW_LINE_WIDTH = 4.5;
 const DISTRICT_GLOW_GLOW_WIDTH = 22;
 const DISTRICT_GLOW_GLOW_BLUR = 14;
 const DISTRICT_GLOW_GLOW_OPACITY = 0.86;
+const PRAGUE_ALERT_GLOW_LAYER_ID = 'prague-alert-glow';
+const PRAGUE_ALERT_BASE_COLOR = '#2b0c4a';
+const PRAGUE_ALERT_FLASH_COLOR = '#ff3b47';
+const PRAGUE_ALERT_FINAL_COLOR = '#5a1d8f';
+const PRAGUE_ALERT_BASE_WIDTH = 12;
+const PRAGUE_ALERT_FINAL_WIDTH = 16;
+const PRAGUE_ALERT_FLASH_WIDTH = 24;
+const PRAGUE_ALERT_BASE_OPACITY = 0.28;
+const PRAGUE_ALERT_FINAL_OPACITY = 0.5;
+const PRAGUE_ALERT_BLUR = 18;
 const DISTRICT_FILTER_NONE = ['==', ['literal', 0], 1];
 const DISTRICT_SOURCE_LAYER = 'districts';
 const DISTRICT_ID_FIELDS = ['kod_mc', 'KOD_MC', 'kod_uzohmp', 'KOD_UZOHMP', 'objectid', 'OBJECTID'];
@@ -2154,6 +2165,34 @@ function polygonContainsPoint(rings, lng, lat) {
   return true;
 }
 
+function lerpNumber(start, end, t) {
+  return start + (end - start) * t;
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function hexToRgb(hex) {
+  const normalized = hex.replace('#', '');
+  if (normalized.length !== 6) {
+    return { r: 0, g: 0, b: 0 };
+  }
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+  return { r, g, b };
+}
+
+function interpolateHexColor(from, to, t) {
+  const start = hexToRgb(from);
+  const end = hexToRgb(to);
+  const r = Math.round(lerpNumber(start.r, end.r, t));
+  const g = Math.round(lerpNumber(start.g, end.g, t));
+  const b = Math.round(lerpNumber(start.b, end.b, t));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
 function geometryContainsPoint(geometry, lng, lat) {
   if (!geometry) {
     return false;
@@ -2165,6 +2204,33 @@ function geometryContainsPoint(geometry, lng, lat) {
     return geometry.coordinates.some((polygon) => polygonContainsPoint(polygon, lng, lat));
   }
   return false;
+}
+
+function resolveDistrictFeatureAtPoint(lng, lat) {
+  const datasetReady = Boolean(districtGeoJson && Array.isArray(districtGeoJson.features));
+  let feature = datasetReady ? findDistrictFeatureByPoint(lng, lat) : null;
+  const canUseMapQuery =
+    mapReady &&
+    map &&
+    typeof map.project === 'function' &&
+    typeof map.queryRenderedFeatures === 'function' &&
+    map.getLayer('districts-fill') &&
+    (typeof map.isSourceLoaded !== 'function' || map.isSourceLoaded('prague-districts'));
+
+  if (!feature && canUseMapQuery) {
+    const point = map.project([lng, lat]);
+    const padding = 6;
+    const queryGeometry = [
+      [point.x - padding, point.y - padding],
+      [point.x + padding, point.y + padding],
+    ];
+    const features = map.queryRenderedFeatures(queryGeometry, { layers: ['districts-fill'] });
+    if (features && features.length) {
+      feature = features[0];
+    }
+  }
+
+  return { feature, isKnown: datasetReady || canUseMapQuery };
 }
 
 function findDistrictFeatureByPoint(lng, lat) {
@@ -4295,6 +4361,8 @@ function handleHomeDistrictSearchInput(event) {
 
 let map;
 let mapReady = false;
+let pragueOutOfBoundsAnimationFrame = null;
+let outOfBoundsAlertTimerId = null;
 let geolocateControl;
 let hasTriggeredGeolocate = false;
 const pendingActions = [];
@@ -5415,6 +5483,95 @@ function updateStatus(message) {
   if (statusBox) {
     statusBox.textContent = message;
   }
+}
+
+function setPragueAlertGlowPaint({ color, width, opacity }) {
+  if (!map || typeof map.getLayer !== 'function' || !map.getLayer(PRAGUE_ALERT_GLOW_LAYER_ID)) {
+    return;
+  }
+  if (color) {
+    map.setPaintProperty(PRAGUE_ALERT_GLOW_LAYER_ID, 'line-color', color);
+  }
+  if (typeof width === 'number') {
+    map.setPaintProperty(PRAGUE_ALERT_GLOW_LAYER_ID, 'line-width', width);
+  }
+  if (typeof opacity === 'number') {
+    map.setPaintProperty(PRAGUE_ALERT_GLOW_LAYER_ID, 'line-opacity', opacity);
+  }
+  map.setPaintProperty(PRAGUE_ALERT_GLOW_LAYER_ID, 'line-blur', PRAGUE_ALERT_BLUR);
+}
+
+function showOutOfBoundsOverlay() {
+  if (!outOfBoundsAlert) {
+    return;
+  }
+  outOfBoundsAlert.classList.add('is-visible');
+  outOfBoundsAlert.setAttribute('aria-hidden', 'false');
+  if (outOfBoundsAlertTimerId) {
+    window.clearTimeout(outOfBoundsAlertTimerId);
+  }
+  outOfBoundsAlertTimerId = window.setTimeout(() => {
+    outOfBoundsAlert.classList.remove('is-visible');
+    outOfBoundsAlert.setAttribute('aria-hidden', 'true');
+  }, 2000);
+}
+
+function triggerPragueOutOfBoundsAlert() {
+  if (!map || typeof map.easeTo !== 'function') {
+    return;
+  }
+  if (pragueOutOfBoundsAnimationFrame) {
+    window.cancelAnimationFrame(pragueOutOfBoundsAnimationFrame);
+    pragueOutOfBoundsAnimationFrame = null;
+  }
+  showOutOfBoundsOverlay();
+  setPragueAlertGlowPaint({
+    color: PRAGUE_ALERT_BASE_COLOR,
+    width: PRAGUE_ALERT_BASE_WIDTH,
+    opacity: PRAGUE_ALERT_BASE_OPACITY,
+  });
+  map.easeTo({
+    center: MAP_CENTER,
+    zoom: 12.4,
+    pitch: 0,
+    bearing: 0,
+    duration: 1200,
+  });
+
+  const startTime = performance.now();
+  const duration = 1400;
+  const animate = (now) => {
+    const t = clampNumber((now - startTime) / duration, 0, 1);
+    const pulse = Math.sin(Math.PI * t);
+    const width =
+      lerpNumber(PRAGUE_ALERT_BASE_WIDTH, PRAGUE_ALERT_FINAL_WIDTH, t) +
+      (PRAGUE_ALERT_FLASH_WIDTH - PRAGUE_ALERT_FINAL_WIDTH) * pulse;
+    const opacity = clampNumber(
+      lerpNumber(PRAGUE_ALERT_BASE_OPACITY, PRAGUE_ALERT_FINAL_OPACITY, t) + 0.3 * pulse,
+      0,
+      1
+    );
+    const color =
+      t < 0.5
+        ? interpolateHexColor(PRAGUE_ALERT_BASE_COLOR, PRAGUE_ALERT_FLASH_COLOR, t * 2)
+        : interpolateHexColor(PRAGUE_ALERT_FLASH_COLOR, PRAGUE_ALERT_FINAL_COLOR, (t - 0.5) * 2);
+
+    setPragueAlertGlowPaint({ color, width, opacity });
+
+    if (t < 1) {
+      pragueOutOfBoundsAnimationFrame = window.requestAnimationFrame(animate);
+      return;
+    }
+
+    setPragueAlertGlowPaint({
+      color: PRAGUE_ALERT_FINAL_COLOR,
+      width: PRAGUE_ALERT_FINAL_WIDTH,
+      opacity: PRAGUE_ALERT_FINAL_OPACITY,
+    });
+    pragueOutOfBoundsAnimationFrame = null;
+  };
+
+  pragueOutOfBoundsAnimationFrame = window.requestAnimationFrame(animate);
 }
 
 function isMobileViewport() {
@@ -18730,6 +18887,24 @@ function addSourcesAndLayers() {
   ensureDistrictFeatureStateSyncHooks();
 
   map.addLayer({
+    id: PRAGUE_ALERT_GLOW_LAYER_ID,
+    type: 'line',
+    source: 'prague-districts',
+    'source-layer': DISTRICT_SOURCE_LAYER,
+    layout: {
+      visibility: 'visible',
+      'line-cap': 'round',
+      'line-join': 'round',
+    },
+    paint: {
+      'line-color': PRAGUE_ALERT_BASE_COLOR,
+      'line-width': PRAGUE_ALERT_BASE_WIDTH,
+      'line-opacity': 0,
+      'line-blur': PRAGUE_ALERT_BLUR,
+    },
+  });
+
+  map.addLayer({
     id: 'districts-fill',
     type: 'fill',
     source: 'prague-districts',
@@ -19304,6 +19479,21 @@ function initialiseMap() {
         syncBackend: true,
       });
     });
+    const boundsCheck = resolveDistrictFeatureAtPoint(coords.longitude, coords.latitude);
+    if (boundsCheck.isKnown) {
+      if (!boundsCheck.feature) {
+        triggerPragueOutOfBoundsAlert();
+      }
+    } else if (districtGeoJsonPromise) {
+      districtGeoJsonPromise
+        .then(() => {
+          const lateCheck = resolveDistrictFeatureAtPoint(coords.longitude, coords.latitude);
+          if (lateCheck.isKnown && !lateCheck.feature) {
+            triggerPragueOutOfBoundsAlert();
+          }
+        })
+        .catch(() => {});
+    }
     startLiveLocationWatch();
     if (map && typeof map.getSource === 'function' && map.getSource('prague-districts')) {
       const currentZoom = map.getZoom();

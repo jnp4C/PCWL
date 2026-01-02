@@ -4218,6 +4218,87 @@ body.modal-open {
   overflow: hidden;
 }
 
+.out-of-bounds-alert {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 2400;
+}
+
+.out-of-bounds-alert.is-visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.out-of-bounds-alert-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 0, 24, 0.55);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+}
+
+.out-of-bounds-alert.is-visible .out-of-bounds-alert-backdrop {
+  animation: out-of-bounds-backdrop 2s ease;
+  opacity: 1;
+}
+
+.out-of-bounds-alert-message {
+  position: relative;
+  font-family: 'Bebas Neue', 'Anton', 'Impact', sans-serif;
+  font-size: clamp(2rem, 6vw, 3.4rem);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #f8f4ff;
+  text-shadow:
+    0 6px 18px rgba(20, 6, 45, 0.75),
+    0 0 22px rgba(255, 59, 71, 0.4);
+  opacity: 0;
+}
+
+.out-of-bounds-alert.is-visible .out-of-bounds-alert-message {
+  animation: out-of-bounds-message 2s ease;
+  opacity: 1;
+}
+
+@keyframes out-of-bounds-message {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+  20% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  80% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px) scale(1.02);
+  }
+}
+
+@keyframes out-of-bounds-backdrop {
+  0% {
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 .cooldown-strip {
   display: flex;
   flex-direction: column;
