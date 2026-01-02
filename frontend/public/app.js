@@ -5485,6 +5485,65 @@ function updateStatus(message) {
   }
 }
 
+function resolveLastKnownLocation() {
+  if (Array.isArray(lastKnownLocation) && lastKnownLocation.length === 2) {
+    const [lng, lat] = lastKnownLocation;
+    if (Number.isFinite(lng) && Number.isFinite(lat)) {
+      return { lng, lat };
+    }
+  }
+  const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+  if (profile && profile.lastKnownLocation) {
+    const lng = Number(profile.lastKnownLocation.lng);
+    const lat = Number(profile.lastKnownLocation.lat);
+    if (Number.isFinite(lng) && Number.isFinite(lat)) {
+      return { lng, lat };
+    }
+  }
+  return null;
+}
+
+function centerOnLastKnownLocation() {
+  const coords = resolveLastKnownLocation();
+  if (!coords) {
+    return null;
+  }
+  updatePlayerLocationMarker(coords.lng, coords.lat, { source: 'profile' });
+  if (map && typeof map.easeTo === 'function') {
+    map.easeTo({ center: [coords.lng, coords.lat], duration: 500 });
+  }
+  return coords;
+}
+
+function maybeTriggerOutOfBoundsAlertForCoords(lng, lat, delay = 0) {
+  const check = (coords) => {
+    const boundsCheck = resolveDistrictFeatureAtPoint(coords.lng, coords.lat);
+    if (!boundsCheck.isKnown) {
+      return false;
+    }
+    if (!boundsCheck.feature) {
+      if (delay) {
+        window.setTimeout(() => triggerPragueOutOfBoundsAlert(), delay);
+      } else {
+        triggerPragueOutOfBoundsAlert();
+      }
+      return true;
+    }
+    return false;
+  };
+
+  if (check({ lng, lat })) {
+    return;
+  }
+  if (districtGeoJsonPromise) {
+    districtGeoJsonPromise
+      .then(() => {
+        check({ lng, lat });
+      })
+      .catch(() => {});
+  }
+}
+
 function setPragueAlertGlowPaint({ color, width, opacity }) {
   if (!map || typeof map.getLayer !== 'function' || !map.getLayer(PRAGUE_ALERT_GLOW_LAYER_ID)) {
     return;
@@ -19421,6 +19480,10 @@ function initialiseMap() {
       }
     }
     updateStatus(message);
+    const fallback = centerOnLastKnownLocation();
+    if (fallback) {
+      maybeTriggerOutOfBoundsAlertForCoords(fallback.lng, fallback.lat, 300);
+    }
   });
 
   map.on('load', () => {
@@ -19575,6 +19638,7 @@ function updatePlayerLocationMarker(lng, lat, { source = 'profile' } = {}) {
 if (findMeButton) {
   findMeButton.addEventListener('click', () => {
     ensureMap(() => {
+      centerOnLastKnownLocation();
       if (geolocateControl) {
         geolocateControl.trigger();
       }
@@ -19585,6 +19649,7 @@ if (findMeButton) {
 if (mobileFindMeButton) {
   mobileFindMeButton.addEventListener('click', () => {
     ensureMap(() => {
+      centerOnLastKnownLocation();
       if (geolocateControl) {
         geolocateControl.trigger();
       }
