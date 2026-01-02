@@ -4363,6 +4363,7 @@ let map;
 let mapReady = false;
 let pragueOutOfBoundsAnimationFrame = null;
 let outOfBoundsAlertTimerId = null;
+let outOfBoundsAlertArmed = false;
 let geolocateControl;
 let hasTriggeredGeolocate = false;
 const pendingActions = [];
@@ -5516,6 +5517,9 @@ function centerOnLastKnownLocation() {
 }
 
 function maybeTriggerOutOfBoundsAlertForCoords(lng, lat, delay = 0) {
+  if (!outOfBoundsAlertArmed) {
+    return;
+  }
   const check = (coords) => {
     const boundsCheck = resolveDistrictFeatureAtPoint(coords.lng, coords.lat);
     if (!boundsCheck.isKnown) {
@@ -5527,8 +5531,10 @@ function maybeTriggerOutOfBoundsAlertForCoords(lng, lat, delay = 0) {
       } else {
         triggerPragueOutOfBoundsAlert();
       }
+      outOfBoundsAlertArmed = false;
       return true;
     }
+    outOfBoundsAlertArmed = false;
     return false;
   };
 
@@ -5579,6 +5585,7 @@ function triggerPragueOutOfBoundsAlert() {
   if (!map || typeof map.easeTo !== 'function') {
     return;
   }
+  outOfBoundsAlertArmed = false;
   if (pragueOutOfBoundsAnimationFrame) {
     window.cancelAnimationFrame(pragueOutOfBoundsAnimationFrame);
     pragueOutOfBoundsAnimationFrame = null;
@@ -19482,6 +19489,7 @@ function initialiseMap() {
     updateStatus(message);
     const fallback = centerOnLastKnownLocation();
     if (fallback) {
+      updateStatus('Showing your last known location.');
       maybeTriggerOutOfBoundsAlertForCoords(fallback.lng, fallback.lat, 300);
     }
   });
@@ -19545,14 +19553,24 @@ function initialiseMap() {
     const boundsCheck = resolveDistrictFeatureAtPoint(coords.longitude, coords.latitude);
     if (boundsCheck.isKnown) {
       if (!boundsCheck.feature) {
-        triggerPragueOutOfBoundsAlert();
+        if (outOfBoundsAlertArmed) {
+          triggerPragueOutOfBoundsAlert();
+        }
+      } else if (outOfBoundsAlertArmed) {
+        outOfBoundsAlertArmed = false;
       }
     } else if (districtGeoJsonPromise) {
       districtGeoJsonPromise
         .then(() => {
           const lateCheck = resolveDistrictFeatureAtPoint(coords.longitude, coords.latitude);
-          if (lateCheck.isKnown && !lateCheck.feature) {
-            triggerPragueOutOfBoundsAlert();
+          if (lateCheck.isKnown) {
+            if (!lateCheck.feature) {
+              if (outOfBoundsAlertArmed) {
+                triggerPragueOutOfBoundsAlert();
+              }
+            } else if (outOfBoundsAlertArmed) {
+              outOfBoundsAlertArmed = false;
+            }
           }
         })
         .catch(() => {});
@@ -19614,6 +19632,7 @@ function showMap(triggerGeolocation) {
     hasTriggeredGeolocate = true;
     ensureMap(() => {
       if (geolocateControl) {
+        outOfBoundsAlertArmed = true;
         geolocateControl.trigger();
       }
     });
@@ -19640,6 +19659,7 @@ if (findMeButton) {
     ensureMap(() => {
       centerOnLastKnownLocation();
       if (geolocateControl) {
+        outOfBoundsAlertArmed = true;
         geolocateControl.trigger();
       }
     });
@@ -19651,6 +19671,7 @@ if (mobileFindMeButton) {
     ensureMap(() => {
       centerOnLastKnownLocation();
       if (geolocateControl) {
+        outOfBoundsAlertArmed = true;
         geolocateControl.trigger();
       }
     });
