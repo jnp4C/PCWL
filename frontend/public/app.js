@@ -377,6 +377,9 @@ const PRAGUE_BOUNDS = [
 const PRAGUE_BOUNDS_PADDING = 52;
 const PRAGUE_BOUNDS_MAX_ZOOM = 12.1;
 const OUT_OF_BOUNDS_MAP_READY_DELAY_MS = 5000;
+const OUT_OF_BOUNDS_MESSAGE_DURATION_MS = 2000;
+const OUT_OF_BOUNDS_SECOND_MESSAGE_DELAY_MS = 5000;
+const OUT_OF_BOUNDS_FIND_ME_DELAY_MS = 5000;
 const MAP_STYLE = {
   version: 8,
   name: 'Prague 3D',
@@ -4380,6 +4383,8 @@ let mapReadyAt = 0;
 let pragueOutOfBoundsAnimationFrame = null;
 let outOfBoundsAlertTimerId = null;
 let pragueOutOfBoundsTimeoutId = null;
+let outOfBoundsAlertSequenceTimeoutId = null;
+let outOfBoundsAlertDelayOverride = 0;
 let outOfBoundsAlertArmed = false;
 let geolocateControl;
 let hasTriggeredGeolocate = false;
@@ -5545,6 +5550,12 @@ function resolveOutOfBoundsStartDelay(delayMs = 0) {
   return baseDelay;
 }
 
+function consumeOutOfBoundsDelayOverride() {
+  const delay = outOfBoundsAlertDelayOverride;
+  outOfBoundsAlertDelayOverride = 0;
+  return delay;
+}
+
 function schedulePragueOutOfBoundsAlert(delayMs = 0) {
   if (!map || typeof map.easeTo !== 'function') {
     return;
@@ -5606,7 +5617,7 @@ function maybeTriggerOutOfBoundsAlertForCoords(lng, lat, delay = 0, { force = fa
   }
 }
 
-function setPragueAlertGlowPaint({ color, width, opacity }) {
+function setPragueAlertGlowPaint({ color, width, opacity, blur }) {
   if (!map || typeof map.getLayer !== 'function' || !map.getLayer(PRAGUE_ALERT_GLOW_LAYER_ID)) {
     return;
   }
@@ -5619,7 +5630,11 @@ function setPragueAlertGlowPaint({ color, width, opacity }) {
   if (typeof opacity === 'number') {
     map.setPaintProperty(PRAGUE_ALERT_GLOW_LAYER_ID, 'line-opacity', opacity);
   }
-  map.setPaintProperty(PRAGUE_ALERT_GLOW_LAYER_ID, 'line-blur', PRAGUE_ALERT_BLUR);
+  if (typeof blur === 'number') {
+    map.setPaintProperty(PRAGUE_ALERT_GLOW_LAYER_ID, 'line-blur', blur);
+  } else {
+    map.setPaintProperty(PRAGUE_ALERT_GLOW_LAYER_ID, 'line-blur', PRAGUE_ALERT_BLUR);
+  }
 }
 
 function showOutOfBoundsOverlay(message = null) {
@@ -5638,7 +5653,7 @@ function showOutOfBoundsOverlay(message = null) {
   outOfBoundsAlertTimerId = window.setTimeout(() => {
     outOfBoundsAlert.classList.remove('is-visible');
     outOfBoundsAlert.setAttribute('aria-hidden', 'true');
-  }, 2000);
+  }, OUT_OF_BOUNDS_MESSAGE_DURATION_MS);
 }
 
 function triggerPragueOutOfBoundsAlert() {
@@ -5662,65 +5677,81 @@ function triggerPragueOutOfBoundsAlert() {
     window.cancelAnimationFrame(pragueOutOfBoundsAnimationFrame);
     pragueOutOfBoundsAnimationFrame = null;
   }
-  showOutOfBoundsOverlay('Out of Prague');
-  setPragueAlertGlowPaint({
-    color: PRAGUE_ALERT_BASE_COLOR,
-    width: PRAGUE_ALERT_BASE_WIDTH,
-    opacity: PRAGUE_ALERT_BASE_OPACITY,
-  });
-  if (typeof map.fitBounds === 'function') {
-    map.fitBounds(PRAGUE_BOUNDS, {
-      padding: PRAGUE_BOUNDS_PADDING,
-      duration: 1200,
-      bearing: 0,
-      pitch: 0,
-      maxZoom: PRAGUE_BOUNDS_MAX_ZOOM,
-    });
-  } else {
-    map.easeTo({
-      center: MAP_CENTER,
-      zoom: PRAGUE_BOUNDS_MAX_ZOOM,
-      pitch: 0,
-      bearing: 0,
-      duration: 1200,
-    });
+  if (outOfBoundsAlertSequenceTimeoutId) {
+    window.clearTimeout(outOfBoundsAlertSequenceTimeoutId);
+    outOfBoundsAlertSequenceTimeoutId = null;
   }
-
-  const startTime = performance.now();
-  const duration = 1400;
-  const animate = (now) => {
-    const t = clampNumber((now - startTime) / duration, 0, 1);
-    const pulse = Math.sin(Math.PI * t);
-    const width =
-      lerpNumber(PRAGUE_ALERT_BASE_WIDTH, PRAGUE_ALERT_FINAL_WIDTH, t) +
-      (PRAGUE_ALERT_FLASH_WIDTH - PRAGUE_ALERT_FINAL_WIDTH) * pulse;
-    const opacity = clampNumber(
-      lerpNumber(PRAGUE_ALERT_BASE_OPACITY, PRAGUE_ALERT_FINAL_OPACITY, t) + 0.3 * pulse,
-      0,
-      1
-    );
-    const color =
-      t < 0.5
-        ? interpolateHexColor(PRAGUE_ALERT_BASE_COLOR, PRAGUE_ALERT_FLASH_COLOR, t * 2)
-        : interpolateHexColor(PRAGUE_ALERT_FLASH_COLOR, PRAGUE_ALERT_FINAL_COLOR, (t - 0.5) * 2);
-
-    setPragueAlertGlowPaint({ color, width, opacity });
-
-    if (t < 1) {
-      pragueOutOfBoundsAnimationFrame = window.requestAnimationFrame(animate);
-      return;
+  showOutOfBoundsOverlay('Out of Prague');
+  const startPulse = () => {
+    setPragueAlertGlowPaint({
+      color: PRAGUE_ALERT_BASE_COLOR,
+      width: PRAGUE_ALERT_BASE_WIDTH,
+      opacity: PRAGUE_ALERT_BASE_OPACITY,
+      blur: 0,
+    });
+    if (typeof map.fitBounds === 'function') {
+      map.fitBounds(PRAGUE_BOUNDS, {
+        padding: PRAGUE_BOUNDS_PADDING,
+        duration: 1200,
+        bearing: 0,
+        pitch: 0,
+        maxZoom: PRAGUE_BOUNDS_MAX_ZOOM,
+      });
+    } else {
+      map.easeTo({
+        center: MAP_CENTER,
+        zoom: PRAGUE_BOUNDS_MAX_ZOOM,
+        pitch: 0,
+        bearing: 0,
+        duration: 1200,
+      });
     }
 
-    setPragueAlertGlowPaint({
-      color: PRAGUE_ALERT_FINAL_COLOR,
-      width: PRAGUE_ALERT_FINAL_WIDTH,
-      opacity: PRAGUE_ALERT_FINAL_OPACITY,
-    });
-    pragueOutOfBoundsAnimationFrame = null;
-    showOutOfBoundsOverlay();
+    const startTime = performance.now();
+    const duration = 1400;
+    const animate = (now) => {
+      const t = clampNumber((now - startTime) / duration, 0, 1);
+      const pulse = Math.sin(Math.PI * t);
+      const width =
+        lerpNumber(PRAGUE_ALERT_BASE_WIDTH, PRAGUE_ALERT_FINAL_WIDTH, t) +
+        (PRAGUE_ALERT_FLASH_WIDTH - PRAGUE_ALERT_FINAL_WIDTH) * pulse;
+      const opacity = clampNumber(
+        lerpNumber(PRAGUE_ALERT_BASE_OPACITY, PRAGUE_ALERT_FINAL_OPACITY, t) + 0.3 * pulse,
+        0,
+        1
+      );
+      const color =
+        t < 0.5
+          ? interpolateHexColor(PRAGUE_ALERT_BASE_COLOR, PRAGUE_ALERT_FLASH_COLOR, t * 2)
+          : interpolateHexColor(PRAGUE_ALERT_FLASH_COLOR, PRAGUE_ALERT_FINAL_COLOR, (t - 0.5) * 2);
+
+      setPragueAlertGlowPaint({ color, width, opacity, blur: 0 });
+
+      if (t < 1) {
+        pragueOutOfBoundsAnimationFrame = window.requestAnimationFrame(animate);
+        return;
+      }
+
+      setPragueAlertGlowPaint({
+        color: PRAGUE_ALERT_FINAL_COLOR,
+        width: PRAGUE_ALERT_FINAL_WIDTH,
+        opacity: PRAGUE_ALERT_FINAL_OPACITY,
+        blur: 0,
+      });
+      pragueOutOfBoundsAnimationFrame = null;
+      outOfBoundsAlertSequenceTimeoutId = window.setTimeout(() => {
+        outOfBoundsAlertSequenceTimeoutId = null;
+        showOutOfBoundsOverlay();
+      }, OUT_OF_BOUNDS_SECOND_MESSAGE_DELAY_MS);
+    };
+
+    pragueOutOfBoundsAnimationFrame = window.requestAnimationFrame(animate);
   };
 
-  pragueOutOfBoundsAnimationFrame = window.requestAnimationFrame(animate);
+  outOfBoundsAlertSequenceTimeoutId = window.setTimeout(() => {
+    outOfBoundsAlertSequenceTimeoutId = null;
+    startPulse();
+  }, OUT_OF_BOUNDS_MESSAGE_DURATION_MS);
 }
 
 function isMobileViewport() {
@@ -19716,11 +19747,12 @@ function initialiseMap() {
     if (boundsCheck.isKnown) {
       if (!boundsCheck.feature) {
         if (outOfBoundsAlertArmed) {
-          schedulePragueOutOfBoundsAlert();
+          schedulePragueOutOfBoundsAlert(consumeOutOfBoundsDelayOverride());
         }
       } else if (outOfBoundsAlertArmed) {
         outOfBoundsAlertArmed = false;
       }
+      outOfBoundsAlertDelayOverride = 0;
     } else if (districtGeoJsonPromise) {
       districtGeoJsonPromise
         .then(() => {
@@ -19728,12 +19760,13 @@ function initialiseMap() {
           if (lateCheck.isKnown) {
             if (!lateCheck.feature) {
               if (outOfBoundsAlertArmed) {
-                schedulePragueOutOfBoundsAlert();
+                schedulePragueOutOfBoundsAlert(consumeOutOfBoundsDelayOverride());
               }
             } else if (outOfBoundsAlertArmed) {
               outOfBoundsAlertArmed = false;
             }
           }
+          outOfBoundsAlertDelayOverride = 0;
         })
         .catch(() => {});
     }
@@ -19822,6 +19855,7 @@ if (findMeButton) {
       centerOnLastKnownLocation();
       if (geolocateControl) {
         outOfBoundsAlertArmed = true;
+        outOfBoundsAlertDelayOverride = OUT_OF_BOUNDS_FIND_ME_DELAY_MS;
         geolocateControl.trigger();
       }
     });
@@ -19834,6 +19868,7 @@ if (mobileFindMeButton) {
       centerOnLastKnownLocation();
       if (geolocateControl) {
         outOfBoundsAlertArmed = true;
+        outOfBoundsAlertDelayOverride = OUT_OF_BOUNDS_FIND_ME_DELAY_MS;
         geolocateControl.trigger();
       }
     });
