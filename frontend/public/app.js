@@ -1707,10 +1707,8 @@ function renderCooldownStrip(now = Date.now()) {
   // Include active party 3h countdown chip in the main cooldown strip
   const activeParty = getActivePartyState ? getActivePartyState() : null;
   const partyEntries = [];
-  const boostReady =
-    activeParty &&
-    (activeParty.boostReady || activeParty.activeDistrictReady || (activeParty.activeDistrictCount || 0) >= 2);
-  if (activeParty && boostReady && Number.isFinite(activeParty.expiresAt)) {
+  const boostReady = activeParty ? isPartyBoostReady(activeParty) : false;
+  if (activeParty && Number.isFinite(activeParty.expiresAt)) {
     const createdAt = Number.isFinite(activeParty.createdAt)
       ? activeParty.createdAt
       : activeParty.expiresAt - PARTY_DURATION_MS;
@@ -1728,6 +1726,7 @@ function renderCooldownStrip(now = Date.now()) {
         name: activeParty.name || '',
         membersCount,
         size,
+        waiting: !boostReady,
       },
     });
   }
@@ -1802,19 +1801,20 @@ function renderCooldownStrip(now = Date.now()) {
         track.appendChild(fill);
         const label = document.createElement('span');
         label.className = 'cooldown-time';
-        const expiresText = typeof formatPartyCountdown === 'function' && Number.isFinite(info.expiresAt)
+        const expiresText = !info.waiting && typeof formatPartyCountdown === 'function' && Number.isFinite(info.expiresAt)
           ? formatPartyCountdown(info.expiresAt)
           : formatCooldownTime(remaining);
         const partyName = info.name ? info.name : '';
         const membersCount = Number.isFinite(info.membersCount) ? Number(info.membersCount) : 0;
         const size = Number.isFinite(info.size) && info.size > 0 ? Number(info.size) : Math.max(1, membersCount || 1);
         const memberLabel = `${membersCount}/${size} players`;
+        const waitingLabel = info.waiting ? 'Waiting for teammates - invite friends' : `${expiresText} left`;
         label.textContent = partyName
-          ? `${partyName} • ${memberLabel} • ${expiresText} left`
-          : `Party boost • ${memberLabel} • ${expiresText} left`;
+          ? `${partyName} • ${memberLabel} • ${waitingLabel}`
+          : `Party boost • ${memberLabel} • ${waitingLabel}`;
         partyButton.setAttribute(
           'aria-label',
-          `${partyName || 'Party boost'} — ${memberLabel} — ${expiresText} remaining`,
+          `${partyName || 'Party boost'} — ${memberLabel} — ${waitingLabel}`,
         );
         partyButton.appendChild(track);
         partyButton.appendChild(label);
@@ -9278,6 +9278,9 @@ function renderPlayerState() {
     if (mobileCheckInButton) {
       mobileCheckInButton.setAttribute('disabled', 'disabled');
     }
+    if (mobilePartyButton) {
+      mobilePartyButton.setAttribute('disabled', 'disabled');
+    }
     return;
   }
 
@@ -9298,6 +9301,9 @@ function renderPlayerState() {
   }
   if (mobileCheckInButton) {
     mobileCheckInButton.removeAttribute('disabled');
+  }
+  if (mobilePartyButton) {
+    mobilePartyButton.removeAttribute('disabled');
   }
   if (devOptionsContainer && devSkipCooldownCheckbox && devChangeUserButton) {
     if (isDevUser(currentUser)) {
@@ -10744,6 +10750,13 @@ function formatPartyMultiplier(value) {
   return Number.isInteger(value) ? `×${value}` : `×${value.toFixed(1)}`;
 }
 
+function isPartyBoostReady(party) {
+  if (!party || typeof party !== 'object') {
+    return false;
+  }
+  return Boolean(party.boostReady || party.activeDistrictReady || (party.activeDistrictCount || 0) >= 2);
+}
+
 function formatPartyStatus(activeState, pendingInvites = 0, firstPendingInvite = null, profile = null) {
   if (!activeState) {
     if (pendingInvites > 0) {
@@ -10782,7 +10795,7 @@ function formatPartyStatus(activeState, pendingInvites = 0, firstPendingInvite =
     header,
     `${playerCount} player${playerCount === 1 ? '' : 's'}`,
     boostReady && expiresIn ? `${expiresIn} left` : null,
-    !boostReady ? 'Waiting for a teammate to start boost' : null,
+    !boostReady ? 'Waiting for teammates to start boost. Invite them now.' : null,
     activeDistrictLabel ? `Active in ${activeDistrictLabel}` : null,
     Number.isFinite(activeState.districtPrestige) && activeState.districtPrestige > 0
       ? `Prestige +${Math.round(activeState.districtPrestige)} pts`
@@ -11093,10 +11106,7 @@ function renderPartyPanelChip(now = Date.now()) {
     const memberCount = Array.isArray(activeParty.members) ? activeParty.members.length : 0;
     const capacity = 5;
     const memberLabel = `${memberCount}/${capacity} players`;
-    const boostReady =
-      activeParty.boostReady ||
-      activeParty.activeDistrictReady ||
-      (activeParty.activeDistrictCount || 0) >= 2;
+    const boostReady = isPartyBoostReady(activeParty);
     const districtLabel =
       (activeParty.activeDistrictName && activeParty.activeDistrictName.trim()) ||
       (activeParty.activeDistrictCode ? `District ${activeParty.activeDistrictCode}` : '');
@@ -11143,7 +11153,9 @@ function renderPartyPanelChip(now = Date.now()) {
     label.textContent = partyName;
     const meta = document.createElement('span');
     meta.className = 'friend-party-chip-meta';
-    const waitingLabel = districtLabel ? `Waiting in ${districtLabel}` : 'Waiting for teammates';
+    const waitingLabel = districtLabel
+      ? `Waiting in ${districtLabel} - invite friends`
+      : 'Waiting for teammates - invite friends';
     meta.textContent = `${memberLabel} • ${waitingLabel}`;
     button.appendChild(dot);
     button.appendChild(label);
@@ -11245,6 +11257,15 @@ function renderPartyPanelChip(now = Date.now()) {
 
   // No active party and no invite: hide chip area
   friendsPartyChip.classList.add('hidden');
+}
+
+function openPartyBoostWindow(trigger = null) {
+  openFriendsDrawer(trigger || friendsButton || null);
+  if (friendsPartySection && typeof friendsPartySection.scrollIntoView === 'function') {
+    window.setTimeout(() => {
+      friendsPartySection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 120);
+  }
 }
 
 function renderPartyInvitations() {
@@ -11665,6 +11686,59 @@ async function startPartyWithFriend(username, options = {}) {
     } else if (result.message) {
       updateStatus(result.message);
     }
+}
+
+async function startPartySolo() {
+  if (!currentUser || !isSessionAuthenticated) {
+    updateStatus('Sign in to start a party.');
+    return;
+  }
+  const existingParty = getActivePartyState();
+  if (existingParty) {
+    updateStatus(
+      existingParty.isLeader
+        ? 'You already lead an active party. Invite friends from the party panel.'
+        : 'You already joined a party. Ask your leader to invite friends.',
+    );
+    renderPartyInvitations();
+    renderPartyPanelChip();
+    return;
+  }
+  const draftName = friendsPartyNameInput ? friendsPartyNameInput.value.trim() : '';
+  if (draftName && draftName.length < PARTY_NAME_MIN_LENGTH) {
+    updateStatus(`Party name must be at least ${PARTY_NAME_MIN_LENGTH} characters.`);
+    const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+    refreshPartyNameControls(getActivePartyState(), profile);
+    return;
+  }
+  if (draftName.length > PARTY_NAME_MAX_LENGTH) {
+    updateStatus(`Party name must be at most ${PARTY_NAME_MAX_LENGTH} characters.`);
+    const profile = currentUser && players[currentUser] ? ensurePlayerProfile(currentUser) : null;
+    refreshPartyNameControls(getActivePartyState(), profile);
+    return;
+  }
+  try {
+    const requestOptions = { method: 'POST' };
+    if (draftName && draftName.length >= PARTY_NAME_MIN_LENGTH) {
+      requestOptions.body = { name: draftName };
+    }
+    await apiRequest('party/', requestOptions);
+  } catch (error) {
+    const detail = error?.data?.detail || error?.message || 'Unable to start a party.';
+    updateStatus(detail);
+    console.warn('Failed to start solo party', error);
+    await refreshPartyState(false, { silent: true });
+    renderPartyInvitations();
+    renderPartyPanelChip();
+    return;
+  }
+  updateStatus('Party started. Invite friends to kick off the boost.');
+  await refreshPartyState(false, { silent: true, syncPlayer: true });
+  renderPartyInvitations();
+  renderPartyPanelChip();
+  renderCooldownStrip();
+  renderPartyBoostBox();
+  startPartyPolling({ immediate: true });
 }
 
 async function addFriendToParty(username) {
@@ -19712,7 +19786,12 @@ if (mobileCheckInButton) {
 
 if (mobilePartyButton) {
   mobilePartyButton.addEventListener('click', () => {
-    updateStatus('Party creation is coming soon.');
+    const activeParty = getActivePartyState();
+    if (activeParty) {
+      openPartyBoostWindow(mobilePartyButton);
+      return;
+    }
+    startPartySolo();
   });
 }
 
@@ -20011,12 +20090,7 @@ if (cooldownStrip) {
     const panelChip = event.target.closest('[data-party-panel-chip]');
     if (panelChip && panelChip.dataset.partyPanelChip === 'active-party') {
       event.preventDefault();
-      openFriendsDrawer(friendsButton || null);
-      if (friendsPartySection && typeof friendsPartySection.scrollIntoView === 'function') {
-        window.setTimeout(() => {
-          friendsPartySection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }, 120);
-      }
+      openPartyBoostWindow(friendsButton || null);
     }
   });
 }
@@ -20056,20 +20130,20 @@ if (friendsPartyChip) {
           friendsPartyInvitationsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }, 120);
       }
-    } else if (type === 'active-party') {
-      if (partyCode) {
-        closeFriendsDrawer({ restoreFocus: false });
-        openPartyProfileDrawer(partyCode, chip);
-      } else {
-        openFriendsDrawer(friendsButton || null);
-        if (friendsPartySection && typeof friendsPartySection.scrollIntoView === 'function') {
-          window.setTimeout(() => {
-            friendsPartySection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }, 120);
-        }
-      }
+  } else if (type === 'active-party') {
+    const activeParty = getActivePartyState();
+    if (activeParty && activeParty.isLeader && !isPartyBoostReady(activeParty)) {
+      openPartyBoostWindow(chip);
+      return;
     }
-  });
+    if (partyCode) {
+      closeFriendsDrawer({ restoreFocus: false });
+      openPartyProfileDrawer(partyCode, chip);
+    } else {
+      openPartyBoostWindow(friendsButton || null);
+    }
+  }
+});
 }
 
 if (districtButton) {
