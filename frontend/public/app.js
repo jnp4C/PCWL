@@ -364,6 +364,13 @@ const statusBox = document.getElementById('status');
 const outOfBoundsAlert = document.getElementById('out-of-bounds-alert');
 
 const MAP_CENTER = [14.4205, 50.0875];
+const PRAGUE_BOUNDS = [
+  [14.224437012000067, 49.94190007000003],
+  [14.706787572000053, 50.17742967400005],
+];
+const PRAGUE_BOUNDS_PADDING = 52;
+const PRAGUE_BOUNDS_MAX_ZOOM = 12.1;
+const OUT_OF_BOUNDS_MAP_READY_DELAY_MS = 5000;
 const MAP_STYLE = {
   version: 8,
   name: 'Prague 3D',
@@ -4363,6 +4370,7 @@ function handleHomeDistrictSearchInput(event) {
 
 let map;
 let mapReady = false;
+let mapReadyAt = 0;
 let pragueOutOfBoundsAnimationFrame = null;
 let outOfBoundsAlertTimerId = null;
 let pragueOutOfBoundsTimeoutId = null;
@@ -5519,6 +5527,45 @@ function centerOnLastKnownLocation() {
   return coords;
 }
 
+function resolveOutOfBoundsStartDelay(delayMs = 0) {
+  const baseDelay = Number.isFinite(delayMs) ? Math.max(0, delayMs) : 0;
+  if (!mapReadyAt) {
+    return Math.max(baseDelay, OUT_OF_BOUNDS_MAP_READY_DELAY_MS);
+  }
+  const elapsed = Date.now() - mapReadyAt;
+  if (elapsed < OUT_OF_BOUNDS_MAP_READY_DELAY_MS) {
+    return Math.max(baseDelay, OUT_OF_BOUNDS_MAP_READY_DELAY_MS - elapsed);
+  }
+  return baseDelay;
+}
+
+function schedulePragueOutOfBoundsAlert(delayMs = 0) {
+  if (!map || typeof map.easeTo !== 'function') {
+    return;
+  }
+  if (!mapReady) {
+    pendingActions.push(() => schedulePragueOutOfBoundsAlert(delayMs));
+    return;
+  }
+  if (pragueOutOfBoundsTimeoutId) {
+    window.clearTimeout(pragueOutOfBoundsTimeoutId);
+    pragueOutOfBoundsTimeoutId = null;
+  }
+  if (pragueOutOfBoundsAnimationFrame) {
+    window.cancelAnimationFrame(pragueOutOfBoundsAnimationFrame);
+    pragueOutOfBoundsAnimationFrame = null;
+  }
+  const startDelay = resolveOutOfBoundsStartDelay(delayMs);
+  if (startDelay) {
+    pragueOutOfBoundsTimeoutId = window.setTimeout(() => {
+      pragueOutOfBoundsTimeoutId = null;
+      triggerPragueOutOfBoundsAlert();
+    }, startDelay);
+  } else {
+    triggerPragueOutOfBoundsAlert();
+  }
+}
+
 function maybeTriggerOutOfBoundsAlertForCoords(lng, lat, delay = 0, { force = false } = {}) {
   if (!outOfBoundsAlertArmed && !force) {
     return;
@@ -5529,11 +5576,7 @@ function maybeTriggerOutOfBoundsAlertForCoords(lng, lat, delay = 0, { force = fa
       return false;
     }
     if (!boundsCheck.feature) {
-      if (delay) {
-        window.setTimeout(() => triggerPragueOutOfBoundsAlert(), delay);
-      } else {
-        triggerPragueOutOfBoundsAlert();
-      }
+      schedulePragueOutOfBoundsAlert(delay);
       if (!force) {
         outOfBoundsAlertArmed = false;
       }
@@ -5551,7 +5594,7 @@ function maybeTriggerOutOfBoundsAlertForCoords(lng, lat, delay = 0, { force = fa
   if (districtGeoJsonPromise) {
     districtGeoJsonPromise
       .then(() => {
-    check({ lng, lat });
+        check({ lng, lat });
       })
       .catch(() => {});
   }
@@ -5610,56 +5653,64 @@ function triggerPragueOutOfBoundsAlert() {
     pragueOutOfBoundsAnimationFrame = null;
   }
   showOutOfBoundsOverlay();
-  pragueOutOfBoundsTimeoutId = window.setTimeout(() => {
-    pragueOutOfBoundsTimeoutId = null;
-    setPragueAlertGlowPaint({
-      color: PRAGUE_ALERT_BASE_COLOR,
-      width: PRAGUE_ALERT_BASE_WIDTH,
-      opacity: PRAGUE_ALERT_BASE_OPACITY,
+  setPragueAlertGlowPaint({
+    color: PRAGUE_ALERT_BASE_COLOR,
+    width: PRAGUE_ALERT_BASE_WIDTH,
+    opacity: PRAGUE_ALERT_BASE_OPACITY,
+  });
+  if (typeof map.fitBounds === 'function') {
+    map.fitBounds(PRAGUE_BOUNDS, {
+      padding: PRAGUE_BOUNDS_PADDING,
+      duration: 1200,
+      bearing: 0,
+      pitch: 0,
+      maxZoom: PRAGUE_BOUNDS_MAX_ZOOM,
     });
+  } else {
     map.easeTo({
       center: MAP_CENTER,
-      zoom: 12.4,
+      zoom: PRAGUE_BOUNDS_MAX_ZOOM,
       pitch: 0,
       bearing: 0,
       duration: 1200,
     });
+  }
 
-    const startTime = performance.now();
-    const duration = 1400;
-    const animate = (now) => {
-      const t = clampNumber((now - startTime) / duration, 0, 1);
-      const pulse = Math.sin(Math.PI * t);
-      const width =
-        lerpNumber(PRAGUE_ALERT_BASE_WIDTH, PRAGUE_ALERT_FINAL_WIDTH, t) +
-        (PRAGUE_ALERT_FLASH_WIDTH - PRAGUE_ALERT_FINAL_WIDTH) * pulse;
-      const opacity = clampNumber(
-        lerpNumber(PRAGUE_ALERT_BASE_OPACITY, PRAGUE_ALERT_FINAL_OPACITY, t) + 0.3 * pulse,
-        0,
-        1
-      );
-      const color =
-        t < 0.5
-          ? interpolateHexColor(PRAGUE_ALERT_BASE_COLOR, PRAGUE_ALERT_FLASH_COLOR, t * 2)
-          : interpolateHexColor(PRAGUE_ALERT_FLASH_COLOR, PRAGUE_ALERT_FINAL_COLOR, (t - 0.5) * 2);
+  const startTime = performance.now();
+  const duration = 1400;
+  const animate = (now) => {
+    const t = clampNumber((now - startTime) / duration, 0, 1);
+    const pulse = Math.sin(Math.PI * t);
+    const width =
+      lerpNumber(PRAGUE_ALERT_BASE_WIDTH, PRAGUE_ALERT_FINAL_WIDTH, t) +
+      (PRAGUE_ALERT_FLASH_WIDTH - PRAGUE_ALERT_FINAL_WIDTH) * pulse;
+    const opacity = clampNumber(
+      lerpNumber(PRAGUE_ALERT_BASE_OPACITY, PRAGUE_ALERT_FINAL_OPACITY, t) + 0.3 * pulse,
+      0,
+      1
+    );
+    const color =
+      t < 0.5
+        ? interpolateHexColor(PRAGUE_ALERT_BASE_COLOR, PRAGUE_ALERT_FLASH_COLOR, t * 2)
+        : interpolateHexColor(PRAGUE_ALERT_FLASH_COLOR, PRAGUE_ALERT_FINAL_COLOR, (t - 0.5) * 2);
 
-      setPragueAlertGlowPaint({ color, width, opacity });
+    setPragueAlertGlowPaint({ color, width, opacity });
 
-      if (t < 1) {
-        pragueOutOfBoundsAnimationFrame = window.requestAnimationFrame(animate);
-        return;
-      }
+    if (t < 1) {
+      pragueOutOfBoundsAnimationFrame = window.requestAnimationFrame(animate);
+      return;
+    }
 
-      setPragueAlertGlowPaint({
-        color: PRAGUE_ALERT_FINAL_COLOR,
-        width: PRAGUE_ALERT_FINAL_WIDTH,
-        opacity: PRAGUE_ALERT_FINAL_OPACITY,
-      });
-      pragueOutOfBoundsAnimationFrame = null;
-    };
+    setPragueAlertGlowPaint({
+      color: PRAGUE_ALERT_FINAL_COLOR,
+      width: PRAGUE_ALERT_FINAL_WIDTH,
+      opacity: PRAGUE_ALERT_FINAL_OPACITY,
+    });
+    pragueOutOfBoundsAnimationFrame = null;
+    showOutOfBoundsOverlay();
+  };
 
-    pragueOutOfBoundsAnimationFrame = window.requestAnimationFrame(animate);
-  }, 2000);
+  pragueOutOfBoundsAnimationFrame = window.requestAnimationFrame(animate);
 }
 
 function isMobileViewport() {
@@ -19597,6 +19648,7 @@ function initialiseMap() {
   map.on('load', () => {
     addSourcesAndLayers();
     mapReady = true;
+    mapReadyAt = Date.now();
     const secureOrigin = isSecureOrigin();
     setGeolocationUiState(secureOrigin);
     if (secureOrigin) {
@@ -19654,7 +19706,7 @@ function initialiseMap() {
     if (boundsCheck.isKnown) {
       if (!boundsCheck.feature) {
         if (outOfBoundsAlertArmed) {
-          triggerPragueOutOfBoundsAlert();
+          schedulePragueOutOfBoundsAlert();
         }
       } else if (outOfBoundsAlertArmed) {
         outOfBoundsAlertArmed = false;
@@ -19666,7 +19718,7 @@ function initialiseMap() {
           if (lateCheck.isKnown) {
             if (!lateCheck.feature) {
               if (outOfBoundsAlertArmed) {
-                triggerPragueOutOfBoundsAlert();
+                schedulePragueOutOfBoundsAlert();
               }
             } else if (outOfBoundsAlertArmed) {
               outOfBoundsAlertArmed = false;

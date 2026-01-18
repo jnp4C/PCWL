@@ -358,6 +358,13 @@ body[data-theme='dark'] .app-version-badge {
   pointer-events: none;
 }
 
+.fab-party .fab-icon {
+  width: 1.45rem;
+  height: 1.45rem;
+  transform: scale(1.25);
+  transform-origin: center;
+}
+
 .fab-button[disabled] {
   opacity: 1;
   pointer-events: none;
