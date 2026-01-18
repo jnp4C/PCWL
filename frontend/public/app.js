@@ -379,7 +379,7 @@ const PRAGUE_BOUNDS_MAX_ZOOM = 12.1;
 const OUT_OF_BOUNDS_MAP_READY_DELAY_MS = 5000;
 const OUT_OF_BOUNDS_MESSAGE_DURATION_MS = 2000;
 const OUT_OF_BOUNDS_SECOND_MESSAGE_DELAY_MS = 5000;
-const OUT_OF_BOUNDS_FIND_ME_DELAY_MS = 5000;
+const OUT_OF_BOUNDS_FIND_ME_DELAY_MS = 3000;
 const OUT_OF_BOUNDS_PULSE_COUNT = 3;
 const OUT_OF_BOUNDS_PULSE_GAP_MS = 400;
 const OUT_OF_BOUNDS_PULSE_DURATION_MS = 1400;
@@ -4389,6 +4389,7 @@ let outOfBoundsAlertTimerId = null;
 let pragueOutOfBoundsTimeoutId = null;
 let outOfBoundsAlertSequenceTimeoutId = null;
 let outOfBoundsAlertDelayOverride = 0;
+let outOfBoundsAlertPendingFindMe = false;
 let outOfBoundsAlertArmed = false;
 let geolocateControl;
 let hasTriggeredGeolocate = false;
@@ -19769,12 +19770,19 @@ function initialiseMap() {
     if (boundsCheck.isKnown) {
       if (!boundsCheck.feature) {
         if (outOfBoundsAlertArmed) {
-          schedulePragueOutOfBoundsAlert(consumeOutOfBoundsDelayOverride());
+          if (outOfBoundsAlertPendingFindMe && map && typeof map.isMoving === 'function' && map.isMoving()) {
+            map.once('moveend', () => {
+              schedulePragueOutOfBoundsAlert(OUT_OF_BOUNDS_FIND_ME_DELAY_MS);
+            });
+          } else {
+            schedulePragueOutOfBoundsAlert(consumeOutOfBoundsDelayOverride());
+          }
         }
       } else if (outOfBoundsAlertArmed) {
         outOfBoundsAlertArmed = false;
       }
       outOfBoundsAlertDelayOverride = 0;
+      outOfBoundsAlertPendingFindMe = false;
     } else if (districtGeoJsonPromise) {
       districtGeoJsonPromise
         .then(() => {
@@ -19782,13 +19790,20 @@ function initialiseMap() {
           if (lateCheck.isKnown) {
             if (!lateCheck.feature) {
               if (outOfBoundsAlertArmed) {
-                schedulePragueOutOfBoundsAlert(consumeOutOfBoundsDelayOverride());
+                if (outOfBoundsAlertPendingFindMe && map && typeof map.isMoving === 'function' && map.isMoving()) {
+                  map.once('moveend', () => {
+                    schedulePragueOutOfBoundsAlert(OUT_OF_BOUNDS_FIND_ME_DELAY_MS);
+                  });
+                } else {
+                  schedulePragueOutOfBoundsAlert(consumeOutOfBoundsDelayOverride());
+                }
               }
             } else if (outOfBoundsAlertArmed) {
               outOfBoundsAlertArmed = false;
             }
           }
           outOfBoundsAlertDelayOverride = 0;
+          outOfBoundsAlertPendingFindMe = false;
         })
         .catch(() => {});
     }
@@ -19878,6 +19893,7 @@ if (findMeButton) {
       if (geolocateControl) {
         outOfBoundsAlertArmed = true;
         outOfBoundsAlertDelayOverride = OUT_OF_BOUNDS_FIND_ME_DELAY_MS;
+        outOfBoundsAlertPendingFindMe = true;
         geolocateControl.trigger();
       }
     });
@@ -19891,6 +19907,7 @@ if (mobileFindMeButton) {
       if (geolocateControl) {
         outOfBoundsAlertArmed = true;
         outOfBoundsAlertDelayOverride = OUT_OF_BOUNDS_FIND_ME_DELAY_MS;
+        outOfBoundsAlertPendingFindMe = true;
         geolocateControl.trigger();
       }
     });
