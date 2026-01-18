@@ -362,6 +362,12 @@ const welcomeScreen = document.getElementById('welcome-screen');
 const gameScreen = document.getElementById('game-screen');
 const statusBox = document.getElementById('status');
 const outOfBoundsAlert = document.getElementById('out-of-bounds-alert');
+const outOfBoundsAlertMessage = outOfBoundsAlert
+  ? outOfBoundsAlert.querySelector('.out-of-bounds-alert-message')
+  : null;
+const OUT_OF_BOUNDS_DEFAULT_MESSAGE = outOfBoundsAlertMessage
+  ? outOfBoundsAlertMessage.textContent
+  : 'come back soon!';
 
 const MAP_CENTER = [14.4205, 50.0875];
 const PRAGUE_BOUNDS = [
@@ -5616,9 +5622,13 @@ function setPragueAlertGlowPaint({ color, width, opacity }) {
   map.setPaintProperty(PRAGUE_ALERT_GLOW_LAYER_ID, 'line-blur', PRAGUE_ALERT_BLUR);
 }
 
-function showOutOfBoundsOverlay() {
+function showOutOfBoundsOverlay(message = null) {
   if (!outOfBoundsAlert) {
     return;
+  }
+  if (outOfBoundsAlertMessage) {
+    outOfBoundsAlertMessage.textContent =
+      typeof message === 'string' && message.trim() ? message : OUT_OF_BOUNDS_DEFAULT_MESSAGE;
   }
   outOfBoundsAlert.classList.add('is-visible');
   outOfBoundsAlert.setAttribute('aria-hidden', 'false');
@@ -5652,7 +5662,7 @@ function triggerPragueOutOfBoundsAlert() {
     window.cancelAnimationFrame(pragueOutOfBoundsAnimationFrame);
     pragueOutOfBoundsAnimationFrame = null;
   }
-  showOutOfBoundsOverlay();
+  showOutOfBoundsOverlay('Out of Prague');
   setPragueAlertGlowPaint({
     color: PRAGUE_ALERT_BASE_COLOR,
     width: PRAGUE_ALERT_BASE_WIDTH,
