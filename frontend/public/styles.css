@@ -5744,7 +5744,6 @@ button.secondary:hover,
     background-color: rgba(255, 255, 255, 1);
     box-shadow: 0 18px 36px rgba(15, 6, 32, 0.28);
     flex: 0 0 auto;
-    margin-left: auto;
     border: none;
     transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.2s ease;
     color: transparent;
@@ -5758,10 +5757,32 @@ button.secondary:hover,
     background-color: rgba(255, 255, 255, 1);
   }
 
+  .fab-party {
+    width: 2.6rem;
+    height: 2.6rem;
+    padding: 0;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 1);
+    box-shadow: 0 18px 36px rgba(15, 6, 32, 0.28);
+    flex: 0 0 auto;
+    margin-left: auto;
+    border: none;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.2s ease;
+    color: transparent;
+  }
+
+  .fab-party:hover {
+    background-color: rgba(255, 255, 255, 1);
+  }
+
+  .fab-party[disabled] {
+    background-color: rgba(255, 255, 255, 1);
+  }
+
   #drawer-toggle {
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     justify-content: center;
-    padding: 0.65rem 1.2rem;
+    padding: 0.55rem 0.9rem;
     background: linear-gradient(135deg, rgba(76, 29, 149, 0.98), rgba(118, 55, 188, 0.92));
     box-shadow: 0 20px 42px rgba(15, 6, 32, 0.38);
     width: auto;

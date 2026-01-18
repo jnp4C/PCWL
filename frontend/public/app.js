@@ -63,6 +63,7 @@ const recentCheckinsToggleButton = document.getElementById('recent-checkins-togg
 const recentCheckinsEmptyState = document.getElementById('recent-checkins-empty');
 const mobileFindMeButton = document.getElementById('mobile-find-me-button');
 const mobileCheckInButton = document.getElementById('mobile-checkin-button');
+const mobilePartyButton = document.getElementById('mobile-party-button');
 const drawerCheckinButton = document.getElementById('drawer-checkin-button');
 const drawerLogoutButton = document.getElementById('drawer-logout-button');
 const drawerThemeToggleButton = document.getElementById('drawer-theme-toggle');
@@ -19706,6 +19707,12 @@ if (mobileFindMeButton) {
 if (mobileCheckInButton) {
   mobileCheckInButton.addEventListener('click', () => {
     handleCheckIn();
+  });
+}
+
+if (mobilePartyButton) {
+  mobilePartyButton.addEventListener('click', () => {
+    updateStatus('Party creation is coming soon.');
   });
 }
 
