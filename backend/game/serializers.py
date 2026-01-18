@@ -7,7 +7,13 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from .models import CheckIn, District, FriendLink, FriendRequest, Player
-from .services import _normalise_district_code, _refresh_streak_state, _streak_effective_days, _streak_multiplier
+from .services import (
+    _normalise_district_code,
+    _refresh_streak_state,
+    _streak_effective_days,
+    _streak_multiplier,
+    get_active_party,
+)
 
 
 DEFAULT_MAP_MARKER_COLOR = "#6366f1"
@@ -778,6 +784,7 @@ class PlayerPublicProfileSerializer(serializers.ModelSerializer):
     is_friend = serializers.SerializerMethodField()
     is_self = serializers.SerializerMethodField()
     streak_multiplier = serializers.SerializerMethodField()
+    party_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Player
@@ -787,6 +794,10 @@ class PlayerPublicProfileSerializer(serializers.ModelSerializer):
             "profile_bio",
             "profile_image_url",
             "map_marker_color",
+            "score",
+            "home_district",
+            "home_district_name",
+            "party_name",
             "streak_days",
             "streak_multiplier",
             "is_friend",
@@ -808,3 +819,11 @@ class PlayerPublicProfileSerializer(serializers.ModelSerializer):
         today = timezone.localdate()
         days = _streak_effective_days(obj, today)
         return float(_streak_multiplier(days))
+
+    def get_party_name(self, obj: Player) -> str:
+        party = get_active_party(obj)
+        if party and party.name:
+            return party.name
+        if party and party.code:
+            return f"Party {party.code}"
+        return (obj.preferred_party_name or "").strip()

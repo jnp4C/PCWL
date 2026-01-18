@@ -3124,6 +3124,7 @@ function startLiveLocationWatch() {
         syncBackend: true,
       });
     });
+    maybeTriggerOutOfBoundsAlertForCoords(lng, lat, 0, { force: true });
   };
 
   const handleError = (error) => {
@@ -5517,8 +5518,8 @@ function centerOnLastKnownLocation() {
   return coords;
 }
 
-function maybeTriggerOutOfBoundsAlertForCoords(lng, lat, delay = 0) {
-  if (!outOfBoundsAlertArmed) {
+function maybeTriggerOutOfBoundsAlertForCoords(lng, lat, delay = 0, { force = false } = {}) {
+  if (!outOfBoundsAlertArmed && !force) {
     return;
   }
   const check = (coords) => {
@@ -5532,10 +5533,14 @@ function maybeTriggerOutOfBoundsAlertForCoords(lng, lat, delay = 0) {
       } else {
         triggerPragueOutOfBoundsAlert();
       }
-      outOfBoundsAlertArmed = false;
+      if (!force) {
+        outOfBoundsAlertArmed = false;
+      }
       return true;
     }
-    outOfBoundsAlertArmed = false;
+    if (!force) {
+      outOfBoundsAlertArmed = false;
+    }
     return false;
   };
 
@@ -5545,7 +5550,7 @@ function maybeTriggerOutOfBoundsAlertForCoords(lng, lat, delay = 0) {
   if (districtGeoJsonPromise) {
     districtGeoJsonPromise
       .then(() => {
-        check({ lng, lat });
+    check({ lng, lat });
       })
       .catch(() => {});
   }

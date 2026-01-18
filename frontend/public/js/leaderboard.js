@@ -223,7 +223,12 @@ function sanitizePublicProfile(raw) {
     username,
     displayName: typeof raw.display_name === 'string' ? raw.display_name : '',
     profileBio: typeof raw.profile_bio === 'string' ? raw.profile_bio.slice(0, 50) : '',
+    profileImageUrl: typeof raw.profile_image_url === 'string' ? raw.profile_image_url : '',
     mapMarkerColor: typeof raw.map_marker_color === 'string' ? raw.map_marker_color : '',
+    score: Number(raw.score) || 0,
+    homeDistrict: typeof raw.home_district === 'string' ? raw.home_district : '',
+    homeDistrictName: typeof raw.home_district_name === 'string' ? raw.home_district_name : '',
+    partyName: typeof raw.party_name === 'string' ? raw.party_name : '',
     streakDays: Math.max(0, Number(raw.streak_days) || 0),
     streakMultiplier: Math.max(1, Number(raw.streak_multiplier) || 1),
   };
@@ -468,7 +473,11 @@ function applyAccordionBehavior(table) {
       return;
     }
     row.classList.add('collapsible-row', 'collapsed');
-    const handler = () => {
+    const handler = (event) => {
+      const target = event && event.target instanceof HTMLElement ? event.target : null;
+      if (target && target.closest('.leaderboard-link')) {
+        return;
+      }
       const isCollapsed = row.classList.contains('collapsed');
       const startHeight = row.scrollHeight;
       if (isCollapsed) {
@@ -572,10 +581,14 @@ function renderPlayerLeaderboard(players) {
     nameButton.type = 'button';
     nameButton.className = 'leaderboard-link';
     nameButton.dataset.username = player.username;
+    nameButton.dataset.displayName = `@${player.username}`;
     const displayLabel = document.createElement('span');
     displayLabel.className = 'leaderboard-player-label';
     const safeDisplay = typeof player.displayName === 'string' ? player.displayName.trim() : '';
     displayLabel.textContent = safeDisplay || player.username;
+    if (safeDisplay) {
+      nameButton.dataset.displayName = safeDisplay;
+    }
     nameButton.appendChild(displayLabel);
     const shouldShowHandle =
       safeDisplay && safeDisplay.toLowerCase() !== player.username.toLowerCase();
@@ -873,7 +886,25 @@ function renderFriendProfileDrawer(profile, meta = '') {
   identityCard.className = 'character-card character-identity friend-profile-identity-card';
   const avatar = document.createElement('div');
   avatar.className = 'character-avatar';
-  avatar.textContent = (profile.username || 'P').charAt(0).toUpperCase();
+  const initial = (profile.username || 'P').charAt(0).toUpperCase();
+  const initialSpan = document.createElement('span');
+  initialSpan.className = 'character-avatar-initial';
+  initialSpan.textContent = initial;
+  avatar.appendChild(initialSpan);
+  const profileImageUrl = typeof profile.profileImageUrl === 'string' ? profile.profileImageUrl.trim() : '';
+  if (profileImageUrl) {
+    const img = document.createElement('img');
+    img.className = 'character-avatar-image';
+    img.alt = '';
+    img.onload = () => {
+      avatar.classList.add('has-photo');
+    };
+    img.onerror = () => {
+      avatar.classList.remove('has-photo');
+    };
+    img.src = profileImageUrl;
+    avatar.appendChild(img);
+  }
   if (profile.mapMarkerColor) {
     identityCard.style.setProperty('--player-marker-color', profile.mapMarkerColor);
   }
@@ -916,7 +947,7 @@ function renderFriendProfileDrawer(profile, meta = '') {
   };
   addRow('Score', Number.isFinite(profile.score) ? profile.score.toLocaleString() : '—');
   addRow('Home district', profile.homeDistrictName || profile.homeDistrict || 'Not set');
-  addRow('Party', profile.activePartyName || profile.activeParty || 'None');
+  addRow('Party', profile.partyName || 'User has not created a party yet');
   infoCard.appendChild(infoList);
   summary.appendChild(infoCard);
 
@@ -1205,13 +1236,14 @@ if (partyProfileClose) {
 document.addEventListener('click', (event) => {
   const target = event.target instanceof HTMLElement ? event.target : null;
   if (!target) return;
-  const userButton = target.closest('[data-username]');
+  const userButton = target.closest('.leaderboard-link[data-username]');
   if (userButton && userButton.dataset.username) {
     event.preventDefault();
-    openLeaderboardProfile(userButton.dataset.username, userButton.textContent || '', userButton);
+    const displayName = userButton.dataset.displayName || `@${userButton.dataset.username}`;
+    openLeaderboardProfile(userButton.dataset.username, displayName, userButton);
     return;
   }
-  const partyButton = target.closest('[data-party-code]');
+  const partyButton = target.closest('.leaderboard-link[data-party-code]');
   if (partyButton && partyButton.dataset.partyCode) {
     event.preventDefault();
     openLeaderboardPartyProfile(partyButton.dataset.partyCode, partyButton);
@@ -1226,10 +1258,11 @@ document.addEventListener('keydown', (event) => {
   if (event.key !== 'Enter' && event.key !== ' ') return;
   const target = event.target instanceof HTMLElement ? event.target : null;
   if (!target) return;
-  if (target.dataset && target.dataset.username) {
+  if (target.matches('.leaderboard-link[data-username]')) {
     event.preventDefault();
-    openLeaderboardProfile(target.dataset.username, target.textContent || '', target);
-  } else if (target.dataset && target.dataset.partyCode) {
+    const displayName = target.dataset.displayName || `@${target.dataset.username}`;
+    openLeaderboardProfile(target.dataset.username, displayName, target);
+  } else if (target.matches('.leaderboard-link[data-party-code]')) {
     event.preventDefault();
     openLeaderboardPartyProfile(target.dataset.partyCode, target);
   }
