@@ -380,6 +380,10 @@ const OUT_OF_BOUNDS_MAP_READY_DELAY_MS = 5000;
 const OUT_OF_BOUNDS_MESSAGE_DURATION_MS = 2000;
 const OUT_OF_BOUNDS_SECOND_MESSAGE_DELAY_MS = 5000;
 const OUT_OF_BOUNDS_FIND_ME_DELAY_MS = 5000;
+const OUT_OF_BOUNDS_PULSE_COUNT = 3;
+const OUT_OF_BOUNDS_PULSE_GAP_MS = 400;
+const OUT_OF_BOUNDS_PULSE_DURATION_MS = 1400;
+const OUT_OF_BOUNDS_ZOOM_DURATION_MS = 1200;
 const MAP_STYLE = {
   version: 8,
   name: 'Prague 3D',
@@ -5703,49 +5707,67 @@ function triggerPragueOutOfBoundsAlert() {
         zoom: PRAGUE_BOUNDS_MAX_ZOOM,
         pitch: 0,
         bearing: 0,
-        duration: 1200,
+        duration: OUT_OF_BOUNDS_ZOOM_DURATION_MS,
       });
     }
 
-    const startTime = performance.now();
-    const duration = 1400;
-    const animate = (now) => {
-      const t = clampNumber((now - startTime) / duration, 0, 1);
-      const pulse = Math.sin(Math.PI * t);
-      const width =
-        lerpNumber(PRAGUE_ALERT_BASE_WIDTH, PRAGUE_ALERT_FINAL_WIDTH, t) +
-        (PRAGUE_ALERT_FLASH_WIDTH - PRAGUE_ALERT_FINAL_WIDTH) * pulse;
-      const opacity = clampNumber(
-        lerpNumber(PRAGUE_ALERT_BASE_OPACITY, PRAGUE_ALERT_FINAL_OPACITY, t) + 0.3 * pulse,
-        0,
-        1
-      );
-      const color =
-        t < 0.5
-          ? interpolateHexColor(PRAGUE_ALERT_BASE_COLOR, PRAGUE_ALERT_FLASH_COLOR, t * 2)
-          : interpolateHexColor(PRAGUE_ALERT_FLASH_COLOR, PRAGUE_ALERT_FINAL_COLOR, (t - 0.5) * 2);
-
-      setPragueAlertGlowPaint({ color, width, opacity, blur: 0 });
-
-      if (t < 1) {
-        pragueOutOfBoundsAnimationFrame = window.requestAnimationFrame(animate);
-        return;
-      }
-
-      setPragueAlertGlowPaint({
-        color: PRAGUE_ALERT_FINAL_COLOR,
-        width: PRAGUE_ALERT_FINAL_WIDTH,
-        opacity: PRAGUE_ALERT_FINAL_OPACITY,
-        blur: 0,
-      });
-      pragueOutOfBoundsAnimationFrame = null;
+    const pulseStartDelay = OUT_OF_BOUNDS_ZOOM_DURATION_MS;
+    const pulseStartTime = performance.now() + pulseStartDelay;
+    const scheduleSecondMessage = () => {
       outOfBoundsAlertSequenceTimeoutId = window.setTimeout(() => {
         outOfBoundsAlertSequenceTimeoutId = null;
         showOutOfBoundsOverlay();
       }, OUT_OF_BOUNDS_SECOND_MESSAGE_DELAY_MS);
     };
 
-    pragueOutOfBoundsAnimationFrame = window.requestAnimationFrame(animate);
+    const runPulse = (pulseIndex, startTime) => {
+      const animate = (now) => {
+        const t = clampNumber((now - startTime) / OUT_OF_BOUNDS_PULSE_DURATION_MS, 0, 1);
+        const pulse = Math.sin(Math.PI * t);
+        const width =
+          lerpNumber(PRAGUE_ALERT_BASE_WIDTH, PRAGUE_ALERT_FINAL_WIDTH, t) +
+          (PRAGUE_ALERT_FLASH_WIDTH - PRAGUE_ALERT_FINAL_WIDTH) * pulse;
+        const opacity = clampNumber(
+          lerpNumber(PRAGUE_ALERT_BASE_OPACITY, PRAGUE_ALERT_FINAL_OPACITY, t) + 0.3 * pulse,
+          0,
+          1
+        );
+        const color =
+          t < 0.5
+            ? interpolateHexColor(PRAGUE_ALERT_BASE_COLOR, PRAGUE_ALERT_FLASH_COLOR, t * 2)
+            : interpolateHexColor(PRAGUE_ALERT_FLASH_COLOR, PRAGUE_ALERT_FINAL_COLOR, (t - 0.5) * 2);
+
+        setPragueAlertGlowPaint({ color, width, opacity, blur: 0 });
+
+        if (t < 1) {
+          pragueOutOfBoundsAnimationFrame = window.requestAnimationFrame(animate);
+          return;
+        }
+
+        setPragueAlertGlowPaint({
+          color: PRAGUE_ALERT_FINAL_COLOR,
+          width: PRAGUE_ALERT_FINAL_WIDTH,
+          opacity: PRAGUE_ALERT_FINAL_OPACITY,
+          blur: 0,
+        });
+        pragueOutOfBoundsAnimationFrame = null;
+
+        if (pulseIndex + 1 < OUT_OF_BOUNDS_PULSE_COUNT) {
+          outOfBoundsAlertSequenceTimeoutId = window.setTimeout(() => {
+            outOfBoundsAlertSequenceTimeoutId = null;
+            runPulse(pulseIndex + 1, performance.now());
+          }, OUT_OF_BOUNDS_PULSE_GAP_MS);
+        }
+      };
+
+      pragueOutOfBoundsAnimationFrame = window.requestAnimationFrame(animate);
+    };
+
+    outOfBoundsAlertSequenceTimeoutId = window.setTimeout(() => {
+      outOfBoundsAlertSequenceTimeoutId = null;
+      runPulse(0, performance.now());
+      scheduleSecondMessage();
+    }, pulseStartDelay);
   };
 
   outOfBoundsAlertSequenceTimeoutId = window.setTimeout(() => {
