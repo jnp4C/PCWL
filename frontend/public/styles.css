@@ -998,6 +998,16 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   cursor: pointer;
 }
 
+.recent-checkin-player-chip {
+  border: 1px solid var(--color-border-soft);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  background: color-mix(in srgb, var(--color-panel-bg) 90%, rgba(129, 84, 210, 0.2));
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
 .sheet-header {
   display: flex;
   align-items: center;

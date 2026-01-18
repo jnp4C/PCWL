@@ -262,6 +262,9 @@ class PlayerSerializer(serializers.ModelSerializer):
                 "ranged": bool(raw.get("ranged")),
                 "melee": bool(raw.get("melee")),
             }
+            triggered_by = raw.get("triggeredBy")
+            if isinstance(triggered_by, str) and triggered_by.strip():
+                entry["triggeredBy"] = triggered_by.strip()
 
             cooldown_type_raw = raw.get("cooldownType")
             if isinstance(cooldown_type_raw, str):

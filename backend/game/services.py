@@ -888,6 +888,7 @@ def _append_history_entry(
     worm_percent: Optional[float] = None,
 ) -> None:
     history = player.checkin_history if isinstance(player.checkin_history, list) else []
+    metadata = checkin.metadata if isinstance(checkin.metadata, dict) else {}
     entry = {
         "timestamp": now_ms,
         "districtId": checkin.district_code,
@@ -904,6 +905,9 @@ def _append_history_entry(
         "partyMultiplier": float(checkin.party_multiplier_snapshot),
         "partyContribution": checkin.is_party_contribution,
     }
+    triggered_by = metadata.get("triggeredBy") or metadata.get("triggered_by")
+    if isinstance(triggered_by, str) and triggered_by.strip():
+        entry["triggeredBy"] = triggered_by.strip()
     if precision:
         entry["precision"] = precision
     if checkin.party_code:
@@ -1318,6 +1322,8 @@ def apply_checkin(
 
         payload_meta = metadata.copy() if isinstance(metadata, dict) else {}
         payload_meta["precision"] = precision
+        if locked.username:
+            payload_meta.setdefault("triggeredBy", locked.username)
         if coordinates and {"lng", "lat"} <= set(coordinates.keys()):
             try:
                 lng = float(coordinates["lng"])

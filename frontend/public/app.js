@@ -377,7 +377,7 @@ const PRAGUE_BOUNDS = [
 const PRAGUE_BOUNDS_PADDING = 52;
 const PRAGUE_BOUNDS_MAX_ZOOM = 12.1;
 const OUT_OF_BOUNDS_MAP_READY_DELAY_MS = 5000;
-const OUT_OF_BOUNDS_MESSAGE_DURATION_MS = 2000;
+const OUT_OF_BOUNDS_MESSAGE_DURATION_MS = 4000;
 const OUT_OF_BOUNDS_SECOND_MESSAGE_DELAY_MS = 5000;
 const OUT_OF_BOUNDS_FIND_ME_DELAY_MS = 3000;
 const OUT_OF_BOUNDS_PULSE_COUNT = 3;
@@ -2411,6 +2411,10 @@ function sanitiseCheckinHistoryEntry(entry) {
     ranged: Boolean(entry.ranged),
     melee: Boolean(entry.melee),
   };
+  const triggeredBy = typeof entry.triggeredBy === 'string' ? entry.triggeredBy.trim() : '';
+  if (triggeredBy) {
+    payload.triggeredBy = triggeredBy;
+  }
   // Preserve server-calculated points to allow better summaries
   const pointsNum = Number(entry.points);
   if (Number.isFinite(pointsNum)) {
@@ -9672,6 +9676,7 @@ function updateRecentCheckinsDrawerContent(profile = undefined) {
     let typeLabel = type === 'defend' ? 'Defend' : type === 'attack' ? 'Attack' : 'Check-in';
     const isParty = Boolean(entry.partyCode || entry.partyContribution);
     let partyChip = null;
+    let playerChip = null;
     if (isParty) {
       const partyCode =
         (typeof entry.partyCode === 'string' && entry.partyCode.trim()) ||
@@ -9710,6 +9715,27 @@ function updateRecentCheckinsDrawerContent(profile = undefined) {
       } else {
         typeLabel += ' (party)';
       }
+    }
+    const triggeredBy = typeof entry.triggeredBy === 'string' ? entry.triggeredBy.trim() : '';
+    if (triggeredBy) {
+      const cleanTriggeredBy = triggeredBy.replace(/^@/, '');
+      playerChip = document.createElement('button');
+      playerChip.type = 'button';
+      playerChip.className = 'recent-checkin-player-chip';
+      playerChip.dataset.playerUsername = cleanTriggeredBy;
+      playerChip.textContent = `@${cleanTriggeredBy}`;
+      playerChip.setAttribute('aria-label', `Open profile for ${playerChip.textContent}`);
+      playerChip.addEventListener('click', (event) => {
+        event.preventDefault();
+        if (document.body.classList.contains('recent-checkins-open')) {
+          closeRecentCheckinsDrawer({ restoreFocus: false });
+        }
+        if (isFriendUsername(cleanTriggeredBy)) {
+          openFriendProfileDrawer(cleanTriggeredBy, playerChip);
+        } else {
+          openPublicProfileDrawer(cleanTriggeredBy, { displayName: playerChip.textContent, trigger: playerChip });
+        }
+      });
     }
     const points = calculateCheckinPoints(entry);
     const pointsText = `${points > 0 ? '+' : ''}${points.toLocaleString()} pts`;
@@ -9765,6 +9791,12 @@ function updateRecentCheckinsDrawerContent(profile = undefined) {
         meta.appendChild(document.createTextNode(' • '));
       }
       meta.appendChild(partyChip);
+    }
+    if (playerChip) {
+      if (meta.childNodes.length) {
+        meta.appendChild(document.createTextNode(' • '));
+      }
+      meta.appendChild(playerChip);
     }
     if (cooldownInfo) {
       if (meta.childNodes.length) {
