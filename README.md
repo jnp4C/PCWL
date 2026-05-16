@@ -42,3 +42,4 @@ Troubleshooting
 - Python 3.13 is unsupported by Django 3.2.x — use Python 3.11 (the scripts will warn you).
 - If static pages cannot reach the API, confirm Nginx is running and proxying `/api/` to `BACKEND_PORT` (default 8000).
 - New cookies (including CSRF) come from `/api/pages/home/` or `/api/pages/leaderboard/`; hit those once if you see CSRF errors during account creation.
+- If verification or reset emails only appear in logs, set `DJANGO_EMAIL_HOST`, `DJANGO_EMAIL_PORT`, `DJANGO_EMAIL_HOST_USER`, `DJANGO_EMAIL_HOST_PASSWORD`, and `DJANGO_EMAIL_USE_TLS` in Railway.

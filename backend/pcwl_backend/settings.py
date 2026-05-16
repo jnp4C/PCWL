@@ -35,6 +35,14 @@ def is_truthy(value: str) -> bool:
     return str(value or "").lower() in {"1", "true", "yes", "on"}
 
 
+def first_env(*names, default=""):
+    for name in names:
+        value = os.environ.get(name)
+        if value not in (None, ""):
+            return value
+    return default
+
+
 def _normalize_path(value: str, default: str = "/") -> str:
     if not value:
         return default
@@ -93,17 +101,40 @@ DEFAULT_CONTENT_SECURITY_POLICY = (
 )
 CONTENT_SECURITY_POLICY = os.environ.get("DJANGO_CONTENT_SECURITY_POLICY", DEFAULT_CONTENT_SECURITY_POLICY)
 PASSWORD_RESET_TIMEOUT = int(os.environ.get("DJANGO_PASSWORD_RESET_TIMEOUT", "3600"))
+EMAIL_HOST = first_env("DJANGO_EMAIL_HOST", "EMAIL_HOST", "MAIL_HOST", default="localhost")
+EMAIL_PORT = int(first_env("DJANGO_EMAIL_PORT", "EMAIL_PORT", "MAIL_PORT", default="25"))
+EMAIL_HOST_USER = first_env("DJANGO_EMAIL_HOST_USER", "EMAIL_HOST_USER", "MAIL_USERNAME", default="")
+EMAIL_HOST_PASSWORD = first_env("DJANGO_EMAIL_HOST_PASSWORD", "EMAIL_HOST_PASSWORD", "MAIL_PASSWORD", default="")
+EMAIL_USE_TLS = is_truthy(first_env("DJANGO_EMAIL_USE_TLS", "EMAIL_USE_TLS", "MAIL_USE_TLS", default="false"))
+EMAIL_USE_SSL = is_truthy(first_env("DJANGO_EMAIL_USE_SSL", "EMAIL_USE_SSL", "MAIL_USE_SSL", default="false"))
+EMAIL_CONFIGURED = any(
+    os.environ.get(name) not in (None, "")
+    for name in (
+        "DJANGO_EMAIL_HOST",
+        "EMAIL_HOST",
+        "MAIL_HOST",
+        "DJANGO_EMAIL_HOST_USER",
+        "EMAIL_HOST_USER",
+        "MAIL_USERNAME",
+        "DJANGO_EMAIL_HOST_PASSWORD",
+        "EMAIL_HOST_PASSWORD",
+        "MAIL_PASSWORD",
+        "DJANGO_EMAIL_USE_TLS",
+        "EMAIL_USE_TLS",
+        "MAIL_USE_TLS",
+        "DJANGO_EMAIL_USE_SSL",
+        "EMAIL_USE_SSL",
+        "MAIL_USE_SSL",
+        "DJANGO_EMAIL_PORT",
+        "EMAIL_PORT",
+        "MAIL_PORT",
+    )
+)
 EMAIL_BACKEND = os.environ.get(
     "DJANGO_EMAIL_BACKEND",
-    "django.core.mail.backends.console.EmailBackend",
+    "django.core.mail.backends.smtp.EmailBackend" if EMAIL_CONFIGURED else "django.core.mail.backends.console.EmailBackend",
 )
-DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "noreply@pcwl.local")
-EMAIL_HOST = os.environ.get("DJANGO_EMAIL_HOST", "localhost")
-EMAIL_PORT = int(os.environ.get("DJANGO_EMAIL_PORT", "25"))
-EMAIL_HOST_USER = os.environ.get("DJANGO_EMAIL_HOST_USER", "")
-EMAIL_HOST_PASSWORD = os.environ.get("DJANGO_EMAIL_HOST_PASSWORD", "")
-EMAIL_USE_TLS = is_truthy(os.environ.get("DJANGO_EMAIL_USE_TLS", "false"))
-EMAIL_USE_SSL = is_truthy(os.environ.get("DJANGO_EMAIL_USE_SSL", "false"))
+DEFAULT_FROM_EMAIL = first_env("DJANGO_DEFAULT_FROM_EMAIL", "DEFAULT_FROM_EMAIL", "MAIL_FROM", default="noreply@pcwl.local")
 
 # Applications
 INSTALLED_APPS = [
