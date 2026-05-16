@@ -63,6 +63,9 @@
         config.createAccountUrl = payload.links.create_account;
       }
     }
+    if (Array.isArray(payload.updates)) {
+      config.loginUpdates = payload.updates;
+    }
     if (payload.leaderboard) {
       config.leaderboard = payload.leaderboard;
       if (typeof window !== 'undefined') {
@@ -115,4 +118,3 @@
     window.__PCWL_CONFIG_READY__ = readyPromise;
   }
 })();
-

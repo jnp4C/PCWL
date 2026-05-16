@@ -18,8 +18,8 @@ const usernameInput = document.getElementById('username-input');
 const rememberPasswordInput = document.getElementById('remember-password-input');
 const passwordInput = document.getElementById('password-input');
 const passwordResetButton = document.getElementById('password-reset-button');
-const knownPlayersSection = document.getElementById('known-players');
-const knownPlayersList = document.getElementById('known-players-list');
+const latestUpdatesSection = document.getElementById('latest-updates');
+const latestUpdatesList = document.getElementById('latest-updates-list');
 const checkInButton = document.getElementById('check-in-button');
 const playerUsernameLabel = document.getElementById('player-username');
 const playerPointsLabel = document.getElementById('player-points');
@@ -154,6 +154,7 @@ let APP_SNAPSHOT = readTemplateValue('appSnapshot', '__APP_SNAPSHOT__') || 'app.
 let STATIC_PREFIX = normalizeStaticPrefix(readTemplateValue('staticUrl', '__STATIC_URL__') || '');
 let API_BASE_URL = normalizeApiBase(readTemplateValue('apiBaseUrl', '__API_BASE_URL__') || '/api');
 let DATA_PREFIX = `${STATIC_PREFIX}data/`;
+let loginScreenUpdates = [];
 
 function applyPageConfig(config) {
   if (!config || typeof config !== 'object') {
@@ -172,8 +173,25 @@ function applyPageConfig(config) {
   if (config.apiBaseUrl) {
     API_BASE_URL = normalizeApiBase(config.apiBaseUrl);
   }
+  if (Array.isArray(config.loginUpdates)) {
+    loginScreenUpdates = config.loginUpdates
+      .filter(
+        (entry) =>
+          entry &&
+          typeof entry === 'object' &&
+          typeof entry.date === 'string' &&
+          entry.date.trim() &&
+          typeof entry.summary === 'string' &&
+          entry.summary.trim(),
+      )
+      .map((entry) => ({
+        date: entry.date.trim(),
+        summary: entry.summary.trim(),
+      }));
+  }
   try {
     renderAppVersionBadge();
+    renderLatestUpdates();
   } catch (error) {
     // non-fatal; badge can update on next render cycle
   }
@@ -623,6 +641,19 @@ const FRIEND_DELTA_FORMATTER = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 0,
 });
 const CSRF_HEADER_NAME = 'X-CSRFToken';
+const DEFAULT_LOGIN_SCREEN_UPDATES = [
+  {
+    date: '2026-05-16',
+    summary: 'Email verification auth baseline',
+  },
+  {
+    date: '2026-05-16',
+    summary: 'Railway SMTP email configured',
+  },
+];
+if (!Array.isArray(loginScreenUpdates) || !loginScreenUpdates.length) {
+  loginScreenUpdates = [...DEFAULT_LOGIN_SCREEN_UPDATES];
+}
 let friendLocationsGeoJson = { type: 'FeatureCollection', features: [] };
 
 function buildApiUrl(path) {
@@ -7612,7 +7643,7 @@ async function initialisePlayers() {
   } catch (error) {
     console.warn('Failed to finalise player initialisation', error);
   }
-  renderKnownPlayers();
+  renderLatestUpdates();
   renderPlayerState();
   try {
     await restoreSessionFromServer();
@@ -8716,32 +8747,24 @@ function applyDistrictScoreDelta(districtId, delta, districtName = null) {
   accumulateDistrictScore(districtId, districtName, delta);
 }
 
-function renderKnownPlayers() {
-  const names = Object.keys(players).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-  const validNames = names.filter((name) => isValidUsername(name));
-  if (!validNames.length) {
-    knownPlayersSection?.classList.add('hidden');
-    knownPlayersList && (knownPlayersList.innerHTML = '');
+function renderLatestUpdates() {
+  if (!latestUpdatesSection || !latestUpdatesList) {
     return;
   }
-
-  if (knownPlayersSection) {
-    knownPlayersSection.classList.remove('hidden');
-  }
-  if (knownPlayersList) {
-    knownPlayersList.innerHTML = '';
-    validNames.forEach((name) => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'known-player-button';
-      button.textContent = name;
-      button.title = `Prepare sign-in for ${name}`;
-      button.addEventListener('click', () => {
-        handleExistingPlayer(name);
-      });
-      knownPlayersList.appendChild(button);
-    });
-  }
+  latestUpdatesList.innerHTML = '';
+  loginScreenUpdates.forEach((entry) => {
+    const row = document.createElement('div');
+    row.className = 'latest-update-item';
+    const date = document.createElement('span');
+    date.className = 'latest-update-date';
+    date.textContent = entry.date;
+    const summary = document.createElement('span');
+    summary.className = 'latest-update-summary';
+    summary.textContent = entry.summary;
+    row.append(date, summary);
+    latestUpdatesList.appendChild(row);
+  });
+  latestUpdatesSection.classList.toggle('hidden', loginScreenUpdates.length === 0);
 }
 
 let profileImageHandlersInitialised = false;
@@ -18487,7 +18510,7 @@ function completeAuthenticatedLogin(username, profile, options = {}) {
     setLastSignedInUser(null);
   }
   savePlayers();
-  renderKnownPlayers();
+  renderLatestUpdates();
   renderPlayerState();
   if (isMobileViewport()) {
     setMobileDrawerState(false);
@@ -18506,45 +18529,6 @@ function completeAuthenticatedLogin(username, profile, options = {}) {
   const triggerGeolocation = options.triggerGeolocation !== false;
   showMap(triggerGeolocation);
   flushPendingCheckins();
-}
-
-function handleExistingPlayer(username) {
-  if (!username) {
-    return;
-  }
-  const safeName = username.trim();
-  if (!isValidUsername(safeName)) {
-    updateStatus('Invalid username. Create a new account to continue.');
-    return;
-  }
-  if (!Object.prototype.hasOwnProperty.call(players, safeName)) {
-    updateStatus('Player not found. Create a new account to continue.');
-    return;
-  }
-  const profile = ensurePlayerProfile(safeName);
-  const hasStoredLocation = profile && profile.lastKnownLocation && typeof profile.lastKnownLocation.lng === 'number' && typeof profile.lastKnownLocation.lat === 'number';
-  lastKnownLocation = hasStoredLocation ? [profile.lastKnownLocation.lng, profile.lastKnownLocation.lat] : null;
-  if (profile && profile.lastKnownLocation && profile.lastKnownLocation.districtId) {
-    lastPreciseLocationInfo = {
-      id: safeId(profile.lastKnownLocation.districtId),
-      name:
-        (profile.lastKnownLocation.districtName && profile.lastKnownLocation.districtName.trim()) ||
-        `District ${profile.lastKnownLocation.districtId}`,
-    };
-  } else {
-    lastPreciseLocationInfo = null;
-  }
-  if (usernameInput) {
-    usernameInput.value = '';
-  }
-  if (passwordInput) {
-    passwordInput.value = '';
-    passwordInput.focus();
-  }
-  if (rememberPasswordInput) {
-    rememberPasswordInput.checked = false;
-  }
-  updateStatus(`Enter the verified email and password for ${safeName}.`);
 }
 
 function switchToWelcome() {
@@ -18587,7 +18571,7 @@ function switchToWelcome() {
     setMobileDrawerState(false);
   }
   updateStatus('Sign in to begin your exploration.');
-  renderKnownPlayers();
+  renderLatestUpdates();
   prefillLastSignedInUser();
 }
 
@@ -20705,7 +20689,7 @@ if (devClearUsersButton) {
       updateStatus('Dev tools available only while signed in as dev.');
       return;
     }
-    const confirmed = window.confirm('Remove all stored players? This clears the "Jump back in" list.');
+    const confirmed = window.confirm('Remove all stored players? This clears local player data.');
     if (!confirmed) {
       return;
     }
@@ -20723,7 +20707,7 @@ if (devClearUsersButton) {
     currentDistrictId = null;
     currentDistrictName = null;
     setLastSignedInUser(DEV_USERNAME);
-    renderKnownPlayers();
+    renderLatestUpdates();
     renderPlayerState();
     updateStatus('All local players cleared. Signed in as dev.');
   });

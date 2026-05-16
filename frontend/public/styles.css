@@ -131,7 +131,7 @@ body[data-theme='dark'] .app-version-badge {
 
 .panel .login-form,
 .panel .actions,
-.panel #known-players {
+.panel #latest-updates {
   opacity: 0;
   transform: translateY(20px);
   animation: welcomeSlide 0.8s ease forwards;
@@ -142,7 +142,7 @@ body[data-theme='dark'] .app-version-badge {
   animation-delay: 0.24s;
 }
 
-#known-players {
+#latest-updates {
   animation-delay: 0.18s;
 }
 
@@ -612,7 +612,7 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   pointer-events: none;
 }
 
-.known-players {
+.latest-updates {
   background: var(--color-card-bg);
   border-radius: 12px;
   padding: 1rem;
@@ -621,28 +621,34 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   gap: 0.75rem;
 }
 
-.known-players.hidden {
+.latest-updates.hidden {
   display: none;
 }
 
-#known-players-list {
+#latest-updates-list {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.6rem;
 }
 
-.known-player-button {
-  padding: 0.5rem 0.85rem;
-  border-radius: 999px;
-  border: none;
-  background: var(--color-button-secondary);
-  color: var(--color-button-secondary-text);
-  cursor: pointer;
-  transition: background 0.2s ease;
+.latest-update-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.9rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-bg-muted) 62%, transparent);
 }
 
-.known-player-button:hover {
-  background: var(--color-button-secondary-hover);
+.latest-update-date {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  flex: 0 0 auto;
+}
+
+.latest-update-summary {
+  font-size: 0.9rem;
+  text-align: right;
 }
 
 .actions {
@@ -5567,7 +5573,7 @@ button.secondary:hover,
     margin: 1.4rem 0 1.2rem;
   }
 
-  body.welcome-active #known-players {
+  body.welcome-active #latest-updates {
     margin-top: 1.5rem;
     padding: 1rem;
   }

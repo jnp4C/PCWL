@@ -22,8 +22,10 @@ from django.conf import settings
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.utils.encoding import force_bytes
+from pathlib import Path
 import logging
 import re
+import subprocess
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import NotAuthenticated, ValidationError
@@ -107,6 +109,7 @@ DISTRICT_RECENT_THRESHOLD = 100
 PARTY_LEADERBOARD_MIN_MEMBERS = 10
 AUTH_RATE_LIMIT_WINDOW_SECONDS = 15 * 60
 AUTH_RATE_LIMIT_MAX_ATTEMPTS = 8
+LOGIN_UPDATES_LIMIT = 6
 
 
 def _classify_district_state(defended, attacked, threshold=DISTRICT_SECURE_THRESHOLD):
@@ -3629,6 +3632,45 @@ def _build_leaderboard_payload():
     }
 
 
+def _build_login_updates_payload(limit: int = LOGIN_UPDATES_LIMIT) -> List[Dict[str, str]]:
+    fallback = getattr(settings, "LOGIN_UPDATES_FALLBACK", None)
+    repo_root = Path(getattr(settings, "BASE_DIR", Path.cwd())).resolve().parent
+    if not (repo_root / ".git").exists():
+        return fallback if isinstance(fallback, list) else []
+    try:
+        command = [
+            "git",
+            "-C",
+            str(repo_root),
+            "log",
+            f"-n{max(1, int(limit))}",
+            "--date=short",
+            "--pretty=format:%ad|%s",
+            "--",
+            "backend",
+            "frontend",
+            "tools",
+        ]
+        output = subprocess.check_output(command, stderr=subprocess.DEVNULL, text=True).strip()
+    except (subprocess.SubprocessError, ValueError, TypeError):
+        return fallback if isinstance(fallback, list) else []
+
+    entries: List[Dict[str, str]] = []
+    if output:
+        for line in output.splitlines():
+            if "|" not in line:
+                continue
+            date_text, summary = line.split("|", 1)
+            date_clean = date_text.strip()
+            summary_clean = summary.strip()
+            if not date_clean or not summary_clean:
+                continue
+            entries.append({"date": date_clean, "summary": summary_clean})
+    if entries:
+        return entries
+    return fallback if isinstance(fallback, list) else []
+
+
 def _build_frontend_shell(include_leaderboard: bool = False) -> Dict[str, Any]:
     data: Dict[str, Any] = {
         "app": {
@@ -3642,6 +3684,7 @@ def _build_frontend_shell(include_leaderboard: bool = False) -> Dict[str, Any]:
             "leaderboard": getattr(settings, "FRONTEND_LEADERBOARD_PATH", "/leaderboard.html"),
             "create_account": getattr(settings, "FRONTEND_CREATE_ACCOUNT_PATH", "/create-account.html"),
         },
+        "updates": _build_login_updates_payload(),
     }
     if include_leaderboard:
         data["leaderboard"] = _build_leaderboard_payload()
