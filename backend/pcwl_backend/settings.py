@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 from urllib.parse import quote_plus
 
+from django.core.exceptions import ImproperlyConfigured
+
 try:
     import dj_database_url  # type: ignore
 except ModuleNotFoundError:  # pragma: no cover - fallback for local dev only
@@ -27,6 +29,10 @@ def env_list(name, default=None):
     if not value:
         return default or []
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def is_truthy(value: str) -> bool:
+    return str(value or "").lower() in {"1", "true", "yes", "on"}
 
 
 def _normalize_path(value: str, default: str = "/") -> str:
@@ -49,10 +55,28 @@ REPO_ROOT = BASE_DIR.parent
 FRONTEND_DIR = REPO_ROOT / "frontend"
 
 # Security
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-change-me")
-DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() in {"1", "true", "yes", "on"}
-ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", ["localhost", "127.0.0.1"])
-CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
+IS_RAILWAY = any(
+    os.environ.get(name)
+    for name in ("RAILWAY_ENVIRONMENT", "RAILWAY_SERVICE_ID", "RAILWAY_PUBLIC_DOMAIN")
+)
+DEBUG = is_truthy(os.environ.get("DJANGO_DEBUG", "false" if IS_RAILWAY else "true"))
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "")
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = "django-insecure-change-me"
+    else:
+        raise ImproperlyConfigured("DJANGO_SECRET_KEY must be set when DJANGO_DEBUG is false.")
+
+default_allowed_hosts = ["localhost", "127.0.0.1"]
+railway_public_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "").strip()
+if railway_public_domain:
+    default_allowed_hosts.append(railway_public_domain)
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", default_allowed_hosts)
+
+default_csrf_origins = []
+if railway_public_domain:
+    default_csrf_origins.append(f"https://{railway_public_domain}")
+CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS", default_csrf_origins)
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 DEFAULT_CONTENT_SECURITY_POLICY = (
     "default-src 'self'; "
@@ -68,6 +92,18 @@ DEFAULT_CONTENT_SECURITY_POLICY = (
     "frame-src https://apis.google.com;"
 )
 CONTENT_SECURITY_POLICY = os.environ.get("DJANGO_CONTENT_SECURITY_POLICY", DEFAULT_CONTENT_SECURITY_POLICY)
+PASSWORD_RESET_TIMEOUT = int(os.environ.get("DJANGO_PASSWORD_RESET_TIMEOUT", "3600"))
+EMAIL_BACKEND = os.environ.get(
+    "DJANGO_EMAIL_BACKEND",
+    "django.core.mail.backends.console.EmailBackend",
+)
+DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "noreply@pcwl.local")
+EMAIL_HOST = os.environ.get("DJANGO_EMAIL_HOST", "localhost")
+EMAIL_PORT = int(os.environ.get("DJANGO_EMAIL_PORT", "25"))
+EMAIL_HOST_USER = os.environ.get("DJANGO_EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("DJANGO_EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = is_truthy(os.environ.get("DJANGO_EMAIL_USE_TLS", "false"))
+EMAIL_USE_SSL = is_truthy(os.environ.get("DJANGO_EMAIL_USE_SSL", "false"))
 
 # Applications
 INSTALLED_APPS = [

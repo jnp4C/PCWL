@@ -3,6 +3,10 @@ import re
 from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -27,6 +31,7 @@ class DistrictSerializer(serializers.ModelSerializer):
 
 
 class PlayerSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(write_only=True, required=False)
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
     checkin_history = serializers.JSONField(read_only=True)
     cooldowns = serializers.JSONField(read_only=True)
@@ -62,6 +67,7 @@ class PlayerSerializer(serializers.ModelSerializer):
             "cooldown_details",
             "created_at",
             "updated_at",
+            "email",
             "password",
             "next_checkin_multiplier",
             "preferred_party_name",
@@ -74,6 +80,7 @@ class PlayerSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {
             "last_known_location": {"required": False, "allow_null": True},
+            "email": {"write_only": True, "required": False},
             "password": {"write_only": True},
             "home_district_code": {"required": False, "allow_blank": True},
             "home_district_name": {"required": False, "allow_blank": True},
@@ -108,10 +115,11 @@ class PlayerSerializer(serializers.ModelSerializer):
         return float(_streak_multiplier(days))
 
     def create(self, validated_data):
+        email = validated_data.pop("email", "")
         password = validated_data.pop("password", None)
         validated_data, resolved_district = self._apply_district_defaults(validated_data)
         player = super().create(validated_data)
-        player.ensure_auth_user(password=password)
+        player.ensure_auth_user(password=password, email=email, is_active=False)
         if resolved_district:
             player.assign_home_district(resolved_district, save=True)
         elif player.home_district_name:
@@ -120,11 +128,12 @@ class PlayerSerializer(serializers.ModelSerializer):
         return player
 
     def update(self, instance, validated_data):
+        email = validated_data.pop("email", None)
         password = validated_data.pop("password", None)
         validated_data, resolved_district = self._apply_district_defaults(validated_data)
         player = super().update(instance, validated_data)
-        if password:
-            player.ensure_auth_user(password=password)
+        if password or email is not None:
+            player.ensure_auth_user(password=password, email=email)
         if resolved_district:
             # assign_home_district saves the player
             player.assign_home_district(resolved_district, save=True)
@@ -132,6 +141,44 @@ class PlayerSerializer(serializers.ModelSerializer):
             player.home_district = player.home_district_name or ""
             player.save(update_fields=["home_district", "updated_at"])
         return player
+
+    def validate_email(self, value: Any) -> str:
+        email = str(value or "").strip().lower()
+        if not email:
+            raise serializers.ValidationError("Email is required.")
+        try:
+            validate_email(email)
+        except DjangoValidationError:
+            raise serializers.ValidationError("Enter a valid email address.")
+        UserModel = get_user_model()
+        user_qs = UserModel.objects.filter(email__iexact=email)
+        current_user_id = None
+        if self.instance is not None and getattr(self.instance, "user_id", None):
+            current_user_id = self.instance.user_id
+        if current_user_id:
+            user_qs = user_qs.exclude(pk=current_user_id)
+        if user_qs.exists():
+            raise serializers.ValidationError("An account with this email already exists.")
+        return email
+
+    def validate_password(self, value: Any) -> str:
+        password = str(value or "")
+        if not password:
+            raise serializers.ValidationError("Password is required.")
+        try:
+            validate_password(password)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(list(exc.messages))
+        return password
+
+    def validate(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
+        if self.instance is not None and "email" in attrs:
+            raise serializers.ValidationError({"email": ["Email changes are not supported yet."]})
+        if self.instance is None and not attrs.get("email"):
+            raise serializers.ValidationError({"email": ["Email is required."]})
+        if self.instance is None and not attrs.get("password"):
+            raise serializers.ValidationError({"password": ["Password is required."]})
+        return attrs
 
     def to_representation(self, instance):
         # Ensure home district fields are populated in responses even if legacy data was incomplete.
@@ -381,6 +428,41 @@ class PlayerSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Profile image URL must end with .jpg or .png.")
             return trimmed
         raise serializers.ValidationError("Profile image must be a http(s) URL or data:image URL.")
+
+    def validate_last_known_location(self, value: Any) -> Optional[Dict[str, Any]]:
+        if value in (None, ""):
+            return None
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Last known location must be an object.")
+        try:
+            lng = float(value.get("lng"))
+            lat = float(value.get("lat"))
+        except (TypeError, ValueError):
+            raise serializers.ValidationError("Last known location requires numeric lng and lat.")
+        if not (math.isfinite(lng) and math.isfinite(lat)):
+            raise serializers.ValidationError("Last known location coordinates must be finite.")
+        if not (-180 <= lng <= 180 and -90 <= lat <= 90):
+            raise serializers.ValidationError("Last known location coordinates are out of range.")
+
+        payload: Dict[str, Any] = {"lng": lng, "lat": lat}
+        district_id_raw = value.get("districtId")
+        if district_id_raw not in (None, ""):
+            payload["districtId"] = str(district_id_raw).strip()[:64]
+        district_name_raw = value.get("districtName")
+        if district_name_raw not in (None, ""):
+            payload["districtName"] = str(district_name_raw).strip()[:120]
+        timestamp_raw = value.get("timestamp")
+        if timestamp_raw not in (None, ""):
+            try:
+                timestamp = int(timestamp_raw)
+            except (TypeError, ValueError):
+                timestamp = None
+            if timestamp and timestamp > 0:
+                payload["timestamp"] = timestamp
+        source_raw = value.get("source")
+        if isinstance(source_raw, str) and source_raw.strip():
+            payload["source"] = source_raw.strip()[:32]
+        return payload
 
 
 class FriendLinkSerializer(serializers.ModelSerializer):
@@ -659,6 +741,8 @@ class CheckInSerializer(serializers.ModelSerializer):
         return None
 
     def get_coordinates(self, obj: CheckIn) -> Optional[Dict[str, float]]:
+        if not self.context.get("include_coordinates", False):
+            return None
         metadata = obj.metadata if isinstance(obj.metadata, dict) else {}
         coords = metadata.get("coordinates")
         if not isinstance(coords, dict):

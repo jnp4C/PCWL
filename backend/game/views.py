@@ -1,4 +1,9 @@
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import get_user_model, login, logout
+from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.tokens import default_token_generator
+from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.mail import send_mail
 from django.db import transaction
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -14,7 +19,11 @@ from django.db import connections, DEFAULT_DB_ALIAS
 from django.db.migrations.executor import MigrationExecutor
 from django.core.management import call_command
 from django.conf import settings
+from django.utils.encoding import force_str
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
+from django.utils.encoding import force_bytes
 import logging
+import re
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import NotAuthenticated, ValidationError
@@ -96,6 +105,8 @@ DISTRICT_BASE_SCORE = 2000
 DISTRICT_SECURE_THRESHOLD = 200
 DISTRICT_RECENT_THRESHOLD = 100
 PARTY_LEADERBOARD_MIN_MEMBERS = 10
+AUTH_RATE_LIMIT_WINDOW_SECONDS = 15 * 60
+AUTH_RATE_LIMIT_MAX_ATTEMPTS = 8
 
 
 def _classify_district_state(defended, attacked, threshold=DISTRICT_SECURE_THRESHOLD):
@@ -111,6 +122,59 @@ def _classify_district_state(defended, attacked, threshold=DISTRICT_SECURE_THRES
 
 def _clean_district_code(value: Optional[str]) -> Optional[str]:
     return _normalise_district_code(value)
+
+
+def _rate_limit_key(scope: str, request, identifier: str = "") -> str:
+    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    ip_address = forwarded_for.split(",", 1)[0].strip() or request.META.get("REMOTE_ADDR", "")
+    safe_identifier = re.sub(r"[^a-zA-Z0-9@._:-]", "_", (identifier or "").lower())[:120]
+    return f"auth-rate:{scope}:{ip_address}:{safe_identifier}"
+
+
+def _is_rate_limited(scope: str, request, identifier: str = "") -> bool:
+    key = _rate_limit_key(scope, request, identifier)
+    attempts = int(cache.get(key, 0) or 0) + 1
+    cache.set(key, attempts, AUTH_RATE_LIMIT_WINDOW_SECONDS)
+    return attempts > AUTH_RATE_LIMIT_MAX_ATTEMPTS
+
+
+def _normalise_email(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _build_action_url(request, path: str) -> str:
+    return request.build_absolute_uri(path)
+
+
+def _send_auth_email(subject: str, body: str, recipient: str) -> None:
+    send_mail(
+        subject,
+        body,
+        getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@pcwl.local"),
+        [recipient],
+        fail_silently=False,
+    )
+
+
+def _email_verification_path(user) -> str:
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = default_token_generator.make_token(user)
+    return f"/api/auth/verify-email/{uid}/{token}/"
+
+
+def _password_reset_path(user) -> str:
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = default_token_generator.make_token(user)
+    return f"/reset-password.html?uid={uid}&token={token}"
+
+
+def _get_user_from_uid(uidb64: str):
+    UserModel = get_user_model()
+    try:
+        uid = force_str(urlsafe_base64_decode(uidb64))
+        return UserModel.objects.get(pk=uid)
+    except (TypeError, ValueError, OverflowError, UserModel.DoesNotExist, DjangoValidationError):
+        return None
 
 
 def _party_prestige_sum_expression():
@@ -1095,6 +1159,41 @@ class PlayerViewSet(viewsets.ModelViewSet):
             return Player.objects.none()
         return Player.objects.filter(pk=player.pk)
 
+    def create(self, request, *args, **kwargs):
+        if _is_rate_limited("signup", request, request.data.get("email", "")):
+            return Response(
+                {"detail": "Too many signup attempts. Try again later."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        player = serializer.instance
+        user = getattr(player, "user", None)
+        verification_path = None
+        if user and user.email:
+            verification_path = _email_verification_path(user)
+            verification_url = _build_action_url(request, verification_path)
+            try:
+                _send_auth_email(
+                    "Verify your PCWL email",
+                    (
+                        "Welcome to PCWL.\n\n"
+                        "Verify your email address to activate your account:\n"
+                        f"{verification_url}\n\n"
+                        "If you did not create this account, ignore this email."
+                    ),
+                    user.email,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to send verification email", extra={"user_id": user.id})
+        headers = self.get_success_headers(serializer.data)
+        response_data = dict(serializer.data)
+        response_data["detail"] = "Account created. Check your email to verify your account before signing in."
+        if settings.DEBUG and verification_path:
+            response_data["verification_url"] = verification_path
+        return Response(response_data, status=status.HTTP_201_CREATED, headers=headers)
+
 
 def ensure_mutual_friend_links(primary: Player, secondary: Player) -> FriendLink:
     """Ensure reciprocal FriendLink entries exist."""
@@ -1147,14 +1246,19 @@ class SessionLoginView(APIView):
     authentication_classes = []  # Avoid DRF SessionAuthentication CSRF checks on login
 
     def post(self, request):
-        username = str(request.data.get("username", "")).strip()
+        email = _normalise_email(request.data.get("email") or request.data.get("username"))
         password = request.data.get("password") or ""
-        if not username or not password:
-            return Response({"detail": "Username and password are required."}, status=status.HTTP_400_BAD_REQUEST)
+        if not email or not password:
+            return Response({"detail": "Email and password are required."}, status=status.HTTP_400_BAD_REQUEST)
+        if _is_rate_limited("login", request, email):
+            return Response({"detail": "Too many login attempts. Try again later."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
-        user = authenticate(request, username=username, password=password)
-        if user is None:
-            return Response({"detail": "Invalid username or password."}, status=status.HTTP_401_UNAUTHORIZED)
+        UserModel = get_user_model()
+        user = UserModel.objects.filter(email__iexact=email).first()
+        if user is None or not user.check_password(password):
+            return Response({"detail": "Invalid email or password."}, status=status.HTTP_401_UNAUTHORIZED)
+        if not user.is_active:
+            return Response({"detail": "Verify your email before signing in."}, status=status.HTTP_403_FORBIDDEN)
 
         login(request, user)
         try:
@@ -1194,6 +1298,80 @@ class SessionLoginView(APIView):
                 )
         serializer = PlayerSerializer(player, context={"request": request})
         return Response({"player": serializer.data}, status=status.HTTP_200_OK)
+
+
+class EmailVerificationView(APIView):
+    """Activate an account after the user clicks the emailed verification link."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request, uidb64: str, token: str):
+        user = _get_user_from_uid(uidb64)
+        if user is None or not default_token_generator.check_token(user, token):
+            return Response({"detail": "Invalid or expired verification link."}, status=status.HTTP_400_BAD_REQUEST)
+        if not user.is_active:
+            user.is_active = True
+            user.save(update_fields=["is_active"])
+        return Response({"detail": "Email verified. You can now sign in."}, status=status.HTTP_200_OK)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class PasswordResetRequestView(APIView):
+    """Send a password reset email when the address belongs to an account."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        email = _normalise_email(request.data.get("email"))
+        if not email:
+            return Response({"detail": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if _is_rate_limited("password-reset", request, email):
+            return Response({"detail": "Too many password reset attempts. Try again later."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        UserModel = get_user_model()
+        user = UserModel.objects.filter(email__iexact=email).first()
+        if user:
+            reset_url = _build_action_url(request, _password_reset_path(user))
+            try:
+                _send_auth_email(
+                    "Reset your PCWL password",
+                    (
+                        "Use this link to reset your PCWL password:\n"
+                        f"{reset_url}\n\n"
+                        "If you did not request a password reset, ignore this email."
+                    ),
+                    user.email,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to send password reset email", extra={"user_id": user.id})
+        return Response(
+            {"detail": "If that email exists, password reset instructions have been sent."},
+            status=status.HTTP_200_OK,
+        )
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class PasswordResetConfirmView(APIView):
+    """Set a new password using a valid emailed reset token."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request, uidb64: str, token: str):
+        user = _get_user_from_uid(uidb64)
+        if user is None or not default_token_generator.check_token(user, token):
+            return Response({"detail": "Invalid or expired password reset link."}, status=status.HTTP_400_BAD_REQUEST)
+        password = request.data.get("password") or ""
+        try:
+            validate_password(password, user=user)
+        except DjangoValidationError as exc:
+            return Response({"password": list(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+        user.set_password(password)
+        if not user.is_active:
+            user.is_active = True
+        user.save(update_fields=["password", "is_active"])
+        return Response({"detail": "Password reset. You can now sign in."}, status=status.HTTP_200_OK)
 
 
 @method_decorator(csrf_exempt, name="dispatch")

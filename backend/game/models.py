@@ -189,7 +189,7 @@ class Player(models.Model):
         # Fallback: let DB enforce uniqueness; still return last candidate.
         return candidate
 
-    def ensure_auth_user(self, password=None):
+    def ensure_auth_user(self, password=None, email=None, is_active=None):
         """
         Make sure this player is backed by a Django auth user.
         Optionally sets/updates the password if provided.
@@ -203,14 +203,26 @@ class Player(models.Model):
             except UserModel.DoesNotExist:
                 user = UserModel.objects.create_user(
                     username=self.username,
+                    email=email or "",
                     password=password or UserModel.objects.make_random_password(),
                 )
             self.user = user
             self.save(update_fields=["user"])
 
+        user_update_fields = []
+        if email is not None:
+            cleaned_email = str(email).strip().lower()
+            if user.email != cleaned_email:
+                user.email = cleaned_email
+                user_update_fields.append("email")
+        if is_active is not None and user.is_active != is_active:
+            user.is_active = is_active
+            user_update_fields.append("is_active")
         if password:
             user.set_password(password)
-            user.save(update_fields=["password"])
+            user_update_fields.append("password")
+        if user_update_fields:
+            user.save(update_fields=sorted(set(user_update_fields)))
         return user
 
     def assign_home_district(self, district: Optional["District"], save: bool = True):

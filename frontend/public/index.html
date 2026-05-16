@@ -54,21 +54,25 @@
       <div id="app-version-badge" class="app-version-badge" aria-hidden="true"></div>
       <img src="/data/Prague_Civil_War_Live.png" alt="Prague Explorer logo" class="welcome-logo" />
       <form id="login-form" class="login-form" autocomplete="off">
-        <label for="username-input">Username</label>
+        <label for="username-input">Email</label>
         <div class="login-row">
-          <input type="text" id="username-input" name="username" placeholder="e.g. PragueWalker" maxlength="32" required />
+          <input type="email" id="username-input" name="email" placeholder="you@example.com" autocomplete="email" required />
         </div>
         <label for="password-input">Password</label>
         <div class="login-row">
-          <input type="password" id="password-input" name="password" placeholder="At least 4 characters" minlength="4" required />
+          <input type="password" id="password-input" name="password" placeholder="At least 8 characters" minlength="8" autocomplete="current-password" required />
           <button type="submit" id="login-button" class="primary">Enter Prague</button>
         </div>
         <div class="remember-row">
           <label class="control checkbox remember-control">
             <input type="checkbox" id="remember-password-input" name="remember" />
-            <span>Remember on this device</span>
+            <span>Remember email on this device</span>
           </label>
         </div>
+        <p class="account-hint">
+          Forgot your password?
+          <button type="button" id="password-reset-button" class="link-button">Send reset email</button>
+        </p>
         <p class="account-hint">
           Don't have an account?
           <a class="account-link" href="/create-account.html">Create one here</a>

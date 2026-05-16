@@ -491,6 +491,20 @@ body.drawer-open #drawer-toggle .drawer-toggle-arrow {
   text-decoration: underline;
 }
 
+.link-button {
+  border: 0;
+  background: transparent;
+  color: var(--color-button-primary);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  padding: 0;
+}
+
+.link-button:hover {
+  text-decoration: underline;
+}
+
 .account-panel {
   max-width: 520px;
 }

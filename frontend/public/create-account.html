@@ -43,16 +43,20 @@
 
       <form id="create-account-form" class="account-form" autocomplete="off" novalidate>
         <div class="form-row">
+          <label for="new-email">Email</label>
+          <input type="email" id="new-email" name="email" autocomplete="email" required />
+        </div>
+        <div class="form-row">
           <label for="new-username">Username</label>
           <input type="text" id="new-username" name="username" maxlength="32" required />
         </div>
         <div class="form-row">
           <label for="new-password">Password</label>
-          <input type="password" id="new-password" name="password" minlength="4" required />
+          <input type="password" id="new-password" name="password" minlength="8" autocomplete="new-password" required />
         </div>
         <div class="form-row">
           <label for="confirm-password">Confirm password</label>
-          <input type="password" id="confirm-password" name="confirmPassword" minlength="4" required />
+          <input type="password" id="confirm-password" name="confirmPassword" minlength="8" autocomplete="new-password" required />
         </div>
         <div class="form-row">
           <label for="home-district-select">Home district (optional)</label>
@@ -68,7 +72,7 @@
           </p>
         </div>
         <div id="account-message" class="form-message info" role="status" aria-live="polite">
-          Choose a username and password to get started.
+          Choose an email, username, and password to get started.
         </div>
       </form>
     </section>

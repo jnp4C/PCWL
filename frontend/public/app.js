@@ -17,6 +17,7 @@ const loginForm = document.getElementById('login-form');
 const usernameInput = document.getElementById('username-input');
 const rememberPasswordInput = document.getElementById('remember-password-input');
 const passwordInput = document.getElementById('password-input');
+const passwordResetButton = document.getElementById('password-reset-button');
 const knownPlayersSection = document.getElementById('known-players');
 const knownPlayersList = document.getElementById('known-players-list');
 const checkInButton = document.getElementById('check-in-button');
@@ -2311,15 +2312,12 @@ function ensurePlayerProfile(username) {
   profile.streakDayAttackDone = Boolean(profile.streak_day_attack_done || profile.streakDayAttackDone);
   profile.streakDayDefendDone = Boolean(profile.streak_day_defend_done || profile.streakDayDefendDone);
   const rememberOnDevice = Boolean(profile.auth && profile.auth.rememberOnDevice);
+  const rememberedEmail =
+    profile.auth && typeof profile.auth.email === 'string' && isValidEmail(profile.auth.email)
+      ? profile.auth.email.trim().toLowerCase()
+      : null;
   if (profile.auth && typeof profile.auth === 'object') {
-    const passwordHash = typeof profile.auth.passwordHash === 'string' ? profile.auth.passwordHash : null;
-    const salt = typeof profile.auth.salt === 'string' ? profile.auth.salt : null;
-    if (passwordHash && salt) {
-      const createdAt = normaliseNumber(profile.auth.createdAt, Date.now());
-      profile.auth = { passwordHash, salt, createdAt, rememberOnDevice };
-    } else {
-      profile.auth = { rememberOnDevice };
-    }
+    profile.auth = rememberedEmail ? { rememberOnDevice, email: rememberedEmail } : { rememberOnDevice };
   } else {
     profile.auth = { rememberOnDevice };
   }
@@ -4779,12 +4777,12 @@ const COOLDOWN_DURATIONS = {
   charge: 2 * 60 * 1000,
 };
 const CHARGE_ATTACK_MULTIPLIER = 3;
-const MIN_PASSWORD_LENGTH = 4;
+const MIN_PASSWORD_LENGTH = 8;
 const DEV_USERNAME = 'dev';
-const DEV_DEFAULT_PASSWORD = 'deve';
 const LAST_SIGNED_IN_USER_KEY = 'pcwlLastUser';
 const LEGACY_LAST_SIGNED_IN_USER_KEYS = ['pragueExplorerLastUser'];
 const USERNAME_PATTERN = /^[A-Za-z0-9_]{3,32}$/;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 let isSessionAuthenticated = false;
 let activePlayerBackendId = null;
@@ -4900,71 +4898,11 @@ function isValidUsername(value) {
   return USERNAME_PATTERN.test(value.trim());
 }
 
-function getCrypto() {
-  if (typeof window !== 'undefined' && window.crypto) {
-    return window.crypto;
+function isValidEmail(value) {
+  if (typeof value !== 'string') {
+    return false;
   }
-  if (typeof self !== 'undefined' && self.crypto) {
-    return self.crypto;
-  }
-  if (typeof crypto !== 'undefined') {
-    return crypto;
-  }
-  return null;
-}
-
-function arrayBufferToBase64(buffer) {
-  if (!buffer) {
-    return '';
-  }
-  let bytes;
-  if (buffer instanceof ArrayBuffer) {
-    bytes = new Uint8Array(buffer);
-  } else if (ArrayBuffer.isView(buffer)) {
-    bytes = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-  } else {
-    return '';
-  }
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i += 1) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  if (typeof window !== 'undefined' && typeof window.btoa === 'function') {
-    return window.btoa(binary);
-  }
-  return binary;
-}
-
-function generateSalt() {
-  const cryptoObj = getCrypto();
-  if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
-    const bytes = new Uint8Array(16);
-    cryptoObj.getRandomValues(bytes);
-    return arrayBufferToBase64(bytes);
-  }
-  const entropy = `${Date.now()}-${Math.random()}-${Math.random()}`;
-  if (typeof TextEncoder !== 'undefined') {
-    return arrayBufferToBase64(new TextEncoder().encode(entropy));
-  }
-  const fallbackBytes = new Uint8Array(entropy.split('').map((char) => char.charCodeAt(0)));
-  return arrayBufferToBase64(fallbackBytes);
-}
-
-async function hashPassword(password, salt) {
-  const cryptoObj = getCrypto();
-  const material = `${salt}:${password}`;
-  if (cryptoObj && cryptoObj.subtle && typeof cryptoObj.subtle.digest === 'function' && typeof TextEncoder !== 'undefined') {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(material);
-    const digest = await cryptoObj.subtle.digest('SHA-256', data);
-    return arrayBufferToBase64(digest);
-  }
-  if (typeof TextEncoder !== 'undefined') {
-    const encoder = new TextEncoder();
-    return arrayBufferToBase64(encoder.encode(material));
-  }
-  const fallbackBytes = material.split('').map((char) => char.charCodeAt(0));
-  return arrayBufferToBase64(new Uint8Array(fallbackBytes));
+  return EMAIL_PATTERN.test(value.trim().toLowerCase());
 }
 
 function isDevUser(username) {
@@ -7491,13 +7429,7 @@ function getLastSignedInUser() {
 }
 
 function getRememberedUsernames() {
-  return Object.keys(players).filter((name) => {
-    if (!isValidUsername(name)) {
-      return false;
-    }
-    const profile = players[name];
-    return Boolean(profile && profile.auth && profile.auth.rememberOnDevice);
-  });
+  return [];
 }
 
 function prefillLastSignedInUser() {
@@ -7508,52 +7440,25 @@ function prefillLastSignedInUser() {
   if (!lastUser || usernameInput.value) {
     return;
   }
-  if (!isValidUsername(lastUser)) {
+  if (!isValidEmail(lastUser)) {
     setLastSignedInUser(null);
     return;
   }
   usernameInput.value = lastUser;
-  if (rememberPasswordInput && players[lastUser]) {
-    const profile = ensurePlayerProfile(lastUser);
-    rememberPasswordInput.checked = Boolean(profile && profile.auth && profile.auth.rememberOnDevice);
+  if (rememberPasswordInput) {
+    rememberPasswordInput.checked = true;
   }
 }
 
 function autoLoginRememberedUser() {
-  if (currentUser) {
-    return;
-  }
-  const remembered = getRememberedUsernames();
-  if (!remembered.length) {
-    prefillLastSignedInUser();
-    return;
-  }
-  const preferredRaw = getLastSignedInUser();
-  const preferred = preferredRaw && isValidUsername(preferredRaw) ? preferredRaw : null;
-  const username = preferred && remembered.includes(preferred) ? preferred : remembered[0];
-  const profile = ensurePlayerProfile(username);
-  completeAuthenticatedLogin(username, profile, {
-    message: `Signed in automatically as ${username}.`,
-    triggerGeolocation: false,
-  });
+  prefillLastSignedInUser();
 }
 
 async function ensureDevAccount() {
   const profile = ensurePlayerProfile(DEV_USERNAME);
-  try {
-    const salt = generateSalt();
-    const passwordHash = await hashPassword(DEV_DEFAULT_PASSWORD, salt);
-    profile.auth = {
-      passwordHash,
-      salt,
-      createdAt: Date.now(),
-      rememberOnDevice: false,
-    };
-    profile.skipCooldown = true;
-    savePlayers();
-  } catch (error) {
-    console.warn('Failed to initialise dev account credentials', error);
-  }
+  profile.auth = { rememberOnDevice: false };
+  profile.skipCooldown = true;
+  savePlayers();
 }
 
 async function restoreSessionFromServer() {
@@ -18380,16 +18285,16 @@ async function handleLogin(event) {
     return;
   }
 
-  const username = usernameInput.value.trim();
+  const email = usernameInput.value.trim().toLowerCase();
   const password = passwordInput.value;
   const rememberRequested = rememberPasswordInput ? rememberPasswordInput.checked : false;
 
-  if (!username || !password) {
-    updateStatus('Enter both username and password to continue.');
+  if (!email || !password) {
+    updateStatus('Enter both email and password to continue.');
     return;
   }
-  if (!isValidUsername(username)) {
-    updateStatus('Invalid username. Use 3-32 letters, numbers, or underscores. Need an account? Click “Create one here”.');
+  if (!isValidEmail(email)) {
+    updateStatus('Enter a valid email address. Need an account? Click “Create one here”.');
     usernameInput.focus();
     return;
   }
@@ -18419,17 +18324,18 @@ async function handleLogin(event) {
   try {
     const result = await apiRequest('session/login/', {
       method: 'POST',
-      body: { username, password },
+      body: { email, password },
     });
     const apiPlayer = result && typeof result === 'object' ? result.player : null;
     if (!apiPlayer) {
       throw new Error('Login succeeded but player data was unavailable.');
     }
 
+    const username = apiPlayer.username;
     players[username] = {};
     const profile = ensurePlayerProfile(username);
     applyServerPlayerData(profile, apiPlayer);
-    profile.auth = { rememberOnDevice: rememberRequested };
+    profile.auth = { rememberOnDevice: rememberRequested, email };
 
     isSessionAuthenticated = true;
     activePlayerBackendId = profile.backendId || null;
@@ -18447,7 +18353,9 @@ async function handleLogin(event) {
     let message = 'Unable to sign in. Please try again.';
     if (error && typeof error === 'object') {
       if (error.status === 401) {
-        message = 'Incorrect username or password.';
+        message = 'Incorrect email or password.';
+      } else if (error.status === 403) {
+        message = 'Verify your email before signing in.';
       } else if (error.status === 503) {
         // Backend reports DB schema is outdated (e.g., missing migrations). Surface clear guidance.
         const serverDetail = error.data && typeof error.data.detail === 'string' ? error.data.detail : null;
@@ -18475,6 +18383,38 @@ async function handleLogin(event) {
     return;
   } finally {
     resetSubmittingState();
+  }
+}
+
+async function handlePasswordResetRequest() {
+  if (!usernameInput) {
+    return;
+  }
+  const email = usernameInput.value.trim().toLowerCase();
+  if (!isValidEmail(email)) {
+    updateStatus('Enter your account email first, then request a password reset.');
+    usernameInput.focus();
+    return;
+  }
+  if (passwordResetButton) {
+    passwordResetButton.disabled = true;
+  }
+  try {
+    await apiRequest('auth/password-reset/', {
+      method: 'POST',
+      body: { email },
+    });
+    updateStatus('If that email exists, password reset instructions have been sent.');
+  } catch (error) {
+    if (error && error.status === 429) {
+      updateStatus('Too many password reset attempts. Try again later.');
+    } else {
+      updateStatus('Unable to request a password reset. Try again later.');
+    }
+  } finally {
+    if (passwordResetButton) {
+      passwordResetButton.disabled = false;
+    }
   }
 }
 
@@ -18536,8 +18476,14 @@ function completeAuthenticatedLogin(username, profile, options = {}) {
   }
 
   if (rememberState) {
-    setLastSignedInUser(username);
-  } else if (getLastSignedInUser() === username) {
+    const rememberedEmail =
+      profile.auth && typeof profile.auth.email === 'string' && isValidEmail(profile.auth.email)
+        ? profile.auth.email
+        : usernameInput && isValidEmail(usernameInput.value)
+        ? usernameInput.value.trim().toLowerCase()
+        : null;
+    setLastSignedInUser(rememberedEmail);
+  } else if (getLastSignedInUser() === username || (profile.auth && getLastSignedInUser() === profile.auth.email)) {
     setLastSignedInUser(null);
   }
   savePlayers();
@@ -18589,16 +18535,16 @@ function handleExistingPlayer(username) {
     lastPreciseLocationInfo = null;
   }
   if (usernameInput) {
-    usernameInput.value = safeName;
+    usernameInput.value = '';
   }
   if (passwordInput) {
     passwordInput.value = '';
     passwordInput.focus();
   }
   if (rememberPasswordInput) {
-    rememberPasswordInput.checked = Boolean(profile && profile.auth && profile.auth.rememberOnDevice);
+    rememberPasswordInput.checked = false;
   }
-  updateStatus(`Enter password for ${safeName}.`);
+  updateStatus(`Enter the verified email and password for ${safeName}.`);
 }
 
 function switchToWelcome() {
@@ -20498,6 +20444,10 @@ if (districtRankingToggle) {
 
 if (loginForm) {
   loginForm.addEventListener('submit', handleLogin);
+}
+
+if (passwordResetButton) {
+  passwordResetButton.addEventListener('click', handlePasswordResetRequest);
 }
 
 if (usernameInput) {

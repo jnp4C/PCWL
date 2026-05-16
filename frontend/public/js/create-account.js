@@ -2,9 +2,11 @@
 
 (function () {
   const USERNAME_PATTERN = /^[A-Za-z0-9_]{3,32}$/;
-  const MIN_PASSWORD_LENGTH = 4;
+  const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const MIN_PASSWORD_LENGTH = 8;
 
   const form = document.getElementById('create-account-form');
+  const emailInput = document.getElementById('new-email');
   const usernameInput = document.getElementById('new-username');
   const passwordInput = document.getElementById('new-password');
   const confirmPasswordInput = document.getElementById('confirm-password');
@@ -128,7 +130,7 @@
     });
   }
 
-  if (!form || !usernameInput || !passwordInput || !confirmPasswordInput || !messageBox) {
+  if (!form || !emailInput || !usernameInput || !passwordInput || !confirmPasswordInput || !messageBox) {
     return;
   }
 
@@ -192,6 +194,9 @@
       if (Array.isArray(error.data.username) && error.data.username.length) {
         return error.data.username[0];
       }
+      if (Array.isArray(error.data.email) && error.data.email.length) {
+        return error.data.email[0];
+      }
       if (Array.isArray(error.data.password) && error.data.password.length) {
         return error.data.password[0];
       }
@@ -211,6 +216,7 @@
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
 
+    const email = emailInput.value.trim().toLowerCase();
     const username = usernameInput.value.trim();
     const password = passwordInput.value;
     const confirmPassword = confirmPasswordInput.value;
@@ -250,7 +256,7 @@
         homeName = selectedOption && selectedOption.dataset.name ? selectedOption.dataset.name : '';
       }
 
-      const payload = { username, password };
+      const payload = { email, username, password };
       if (homeCode) {
         payload.home_district_code = homeCode;
       }
@@ -259,7 +265,8 @@
       }
 
       await createAccount(payload);
-      setMessage('Account created! Redirecting to login…', 'success');
+      setMessage('Account created. Check your email to verify it before signing in.', 'success');
+      emailInput.value = '';
       usernameInput.value = '';
       passwordInput.value = '';
       confirmPasswordInput.value = '';
@@ -283,3 +290,8 @@
     }
   });
 })();
+    if (!EMAIL_PATTERN.test(email)) {
+      setMessage('Enter a valid email address.', 'error');
+      emailInput.focus();
+      return;
+    }

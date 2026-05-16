@@ -1,8 +1,11 @@
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import timedelta
 
-from django.test import TestCase
+from django.contrib.auth.tokens import default_token_generator
+from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
 from django.utils import timezone
 
 from .models import (
@@ -61,14 +64,20 @@ class FrontendConfigTests(TestCase):
 
 class PlayerApiTests(TestCase):
     def _login_player(self, player: Player):
-        user = player.ensure_auth_user(password="testpass123")
+        user = player.ensure_auth_user(password="pcwl-test-pass-123")
         self.client.force_login(user)
 
     def test_create_player(self):
-        payload = {"username": "test-user"}
+        payload = {
+            "email": "test-user@example.com",
+            "username": "test-user",
+            "password": "pcwl-test-pass-123",
+        }
         response = self.client.post(reverse("player-list"), payload, content_type="application/json")
         self.assertEqual(response.status_code, 201)
         player = Player.objects.get(username="test-user")
+        self.assertEqual(player.user.email, "test-user@example.com")
+        self.assertFalse(player.user.is_active)
         self.assertEqual(player.username, "test-user")
         self.assertEqual(player.score, 0)
         self.assertEqual(player.checkins, 0)
@@ -81,8 +90,9 @@ class PlayerApiTests(TestCase):
 
     def test_create_player_with_home_district_sets_reference(self):
         payload = {
+            "email": "home-user@example.com",
             "username": "home-user",
-            "password": "testpass123",
+            "password": "pcwl-test-pass-123",
             "home_district_code": "1100",
             "home_district_name": "Prague 1",
         }
@@ -106,6 +116,7 @@ class PlayerApiTests(TestCase):
                 "districtId": "1100",
                 "districtName": "Prague 1",
                 "timestamp": 1700000000000,
+                "unexpected": "discarded",
             }
         }
         url = reverse("player-detail", args=[player.id])
@@ -114,6 +125,23 @@ class PlayerApiTests(TestCase):
         player.refresh_from_db()
         self.assertIsNotNone(player.last_known_location)
         self.assertEqual(player.last_known_location["districtId"], "1100")
+        self.assertNotIn("unexpected", player.last_known_location)
+
+    def test_update_last_known_location_rejects_invalid_coordinates(self):
+        player = Player.objects.create(username="bad-loc-user")
+        self._login_player(player)
+        payload = {
+            "last_known_location": {
+                "lng": 999,
+                "lat": 50.08804,
+            }
+        }
+        response = self.client.patch(
+            reverse("player-detail", args=[player.id]),
+            payload,
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
 
     def test_score_related_fields_are_read_only(self):
         player = Player.objects.create(username="stat-user")
@@ -260,13 +288,18 @@ class DistrictCatalogTests(TestCase):
         self.assertNotIn("1200", codes)
 
 
+@override_settings(PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"])
 class SessionAuthTests(TestCase):
     def setUp(self):
         self.player = Player.objects.create(username="session-user")
-        self.player.ensure_auth_user(password="hunter2")
+        self.user = self.player.ensure_auth_user(
+            password="pcwl-hunter2-secure",
+            email="session-user@example.com",
+            is_active=True,
+        )
 
     def test_login_establishes_session(self):
-        payload = {"username": "session-user", "password": "hunter2"}
+        payload = {"email": "session-user@example.com", "password": "pcwl-hunter2-secure"}
         response = self.client.post(reverse("session-login"), payload, content_type="application/json")
         self.assertEqual(response.status_code, 200)
         body = response.json()
@@ -282,7 +315,7 @@ class SessionAuthTests(TestCase):
     def test_logout_clears_session(self):
         self.client.post(
             reverse("session-login"),
-            {"username": "session-user", "password": "hunter2"},
+            {"email": "session-user@example.com", "password": "pcwl-hunter2-secure"},
             content_type="application/json",
         )
         logout_response = self.client.post(reverse("session-logout"))
@@ -294,16 +327,45 @@ class SessionAuthTests(TestCase):
     def test_invalid_credentials(self):
         response = self.client.post(
             reverse("session-login"),
-            {"username": "session-user", "password": "wrong"},
+            {"email": "session-user@example.com", "password": "wrong"},
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 401)
+
+    def test_unverified_email_cannot_login_until_verified(self):
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+        response = self.client.post(
+            reverse("session-login"),
+            {"email": "session-user@example.com", "password": "pcwl-hunter2-secure"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+        uid = urlsafe_base64_encode(force_bytes(self.user.pk))
+        token = default_token_generator.make_token(self.user)
+        verify_response = self.client.get(reverse("email-verify", args=[uid, token]))
+        self.assertEqual(verify_response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.is_active)
+
+    def test_password_reset_confirm_updates_password(self):
+        uid = urlsafe_base64_encode(force_bytes(self.user.pk))
+        token = default_token_generator.make_token(self.user)
+        response = self.client.post(
+            reverse("password-reset-confirm", args=[uid, token]),
+            {"password": "pcwl-new-secure-pass-123"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("pcwl-new-secure-pass-123"))
 
     def test_token_authentication(self):
         # Obtain a token using username/password
         resp = self.client.post(
             reverse("api-token"),
-            {"username": "session-user", "password": "hunter2"},
+            {"username": "session-user", "password": "pcwl-hunter2-secure"},
             content_type="application/json",
         )
         self.assertEqual(resp.status_code, 200)
@@ -1217,6 +1279,7 @@ class DistrictAnalyticsTests(TestCase):
         self.assertEqual(data["checkins_total"], 2)
         self.assertTrue(any(entry["home_district_code"] == "1100" for entry in data["top_attackers"]))
         self.assertTrue(data["recent_checkins"])
+        self.assertTrue(all(entry["coordinates"] is None for entry in data["recent_checkins"]))
 
     def test_district_strategy_endpoint(self):
         apply_checkin(
