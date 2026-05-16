@@ -113,6 +113,8 @@ class Player(models.Model):
     )
     next_checkin_multiplier = models.PositiveIntegerField(default=1)
     preferred_party_name = models.CharField(max_length=48, blank=True)
+    two_factor_enabled = models.BooleanField(default=False)
+    two_factor_secret = models.CharField(max_length=64, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

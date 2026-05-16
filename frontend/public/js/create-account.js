@@ -226,6 +226,11 @@
       usernameInput.focus();
       return;
     }
+    if (!EMAIL_PATTERN.test(email)) {
+      setMessage('Enter a valid email address.', 'error');
+      emailInput.focus();
+      return;
+    }
 
     if (password.length < MIN_PASSWORD_LENGTH) {
       setMessage(`Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`, 'error');
@@ -236,6 +241,13 @@
     if (password !== confirmPassword) {
       setMessage('Passwords do not match. Try again.', 'error');
       confirmPasswordInput.focus();
+      return;
+    }
+    if (!homeDistrictSelect || !homeDistrictSelect.value) {
+      setMessage('Choose your home district to create the account.', 'error');
+      if (homeDistrictSelect) {
+        homeDistrictSelect.focus();
+      }
       return;
     }
 
@@ -290,8 +302,3 @@
     }
   });
 })();
-    if (!EMAIL_PATTERN.test(email)) {
-      setMessage('Enter a valid email address.', 'error');
-      emailInput.focus();
-      return;
-    }

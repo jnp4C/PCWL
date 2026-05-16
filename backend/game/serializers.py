@@ -178,6 +178,8 @@ class PlayerSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"email": ["Email is required."]})
         if self.instance is None and not attrs.get("password"):
             raise serializers.ValidationError({"password": ["Password is required."]})
+        if self.instance is None and not attrs.get("home_district_code"):
+            raise serializers.ValidationError({"home_district_code": ["Home district is required."]})
         return attrs
 
     def to_representation(self, instance):

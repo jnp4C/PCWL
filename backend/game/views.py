@@ -22,11 +22,18 @@ from django.conf import settings
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.utils.encoding import force_bytes
+from django.http import HttpResponseRedirect
 from pathlib import Path
 import logging
 import os
 import re
 import subprocess
+import base64
+import hashlib
+import hmac
+import struct
+import secrets
+import urllib.parse
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import NotAuthenticated, ValidationError
@@ -111,6 +118,10 @@ PARTY_LEADERBOARD_MIN_MEMBERS = 10
 AUTH_RATE_LIMIT_WINDOW_SECONDS = 15 * 60
 AUTH_RATE_LIMIT_MAX_ATTEMPTS = 8
 LOGIN_UPDATES_LIMIT = 6
+TWO_FACTOR_SESSION_USER_KEY = "pending_2fa_user_id"
+TWO_FACTOR_SESSION_SETUP_SECRET_KEY = "pending_2fa_setup_secret"
+TWO_FACTOR_STEP_SECONDS = 30
+TWO_FACTOR_DIGITS = 6
 
 
 def _classify_district_state(defended, attacked, threshold=DISTRICT_SECURE_THRESHOLD):
@@ -144,6 +155,59 @@ def _is_rate_limited(scope: str, request, identifier: str = "") -> bool:
 
 def _normalise_email(value: Any) -> str:
     return str(value or "").strip().lower()
+
+
+def _generate_totp_secret(length: int = 32) -> str:
+    return base64.b32encode(secrets.token_bytes(length)).decode("ascii").rstrip("=")
+
+
+def _normalize_totp_secret(secret: str) -> str:
+    cleaned = (secret or "").strip().replace(" ", "").upper()
+    if not cleaned:
+        return ""
+    padding = "=" * ((8 - len(cleaned) % 8) % 8)
+    return f"{cleaned}{padding}"
+
+
+def _totp_code(secret: str, timestamp: Optional[int] = None) -> str:
+    normalized = _normalize_totp_secret(secret)
+    if not normalized:
+        return ""
+    key = base64.b32decode(normalized, casefold=True)
+    counter = int((timestamp or int(timezone.now().timestamp())) // TWO_FACTOR_STEP_SECONDS)
+    msg = struct.pack(">Q", counter)
+    digest = hmac.new(key, msg, hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    code_int = struct.unpack(">I", digest[offset : offset + 4])[0] & 0x7FFFFFFF
+    return str(code_int % (10**TWO_FACTOR_DIGITS)).zfill(TWO_FACTOR_DIGITS)
+
+
+def _verify_totp(secret: str, code: str, drift_steps: int = 1) -> bool:
+    normalized_code = re.sub(r"\D", "", str(code or ""))
+    if len(normalized_code) != TWO_FACTOR_DIGITS:
+        return False
+    now = int(timezone.now().timestamp())
+    for step in range(-drift_steps, drift_steps + 1):
+        candidate_time = now + (step * TWO_FACTOR_STEP_SECONDS)
+        if _totp_code(secret, timestamp=candidate_time) == normalized_code:
+            return True
+    return False
+
+
+def _totp_otpauth_uri(user_email: str, secret: str) -> str:
+    issuer = "PCWL"
+    label_email = user_email or "account"
+    label = urllib.parse.quote(f"{issuer}:{label_email}")
+    query = urllib.parse.urlencode(
+        {
+            "secret": secret,
+            "issuer": issuer,
+            "algorithm": "SHA1",
+            "digits": str(TWO_FACTOR_DIGITS),
+            "period": str(TWO_FACTOR_STEP_SECONDS),
+        }
+    )
+    return f"otpauth://totp/{label}?{query}"
 
 
 def _build_action_url(request, path: str) -> str:
@@ -1263,7 +1327,14 @@ class SessionLoginView(APIView):
             return Response({"detail": "Invalid email or password."}, status=status.HTTP_401_UNAUTHORIZED)
         if not user.is_active:
             return Response({"detail": "Verify your email before signing in."}, status=status.HTTP_403_FORBIDDEN)
+        player = getattr(user, "player_profile", None) or Player.objects.filter(user=user).first()
 
+        if getattr(player, "two_factor_enabled", False) and getattr(player, "two_factor_secret", ""):
+            request.session[TWO_FACTOR_SESSION_USER_KEY] = user.id
+            return Response(
+                {"requires_2fa": True, "detail": "Enter your authenticator code to complete sign in."},
+                status=status.HTTP_200_OK,
+            )
         login(request, user)
         try:
             player = getattr(user, "player_profile", None)
@@ -1304,6 +1375,33 @@ class SessionLoginView(APIView):
         return Response({"player": serializer.data}, status=status.HTTP_200_OK)
 
 
+@method_decorator(csrf_exempt, name="dispatch")
+class SessionLoginTwoFactorView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        pending_user_id = request.session.get(TWO_FACTOR_SESSION_USER_KEY)
+        if not pending_user_id:
+            return Response({"detail": "No pending 2FA login request."}, status=status.HTTP_400_BAD_REQUEST)
+        code = request.data.get("code") or ""
+        UserModel = get_user_model()
+        user = UserModel.objects.filter(id=pending_user_id).first()
+        if user is None:
+            request.session.pop(TWO_FACTOR_SESSION_USER_KEY, None)
+            return Response({"detail": "Pending login expired. Sign in again."}, status=status.HTTP_400_BAD_REQUEST)
+        player = getattr(user, "player_profile", None) or Player.objects.filter(user=user).first()
+        if player is None or not player.two_factor_enabled or not player.two_factor_secret:
+            request.session.pop(TWO_FACTOR_SESSION_USER_KEY, None)
+            return Response({"detail": "2FA is not configured for this account."}, status=status.HTTP_400_BAD_REQUEST)
+        if not _verify_totp(player.two_factor_secret, str(code)):
+            return Response({"detail": "Invalid authenticator code."}, status=status.HTTP_400_BAD_REQUEST)
+        login(request, user)
+        request.session.pop(TWO_FACTOR_SESSION_USER_KEY, None)
+        serializer = PlayerSerializer(player, context={"request": request})
+        return Response({"player": serializer.data}, status=status.HTTP_200_OK)
+
+
 class EmailVerificationView(APIView):
     """Activate an account after the user clicks the emailed verification link."""
 
@@ -1311,13 +1409,14 @@ class EmailVerificationView(APIView):
     authentication_classes = []
 
     def get(self, request, uidb64: str, token: str):
+        login_url = getattr(settings, "FRONTEND_HOME_PATH", "/")
         user = _get_user_from_uid(uidb64)
         if user is None or not default_token_generator.check_token(user, token):
-            return Response({"detail": "Invalid or expired verification link."}, status=status.HTTP_400_BAD_REQUEST)
+            return HttpResponseRedirect(f"{login_url}?verified=0")
         if not user.is_active:
             user.is_active = True
             user.save(update_fields=["is_active"])
-        return Response({"detail": "Email verified. You can now sign in."}, status=status.HTTP_200_OK)
+        return HttpResponseRedirect(f"{login_url}?verified=1")
 
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -1473,6 +1572,7 @@ class SessionCurrentView(APIView):
             {
                 "authenticated": True,
                 "player": data,
+                "security": {"two_factor_enabled": bool(getattr(player, "two_factor_enabled", False))},
                 "party": party_payload,
                 "party_invitations": {
                     "incoming": incoming_invites,
@@ -1482,6 +1582,62 @@ class SessionCurrentView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class TwoFactorStatusView(PlayerScopedAPIView):
+    def get(self, request):
+        player = self.get_current_player(request)
+        return Response(
+            {"enabled": bool(player.two_factor_enabled and player.two_factor_secret)},
+            status=status.HTTP_200_OK,
+        )
+
+
+class TwoFactorSetupView(PlayerScopedAPIView):
+    def post(self, request):
+        player = self.get_current_player(request)
+        email = player.user.email if player.user and player.user.email else player.username
+        secret = _generate_totp_secret()
+        request.session[TWO_FACTOR_SESSION_SETUP_SECRET_KEY] = secret
+        return Response(
+            {
+                "secret": secret,
+                "otpauth_uri": _totp_otpauth_uri(email, secret),
+                "digits": TWO_FACTOR_DIGITS,
+                "period_seconds": TWO_FACTOR_STEP_SECONDS,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class TwoFactorEnableView(PlayerScopedAPIView):
+    def post(self, request):
+        player = self.get_current_player(request)
+        secret = request.session.get(TWO_FACTOR_SESSION_SETUP_SECRET_KEY, "")
+        code = str(request.data.get("code") or "")
+        if not secret:
+            return Response({"detail": "No pending 2FA setup. Start setup again."}, status=status.HTTP_400_BAD_REQUEST)
+        if not _verify_totp(secret, code):
+            return Response({"detail": "Invalid authenticator code."}, status=status.HTTP_400_BAD_REQUEST)
+        player.two_factor_secret = secret
+        player.two_factor_enabled = True
+        player.save(update_fields=["two_factor_secret", "two_factor_enabled", "updated_at"])
+        request.session.pop(TWO_FACTOR_SESSION_SETUP_SECRET_KEY, None)
+        return Response({"enabled": True}, status=status.HTTP_200_OK)
+
+
+class TwoFactorDisableView(PlayerScopedAPIView):
+    def post(self, request):
+        player = self.get_current_player(request)
+        code = str(request.data.get("code") or "")
+        if not player.two_factor_enabled or not player.two_factor_secret:
+            return Response({"enabled": False}, status=status.HTTP_200_OK)
+        if not _verify_totp(player.two_factor_secret, code):
+            return Response({"detail": "Invalid authenticator code."}, status=status.HTTP_400_BAD_REQUEST)
+        player.two_factor_enabled = False
+        player.two_factor_secret = ""
+        player.save(update_fields=["two_factor_enabled", "two_factor_secret", "updated_at"])
+        return Response({"enabled": False}, status=status.HTTP_200_OK)
 
 
 class DistrictCatalogView(APIView):

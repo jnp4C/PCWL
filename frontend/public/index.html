@@ -63,6 +63,9 @@
           <input type="password" id="password-input" name="password" placeholder="At least 8 characters" minlength="8" autocomplete="current-password" required />
           <button type="submit" id="login-button" class="primary">Enter Prague</button>
         </div>
+        <div id="twofa-row" class="login-row hidden">
+          <input type="text" id="twofa-code-input" name="twofaCode" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="Authenticator code" autocomplete="one-time-code" />
+        </div>
         <div class="remember-row">
           <label class="control checkbox remember-control">
             <input type="checkbox" id="remember-password-input" name="remember" />
@@ -218,6 +221,14 @@
             <h2 class="drawer-heading">Appearance</h2>
             <button id="drawer-theme-toggle" class="secondary small" type="button">Toggle Theme</button>
             <a id="drawer-leaderboard" class="secondary small button-link" href="/leaderboard.html">Leaderboard</a>
+          </section>
+          <section class="drawer-block">
+            <h2 class="drawer-heading">Security</h2>
+            <p id="twofa-status" class="account-hint">Authenticator: checking…</p>
+            <div class="button-row">
+              <button id="twofa-setup-button" class="secondary small" type="button">Set Up 2FA</button>
+              <button id="twofa-disable-button" class="secondary small" type="button">Disable 2FA</button>
+            </div>
           </section>
           <section class="drawer-block">
             <h2 class="drawer-heading">Audio</h2>

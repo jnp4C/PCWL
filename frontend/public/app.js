@@ -2,6 +2,7 @@
 
 let players = {};
 let currentUser = null;
+let pendingTwoFactorLogin = false;
 
 const findMeButton = document.getElementById('find-me-button');
 const districtsToggle = document.getElementById('districts-toggle');
@@ -17,6 +18,8 @@ const loginForm = document.getElementById('login-form');
 const usernameInput = document.getElementById('username-input');
 const rememberPasswordInput = document.getElementById('remember-password-input');
 const passwordInput = document.getElementById('password-input');
+const twoFactorRow = document.getElementById('twofa-row');
+const twoFactorCodeInput = document.getElementById('twofa-code-input');
 const passwordResetButton = document.getElementById('password-reset-button');
 const latestUpdatesSection = document.getElementById('latest-updates');
 const latestUpdatesList = document.getElementById('latest-updates-list');
@@ -68,6 +71,9 @@ const mobilePartyButton = document.getElementById('mobile-party-button');
 const drawerCheckinButton = document.getElementById('drawer-checkin-button');
 const drawerLogoutButton = document.getElementById('drawer-logout-button');
 const drawerThemeToggleButton = document.getElementById('drawer-theme-toggle');
+const twoFactorStatusLabel = document.getElementById('twofa-status');
+const twoFactorSetupButton = document.getElementById('twofa-setup-button');
+const twoFactorDisableButton = document.getElementById('twofa-disable-button');
 const musicToggle = document.getElementById('music-toggle');
 const musicTrackName = document.getElementById('music-track-name');
 const musicVolumeSlider = document.getElementById('music-volume');
@@ -8765,6 +8771,19 @@ function renderLatestUpdates() {
     latestUpdatesList.appendChild(row);
   });
   latestUpdatesSection.classList.toggle('hidden', loginScreenUpdates.length === 0);
+}
+
+function showVerificationStatusFromUrl() {
+  if (typeof window === 'undefined' || !window.location || !window.location.search) {
+    return;
+  }
+  const params = new URLSearchParams(window.location.search);
+  const verified = params.get('verified');
+  if (verified === '1') {
+    updateStatus('Email verified. You can now sign in.');
+  } else if (verified === '0') {
+    updateStatus('Verification link is invalid or expired. Request a new one.');
+  }
 }
 
 let profileImageHandlersInitialised = false;
@@ -18310,18 +18329,27 @@ async function handleLogin(event) {
 
   const email = usernameInput.value.trim().toLowerCase();
   const password = passwordInput.value;
+  const twoFactorCode = twoFactorCodeInput ? twoFactorCodeInput.value.trim() : '';
   const rememberRequested = rememberPasswordInput ? rememberPasswordInput.checked : false;
 
-  if (!email || !password) {
+  if (pendingTwoFactorLogin) {
+    if (!twoFactorCode || twoFactorCode.length < 6) {
+      updateStatus('Enter your 6-digit authenticator code.');
+      if (twoFactorCodeInput) {
+        twoFactorCodeInput.focus();
+      }
+      return;
+    }
+  } else if (!email || !password) {
     updateStatus('Enter both email and password to continue.');
     return;
   }
-  if (!isValidEmail(email)) {
+  if (!pendingTwoFactorLogin && !isValidEmail(email)) {
     updateStatus('Enter a valid email address. Need an account? Click “Create one here”.');
     usernameInput.focus();
     return;
   }
-  if (password.length < MIN_PASSWORD_LENGTH) {
+  if (!pendingTwoFactorLogin && password.length < MIN_PASSWORD_LENGTH) {
     updateStatus(`Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`);
     return;
   }
@@ -18342,13 +18370,30 @@ async function handleLogin(event) {
   if (submitButton) {
     submitButton.disabled = true;
   }
-  updateStatus('Signing you in…');
+  updateStatus(pendingTwoFactorLogin ? 'Verifying authenticator code…' : 'Signing you in…');
 
   try {
-    const result = await apiRequest('session/login/', {
-      method: 'POST',
-      body: { email, password },
-    });
+    const result = pendingTwoFactorLogin
+      ? await apiRequest('session/login/2fa/', {
+          method: 'POST',
+          body: { code: twoFactorCode },
+        })
+      : await apiRequest('session/login/', {
+          method: 'POST',
+          body: { email, password },
+        });
+    if (result && typeof result === 'object' && result.requires_2fa) {
+      pendingTwoFactorLogin = true;
+      if (twoFactorRow) {
+        twoFactorRow.classList.remove('hidden');
+      }
+      if (twoFactorCodeInput) {
+        twoFactorCodeInput.value = '';
+        twoFactorCodeInput.focus();
+      }
+      updateStatus('Enter your authenticator app code to complete sign in.');
+      return;
+    }
     const apiPlayer = result && typeof result === 'object' ? result.player : null;
     if (!apiPlayer) {
       throw new Error('Login succeeded but player data was unavailable.');
@@ -18362,9 +18407,16 @@ async function handleLogin(event) {
 
     isSessionAuthenticated = true;
     activePlayerBackendId = profile.backendId || null;
+    pendingTwoFactorLogin = false;
 
     usernameInput.value = '';
     passwordInput.value = '';
+    if (twoFactorCodeInput) {
+      twoFactorCodeInput.value = '';
+    }
+    if (twoFactorRow) {
+      twoFactorRow.classList.add('hidden');
+    }
 
     const welcomeName = apiPlayer.display_name || username;
     completeAuthenticatedLogin(username, profile, {
@@ -18379,6 +18431,11 @@ async function handleLogin(event) {
         message = 'Incorrect email or password.';
       } else if (error.status === 403) {
         message = 'Verify your email before signing in.';
+      } else if (error.status === 400 && pendingTwoFactorLogin) {
+        message =
+          error.data && typeof error.data.detail === 'string'
+            ? error.data.detail
+            : 'Invalid authenticator code.';
       } else if (error.status === 503) {
         // Backend reports DB schema is outdated (e.g., missing migrations). Surface clear guidance.
         const serverDetail = error.data && typeof error.data.detail === 'string' ? error.data.detail : null;
@@ -18400,8 +18457,15 @@ async function handleLogin(event) {
       }
     }
     console.warn('Login failed', error);
-    passwordInput.value = '';
-    passwordInput.focus();
+    if (pendingTwoFactorLogin) {
+      if (twoFactorCodeInput) {
+        twoFactorCodeInput.value = '';
+        twoFactorCodeInput.focus();
+      }
+    } else {
+      passwordInput.value = '';
+      passwordInput.focus();
+    }
     updateStatus(message);
     return;
   } finally {
@@ -18438,6 +18502,78 @@ async function handlePasswordResetRequest() {
     if (passwordResetButton) {
       passwordResetButton.disabled = false;
     }
+  }
+}
+
+async function refreshTwoFactorStatus() {
+  if (!twoFactorStatusLabel) {
+    return;
+  }
+  if (!isSessionAuthenticated || !currentUser) {
+    twoFactorStatusLabel.textContent = 'Authenticator: sign in first';
+    if (twoFactorDisableButton) {
+      twoFactorDisableButton.disabled = true;
+    }
+    return;
+  }
+  try {
+    const result = await apiRequest('auth/2fa/status/');
+    const enabled = Boolean(result && result.enabled);
+    twoFactorStatusLabel.textContent = enabled ? 'Authenticator: enabled' : 'Authenticator: not enabled';
+    if (twoFactorDisableButton) {
+      twoFactorDisableButton.disabled = !enabled;
+    }
+  } catch (_) {
+    twoFactorStatusLabel.textContent = 'Authenticator: unavailable';
+  }
+}
+
+async function handleTwoFactorSetup() {
+  if (!isSessionAuthenticated || !currentUser) {
+    updateStatus('Sign in first to configure authenticator.');
+    return;
+  }
+  try {
+    const setup = await apiRequest('auth/2fa/setup/', { method: 'POST' });
+    const code = window.prompt(
+      `Add this key in your authenticator app:\n${setup.secret}\n\nThen enter the 6-digit code to enable 2FA:`,
+      '',
+    );
+    if (!code) {
+      updateStatus('2FA setup cancelled.');
+      return;
+    }
+    await apiRequest('auth/2fa/enable/', { method: 'POST', body: { code } });
+    updateStatus('Authenticator 2FA enabled.');
+    refreshTwoFactorStatus();
+  } catch (error) {
+    const detail =
+      error && error.data && typeof error.data.detail === 'string'
+        ? error.data.detail
+        : 'Unable to enable 2FA.';
+    updateStatus(detail);
+  }
+}
+
+async function handleTwoFactorDisable() {
+  if (!isSessionAuthenticated || !currentUser) {
+    updateStatus('Sign in first to configure authenticator.');
+    return;
+  }
+  const code = window.prompt('Enter your current authenticator code to disable 2FA:', '');
+  if (!code) {
+    return;
+  }
+  try {
+    await apiRequest('auth/2fa/disable/', { method: 'POST', body: { code } });
+    updateStatus('Authenticator 2FA disabled.');
+    refreshTwoFactorStatus();
+  } catch (error) {
+    const detail =
+      error && error.data && typeof error.data.detail === 'string'
+        ? error.data.detail
+        : 'Unable to disable 2FA.';
+    updateStatus(detail);
   }
 }
 
@@ -18512,6 +18648,7 @@ function completeAuthenticatedLogin(username, profile, options = {}) {
   savePlayers();
   renderLatestUpdates();
   renderPlayerState();
+  refreshTwoFactorStatus();
   if (isMobileViewport()) {
     setMobileDrawerState(false);
   }
@@ -18554,6 +18691,13 @@ function switchToWelcome() {
   if (rememberPasswordInput) {
     rememberPasswordInput.checked = false;
   }
+  pendingTwoFactorLogin = false;
+  if (twoFactorRow) {
+    twoFactorRow.classList.add('hidden');
+  }
+  if (twoFactorCodeInput) {
+    twoFactorCodeInput.value = '';
+  }
   if (devChangeUserButton) {
     devChangeUserButton.hidden = true;
     devChangeUserButton.disabled = true;
@@ -18571,7 +18715,9 @@ function switchToWelcome() {
     setMobileDrawerState(false);
   }
   updateStatus('Sign in to begin your exploration.');
+  showVerificationStatusFromUrl();
   renderLatestUpdates();
+  refreshTwoFactorStatus();
   prefillLastSignedInUser();
 }
 
@@ -20432,6 +20578,14 @@ if (loginForm) {
 
 if (passwordResetButton) {
   passwordResetButton.addEventListener('click', handlePasswordResetRequest);
+}
+
+if (twoFactorSetupButton) {
+  twoFactorSetupButton.addEventListener('click', handleTwoFactorSetup);
+}
+
+if (twoFactorDisableButton) {
+  twoFactorDisableButton.addEventListener('click', handleTwoFactorDisable);
 }
 
 if (usernameInput) {
