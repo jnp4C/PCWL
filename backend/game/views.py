@@ -24,6 +24,7 @@ from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.utils.encoding import force_bytes
 from pathlib import Path
 import logging
+import os
 import re
 import subprocess
 from rest_framework import status, viewsets
@@ -3668,6 +3669,24 @@ def _build_login_updates_payload(limit: int = LOGIN_UPDATES_LIMIT) -> List[Dict[
             entries.append({"date": date_clean, "summary": summary_clean})
     if entries:
         return entries
+    env_sha = (os.environ.get("RAILWAY_GIT_COMMIT_SHA") or "").strip()
+    env_summary = (
+        (os.environ.get("RAILWAY_GIT_COMMIT_MESSAGE") or "").strip()
+        or (os.environ.get("VERCEL_GIT_COMMIT_MESSAGE") or "").strip()
+        or (os.environ.get("RENDER_GIT_COMMIT") or "").strip()
+    )
+    if not env_summary and env_sha:
+        env_summary = f"Deploy {env_sha[:8]}"
+    env_date = (
+        (os.environ.get("RAILWAY_GIT_COMMIT_TIMESTAMP") or "").strip()
+        or (os.environ.get("VERCEL_GIT_COMMIT_DATE") or "").strip()
+    )
+    if env_summary:
+        if env_date:
+            env_date = env_date.split("T", 1)[0].strip()
+        if not env_date:
+            env_date = timezone.now().date().isoformat()
+        return [{"date": env_date, "summary": env_summary}]
     return fallback if isinstance(fallback, list) else []
 
 
